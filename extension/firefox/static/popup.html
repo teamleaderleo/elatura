@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Elatura Observer</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <strong>Elatura</strong>
+        <span class="mode">observe</span>
+      </header>
+      <p>Responses are passed through byte-for-byte. Only redacted local measurements are retained.</p>
+      <dl>
+        <div><dt>Requests</dt><dd id="requests">—</dd></div>
+        <div><dt>Bytes observed</dt><dd id="bytes">—</dd></div>
+        <div><dt>Latest composer mark</dt><dd id="composer">—</dd></div>
+      </dl>
+      <button id="clear" type="button">Clear local measurements</button>
+      <output id="status" aria-live="polite"></output>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

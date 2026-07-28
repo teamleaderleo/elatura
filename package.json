@@ -1,0 +1,30 @@
+{
+  "name": "elatura",
+  "version": "0.0.0",
+  "private": true,
+  "description": "An adaptive browser sidecar for oversized interactive applications.",
+  "license": "MPL-2.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b && node scripts/copy-extension-assets.mjs",
+    "check": "npm run typecheck && npm run test && npm run lint:extension",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint:extension": "npm run build && web-ext lint --source-dir extension/firefox/dist",
+    "run:firefox": "npm run build && web-ext run --source-dir extension/firefox/dist",
+    "build:extension": "npm run build && web-ext build --overwrite-dest --source-dir extension/firefox/dist --artifacts-dir artifacts"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "fast-check": "4.9.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10",
+    "web-ext": "10.5.0"
+  }
+}
