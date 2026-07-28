@@ -18,7 +18,8 @@
     "run:firefox": "npm run build && web-ext run --source-dir extension/firefox/dist",
     "build:extension": "npm run build && web-ext build --overwrite-dest --source-dir extension/firefox/dist --artifacts-dir artifacts",
     "generate:fixture": "npm run build && node scripts/generate-fixture.mjs",
-    "analyze:reports": "npm run build && node scripts/analyze-reports.mjs"
+    "analyze:reports": "npm run build && node scripts/analyze-reports.mjs",
+    "compare:benchmarks": "npm run build && node scripts/compare-benchmarks.mjs"
   },
   "engines": {
     "node": ">=22"

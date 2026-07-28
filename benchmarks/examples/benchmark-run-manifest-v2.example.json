@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 2,
+  "runId": "00000000-0000-4000-8000-000000000001",
+  "recordedAt": "2026-07-29T20:00:00.000Z",
+  "mode": "firefox-stock",
+  "navigation": "cold-open",
+  "sequence": 1,
+  "browser": {
+    "name": "Firefox",
+    "version": "140.0",
+    "profile": "clean-test"
+  },
+  "timings": {
+    "source": "manual",
+    "domContentLoadedMs": 520,
+    "composerReadyMs": 1420
+  },
+  "memory": {
+    "method": "activity-monitor",
+    "peaks": [
+      {
+        "processClass": "browser-total",
+        "peakBytes": 2147483648
+      }
+    ]
+  },
+  "outcome": {
+    "status": "usable",
+    "failureCode": null
+  },
+  "observerReportRunId": null,
+  "privacy": {
+    "contentCaptured": false,
+    "urlsCaptured": false,
+    "notesCaptured": false,
+    "processCommandLinesCaptured": false
+  }
+}

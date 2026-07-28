@@ -1,29 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 
-export type ElaturaMode = "edge-baseline" | "firefox-baseline" | "observe" | "safe" | "cached";
-
-export type BenchmarkRun = {
-  schemaVersion: 1;
-  runId: string;
-  recordedAt: string;
-  mode: ElaturaMode;
-  browser: { name: string; version: string; profile: "clean" | "existing" };
-  workload: { label: string; redactedPathTemplate?: string };
-  measurements: {
-    responseBytes?: number;
-    networkCompleteMs?: number;
-    composerReadyMs?: number;
-    newestContentVisibleMs?: number;
-    scrollResponsiveMs?: number;
-    peakContentProcessBytes?: number;
-    extensionProcessBytes?: number;
-    longTaskCount?: number;
-    longTaskDurationMs?: number;
-    domNodeCount?: number;
-  };
-  outcome: { completed: boolean; crashed: boolean; notes?: string[] };
-};
-
 const FORBIDDEN_FIELD_NAMES = new Set([
   "authorization",
   "authorizationheader",
