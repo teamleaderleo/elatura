@@ -148,4 +148,57 @@ describe("synthetic memory snapshot cache", () => {
     }
     expect(cache.size).toBe(2);
   });
+
+  it("stores the payload validator's normalized value instead of raw extra fields", () => {
+    const cache = new SyntheticMemorySnapshotCache({ validatePayload, now: () => 100 });
+    const input = envelope() as SnapshotCacheEnvelope<{ items: string[] }> & {
+      payload: { items: string[]; hidden?: string };
+    };
+    input.payload.hidden = "must not survive validation";
+    const stored = cache.put(input);
+    expect(stored.ok).toBe(true);
+    if (!stored.ok) return;
+    expect(stored.value.payload).toEqual({ items: ["one", "two"] });
+    expect("hidden" in stored.value.payload).toBe(false);
+    const hit = cache.get(baseKey, { ...lookup, now: 150 });
+    expect(hit.status).toBe("hit");
+    if (hit.status === "hit") expect(hit.envelope.payload).toEqual({ items: ["one", "two"] });
+  });
+
+  it("rejects provenance and freshness inconsistencies", () => {
+    const adapterMismatch = envelope();
+    adapterMismatch.provenance.adapter.version = "other";
+    const freshnessMismatch = envelope();
+    freshnessMismatch.provenance.freshness.staleAt = 201;
+    const cacheMismatch = envelope();
+    cacheMismatch.provenance.cache = { kind: "none" };
+    const unsafeReference = envelope();
+    unsafeReference.provenance.authority.reference = "javascript:alert(1)";
+
+    for (const candidate of [adapterMismatch, freshnessMismatch, cacheMismatch, unsafeReference]) {
+      const cache = new SyntheticMemorySnapshotCache({ validatePayload, now: () => 100 });
+      expect(cache.put(candidate).ok).toBe(false);
+      expect(cache.size).toBe(0);
+    }
+  });
+
+  it("rejects unknown envelope fields and payload-validator exceptions", () => {
+    const extra = envelope() as SnapshotCacheEnvelope<{ items: string[] }> & { hidden?: string };
+    extra.hidden = "not part of envelope v1";
+    const cache = new SyntheticMemorySnapshotCache({ validatePayload, now: () => 100 });
+    expect(cache.put(extra).ok).toBe(false);
+
+    const throwing = new SyntheticMemorySnapshotCache<{ items: string[] }>({
+      validatePayload: () => {
+        throw new Error("private payload detail");
+      },
+      now: () => 100,
+    });
+    const result = throwing.put(envelope());
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.issues.some((issue) => issue.code === "payload-validator-threw")).toBe(true);
+      expect(JSON.stringify(result)).not.toContain("private payload detail");
+    }
+  });
 });

@@ -6,6 +6,8 @@ import {
 } from "./adapter-contract.js";
 import {
   resolveFreshnessState,
+  sameFreshnessWindow,
+  validateContentProvenance,
   validateFreshnessWindow,
   type ContentProvenance,
   type FreshnessState,
@@ -73,21 +75,60 @@ export type SyntheticMemorySnapshotCacheOptions<T> = {
   seedEntries?: readonly (readonly [string, string])[];
 };
 
+const MAX_CACHE_TOKEN = 512;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function exactKeys(
+  value: Record<string, unknown>,
+  allowed: readonly string[],
+  path: string,
+  issues: ValidationIssue[],
+): void {
+  const allowedSet = new Set(allowed);
+  for (const key of Object.keys(value)) {
+    if (!allowedSet.has(key)) {
+      issues.push({ path: `${path}.${key}`, code: "unknown-field", message: "Unexpected field for this envelope version." });
+    }
+  }
 }
 
 function validOrigin(origin: string): boolean {
   try {
     const parsed = new URL(origin);
-    return (parsed.protocol === "https:" || parsed.protocol === "http:") && parsed.origin === origin;
+    return (
+      (parsed.protocol === "https:" || parsed.protocol === "http:") &&
+      parsed.username === "" &&
+      parsed.password === "" &&
+      parsed.origin === origin
+    );
   } catch {
     return false;
   }
 }
 
 function nonEmptyBounded(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && value.length <= 512 && !/[\u0000-\u001f\u007f]/u.test(value);
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= MAX_CACHE_TOKEN &&
+    !/[\u0000-\u001f\u007f]/u.test(value)
+  );
+}
+
+function parseAdapterIdentity(input: unknown, path: string, issues: ValidationIssue[]): AdapterIdentity | null {
+  if (!isRecord(input)) {
+    issues.push({ path, code: "invalid-adapter-identity", message: "Expected adapter id and version." });
+    return null;
+  }
+  exactKeys(input, ["id", "version"], path, issues);
+  if (!nonEmptyBounded(input.id) || !nonEmptyBounded(input.version)) {
+    issues.push({ path, code: "invalid-adapter-identity", message: "Expected bounded adapter id and version." });
+    return null;
+  }
+  return { id: input.id, version: input.version };
 }
 
 export function validateCacheIsolationKey(input: unknown, path = "$.key"): ValidationResult<CacheIsolationKey> {
@@ -95,20 +136,61 @@ export function validateCacheIsolationKey(input: unknown, path = "$.key"): Valid
     return { ok: false, issues: [{ path, code: "cache-key-not-object", message: "Expected an object." }] };
   }
   const issues: ValidationIssue[] = [];
+  exactKeys(input, ["origin", "profile", "adapter", "namespace", "resource"], path, issues);
   if (!nonEmptyBounded(input.origin) || !validOrigin(input.origin)) {
-    issues.push({ path: `${path}.origin`, code: "invalid-cache-origin", message: "Expected an exact HTTP(S) origin." });
+    issues.push({ path: `${path}.origin`, code: "invalid-cache-origin", message: "Expected an exact HTTP(S) origin without credentials." });
   }
   for (const field of ["profile", "adapter", "namespace", "resource"] as const) {
     if (!nonEmptyBounded(input[field])) {
       issues.push({ path: `${path}.${field}`, code: "invalid-cache-key-field", message: "Expected a bounded non-empty string." });
     }
   }
-  if (issues.length > 0) return { ok: false, issues };
-  return { ok: true, value: input as CacheIsolationKey, warnings: [] };
+  if (
+    issues.length > 0 ||
+    typeof input.origin !== "string" ||
+    typeof input.profile !== "string" ||
+    typeof input.adapter !== "string" ||
+    typeof input.namespace !== "string" ||
+    typeof input.resource !== "string"
+  ) {
+    return { ok: false, issues };
+  }
+  return {
+    ok: true,
+    value: {
+      origin: input.origin,
+      profile: input.profile,
+      adapter: input.adapter,
+      namespace: input.namespace,
+      resource: input.resource,
+    },
+    warnings: [],
+  };
 }
 
 export function serializeCacheIsolationKey(key: CacheIsolationKey): string {
   return JSON.stringify([key.origin, key.profile, key.adapter, key.namespace, key.resource]);
+}
+
+function parseContentIdentity(input: unknown, path: string, issues: ValidationIssue[]): CacheContentIdentity | null {
+  if (!isRecord(input)) {
+    issues.push({ path, code: "invalid-content-identity", message: "Expected an opaque content identity." });
+    return null;
+  }
+  exactKeys(input, ["scheme", "value", "revision"], path, issues);
+  if (!nonEmptyBounded(input.scheme) || !nonEmptyBounded(input.value)) {
+    issues.push({ path, code: "invalid-content-identity", message: "Expected bounded scheme and value fields." });
+    return null;
+  }
+  if (input.revision !== undefined && !nonEmptyBounded(input.revision)) {
+    issues.push({ path: `${path}.revision`, code: "invalid-content-revision", message: "Expected a bounded non-empty string." });
+    return null;
+  }
+  return {
+    scheme: input.scheme,
+    value: input.value,
+    ...(typeof input.revision === "string" ? { revision: input.revision } : {}),
+  };
 }
 
 function sameContentIdentity(left: CacheContentIdentity, right: CacheContentIdentity): boolean {
@@ -131,63 +213,104 @@ function validateEnvelope<T>(
     return { ok: false, issues: [{ path: "$", code: "cache-envelope-not-object", message: "Expected an object." }] };
   }
   const issues: ValidationIssue[] = [];
+  exactKeys(input, ["envelopeVersion", "key", "adapter", "structural", "content", "freshness", "provenance", "payload"], "$", issues);
   if (input.envelopeVersion !== CACHE_ENVELOPE_VERSION) {
     issues.push({ path: "$.envelopeVersion", code: "unsupported-envelope-version", message: "Unsupported cache envelope version." });
   }
+
   const keyResult = validateCacheIsolationKey(input.key);
   if (!keyResult.ok) issues.push(...keyResult.issues);
-  const adapter = input.adapter;
-  if (!isRecord(adapter) || !nonEmptyBounded(adapter.id) || !nonEmptyBounded(adapter.version)) {
-    issues.push({ path: "$.adapter", code: "invalid-adapter-identity", message: "Expected adapter id and version." });
+  const adapter = parseAdapterIdentity(input.adapter, "$.adapter", issues);
+
+  let structural: CacheStructuralIdentity | null = null;
+  if (!isRecord(input.structural)) {
+    issues.push({ path: "$.structural", code: "invalid-structural-identity", message: "Expected structural identity metadata." });
+  } else {
+    exactKeys(input.structural, ["fingerprintHash"], "$.structural", issues);
+    if (!nonEmptyBounded(input.structural.fingerprintHash)) {
+      issues.push({ path: "$.structural.fingerprintHash", code: "invalid-structural-identity", message: "Expected a bounded fingerprint hash." });
+    } else {
+      structural = { fingerprintHash: input.structural.fingerprintHash };
+    }
   }
-  const structural = input.structural;
-  if (!isRecord(structural) || !nonEmptyBounded(structural.fingerprintHash)) {
-    issues.push({ path: "$.structural.fingerprintHash", code: "invalid-structural-identity", message: "Expected a fingerprint hash." });
-  }
-  const content = input.content;
-  if (!isRecord(content) || !nonEmptyBounded(content.scheme) || !nonEmptyBounded(content.value)) {
-    issues.push({ path: "$.content", code: "invalid-content-identity", message: "Expected an opaque content identity." });
-  } else if (content.revision !== undefined && !nonEmptyBounded(content.revision)) {
-    issues.push({ path: "$.content.revision", code: "invalid-content-revision", message: "Expected a bounded non-empty string." });
-  }
+
+  const content = parseContentIdentity(input.content, "$.content", issues);
   const freshnessResult = validateFreshnessWindow(input.freshness);
   if (!freshnessResult.ok) issues.push(...freshnessResult.issues);
+  const provenanceResult = validateContentProvenance(input.provenance);
+  if (!provenanceResult.ok) issues.push(...provenanceResult.issues);
 
-  const provenance = input.provenance;
-  if (!isRecord(provenance)) {
-    issues.push({ path: "$.provenance", code: "invalid-provenance", message: "Expected provenance metadata." });
-  } else {
-    if (provenance.synthetic !== true) {
+  let payloadResult: ValidationResult<T>;
+  try {
+    payloadResult = validatePayload(input.payload);
+  } catch {
+    payloadResult = {
+      ok: false,
+      issues: [{ path: "$", code: "payload-validator-threw", message: "Payload validation failed safely." }],
+    };
+  }
+  if (!payloadResult.ok) issues.push(...payloadResult.issues.map(withPayloadPath));
+
+  if (keyResult.ok && adapter) {
+    if (adapter.id !== keyResult.value.adapter) {
+      issues.push({ path: "$.adapter.id", code: "cache-key-adapter-mismatch", message: "Adapter id must match the isolation key." });
+    }
+  }
+  if (keyResult.ok && provenanceResult.ok) {
+    if (provenanceResult.value.synthetic !== true) {
       issues.push({ path: "$.provenance.synthetic", code: "private-content-disabled", message: "This cache accepts synthetic entries only." });
     }
-    if (!isRecord(provenance.authority) || !nonEmptyBounded(provenance.authority.origin)) {
-      issues.push({ path: "$.provenance.authority", code: "invalid-authority", message: "Expected authority metadata." });
+    if (provenanceResult.value.authority.origin !== keyResult.value.origin) {
+      issues.push({ path: "$.provenance.authority.origin", code: "cache-key-origin-mismatch", message: "Authority origin must match the isolation key." });
     }
-    if (!isRecord(provenance.cache) || provenance.cache.kind !== "memory" || provenance.cache.envelopeVersion !== CACHE_ENVELOPE_VERSION) {
+  }
+  if (adapter && provenanceResult.ok) {
+    if (
+      provenanceResult.value.adapter.id !== adapter.id ||
+      provenanceResult.value.adapter.version !== adapter.version
+    ) {
+      issues.push({ path: "$.provenance.adapter", code: "provenance-adapter-mismatch", message: "Provenance adapter must match the envelope adapter." });
+    }
+  }
+  if (freshnessResult.ok && provenanceResult.ok && !sameFreshnessWindow(freshnessResult.value, provenanceResult.value.freshness)) {
+    issues.push({ path: "$.provenance.freshness", code: "provenance-freshness-mismatch", message: "Provenance and envelope freshness windows must match." });
+  }
+  if (provenanceResult.ok) {
+    if (
+      provenanceResult.value.cache.kind !== "memory" ||
+      provenanceResult.value.cache.envelopeVersion !== CACHE_ENVELOPE_VERSION
+    ) {
       issues.push({ path: "$.provenance.cache", code: "invalid-cache-provenance", message: "Expected memory cache provenance for envelope version 1." });
     }
   }
 
-  const payloadResult = validatePayload(input.payload);
-  if (!payloadResult.ok) issues.push(...payloadResult.issues.map(withPayloadPath));
-
-  if (keyResult.ok && freshnessResult.ok && isRecord(adapter) && isRecord(provenance)) {
-    if (adapter.id !== keyResult.value.adapter) {
-      issues.push({ path: "$.adapter.id", code: "cache-key-adapter-mismatch", message: "Adapter id must match the isolation key." });
-    }
-    if (isRecord(provenance.authority) && provenance.authority.origin !== keyResult.value.origin) {
-      issues.push({ path: "$.provenance.authority.origin", code: "cache-key-origin-mismatch", message: "Authority origin must match the isolation key." });
-    }
-    if (provenance.capturedAt !== freshnessResult.value.capturedAt) {
-      issues.push({ path: "$.provenance.capturedAt", code: "capture-time-mismatch", message: "Capture time must match freshness metadata." });
-    }
-    if (!isRecord(provenance.adapter) || provenance.adapter.id !== adapter.id || provenance.adapter.version !== adapter.version) {
-      issues.push({ path: "$.provenance.adapter", code: "provenance-adapter-mismatch", message: "Provenance adapter must match the envelope adapter." });
-    }
+  if (
+    issues.length > 0 ||
+    !keyResult.ok ||
+    adapter === null ||
+    structural === null ||
+    content === null ||
+    !freshnessResult.ok ||
+    !provenanceResult.ok ||
+    !payloadResult.ok
+  ) {
+    return { ok: false, issues };
   }
 
-  if (issues.length > 0 || !payloadResult.ok) return { ok: false, issues };
-  return { ok: true, value: input as SnapshotCacheEnvelope<T>, warnings: payloadResult.warnings };
+  return {
+    ok: true,
+    value: {
+      envelopeVersion: CACHE_ENVELOPE_VERSION,
+      key: keyResult.value,
+      adapter,
+      structural,
+      content,
+      freshness: freshnessResult.value,
+      provenance: provenanceResult.value,
+      payload: payloadResult.value,
+    },
+    warnings: [...freshnessResult.warnings, ...provenanceResult.warnings, ...payloadResult.warnings],
+  };
 }
 
 export class SyntheticMemorySnapshotCache<T> {
@@ -220,18 +343,22 @@ export class SyntheticMemorySnapshotCache<T> {
     const parsed = validateEnvelope(envelope, this.#validatePayload);
     if (!parsed.ok) return parsed;
     let serialized: string;
+    let normalized: SnapshotCacheEnvelope<T>;
     try {
       serialized = JSON.stringify(parsed.value);
+      normalized = JSON.parse(serialized) as SnapshotCacheEnvelope<T>;
     } catch {
       return { ok: false, issues: [{ path: "$", code: "cache-serialization-failed", message: "Envelope must be JSON serializable." }] };
     }
-    this.#entries.set(serializeCacheIsolationKey(parsed.value.key), serialized);
+    this.#entries.set(serializeCacheIsolationKey(normalized.key), serialized);
     this.prune(this.#now());
-    return { ok: true, value: structuredClone(parsed.value), warnings: parsed.warnings };
+    return { ok: true, value: normalized, warnings: parsed.warnings };
   }
 
   get(key: CacheIsolationKey, context: CacheLookupContext): CacheReadResult<T> {
-    const serializedKey = serializeCacheIsolationKey(key);
+    const keyResult = validateCacheIsolationKey(key);
+    if (!keyResult.ok) return { status: "miss", reason: "corrupt" };
+    const serializedKey = serializeCacheIsolationKey(keyResult.value);
     const serialized = this.#entries.get(serializedKey);
     if (serialized === undefined) return { status: "miss", reason: "missing" };
 
@@ -251,7 +378,7 @@ export class SyntheticMemorySnapshotCache<T> {
       return { status: "miss", reason };
     }
     const envelope = parsed.value;
-    if (!sameIsolationKey(envelope.key, key)) {
+    if (!sameIsolationKey(envelope.key, keyResult.value)) {
       this.#entries.delete(serializedKey);
       return { status: "miss", reason: "corrupt" };
     }
@@ -277,7 +404,8 @@ export class SyntheticMemorySnapshotCache<T> {
   }
 
   delete(key: CacheIsolationKey): boolean {
-    return this.#entries.delete(serializeCacheIsolationKey(key));
+    const keyResult = validateCacheIsolationKey(key);
+    return keyResult.ok && this.#entries.delete(serializeCacheIsolationKey(keyResult.value));
   }
 
   invalidate(scope: CacheInvalidationScope): number {

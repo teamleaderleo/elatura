@@ -22,6 +22,20 @@ Cache envelopes currently use version `1` and contain independent metadata for:
 
 Envelope-version compatibility, adapter compatibility, schema compatibility, content identity, and freshness are separate checks. Passing one check grants no conclusion about the others.
 
+### Normalization boundary
+
+Successful validation returns a newly constructed envelope. The cache does not preserve the caller's object by type assertion.
+
+In particular:
+
+- isolation, adapter, structural, content, freshness, and provenance fields are copied from validated values only
+- unknown envelope and provenance fields are rejected for the current schema version
+- the payload stored by the cache is the payload validator's returned `value`, not the original raw input
+- payload-validator exceptions become content-free validation failures
+- serialization produces the final detached JSON value returned by `put`
+
+A future envelope version may add fields deliberately. Version 1 cannot silently carry hidden metadata alongside validated fields.
+
 ## Isolation keys
 
 Every entry is keyed by:
@@ -58,7 +72,7 @@ A mismatch produces `content-identity-mismatch` and invalidates the entry.
 
 ## Freshness
 
-Freshness uses three ordered times:
+Freshness uses three ordered non-negative times:
 
 ```text
 capturedAt <= staleAt <= expiresAt
@@ -67,6 +81,8 @@ capturedAt <= staleAt <= expiresAt
 - before `staleAt`: `fresh`
 - from `staleAt` through the instant before `expiresAt`: `stale`
 - at or after `expiresAt`: expired and deleted
+
+The envelope freshness window and provenance freshness window must match exactly. A cache entry cannot claim one lifetime in lookup metadata and a different lifetime in provenance.
 
 A stale hit remains visibly stale. A caller may use it only under a reviewed stale-while-revalidate policy. The generic cache does not replace authoritative network behaviour or decide whether stale display is suitable.
 
@@ -80,7 +96,7 @@ An incompatible id or version removes the entry and returns a miss. This keeps o
 
 The in-memory cache stores a serialized copy even though it lives in memory. Reads parse and validate the envelope and payload again.
 
-Malformed JSON, invalid envelope metadata, or invalid payload causes deletion of the affected entry and a recoverable `corrupt` miss. Other entries remain available.
+Malformed JSON, invalid envelope metadata, invalid provenance, inconsistent freshness, or invalid payload causes deletion of the affected entry and a recoverable `corrupt` miss. Other entries remain available.
 
 Unsupported envelope versions produce their own miss reason and are deleted.
 
@@ -111,9 +127,29 @@ Every cached or represented payload records:
 - freshness window
 - synthetic status
 
+The complete provenance object is validated and normalized. Its adapter must agree with the enclosing representation or cache envelope, and its capture time must agree with freshness metadata.
+
 Alternate interfaces should display enough of this metadata to distinguish authoritative, transformed, cached, stale, expired, and synthetic content.
 
+### Jump-back references
+
+A jump-back reference is treated as untrusted navigation input even after TypeScript compilation. Representation version 1 accepts only:
+
+- absolute HTTP or HTTPS URLs
+- the same origin as the authoritative origin
+- no username or password
+- no query string
+- an optional fragment for locating an entry
+
+`javascript:`, `data:`, cross-origin, credential-bearing, malformed, and query-bearing references are rejected. `resolveJumpBackReference` repeats the safety check defensively before returning a target.
+
 A jump-back reference points toward the authenticated source. It grants no authentication authority and should be opened through the ordinary browser.
+
+## Read-only representation integrity
+
+A validated read-only representation is newly constructed from validated fields. Version 1 rejects unknown top-level, provenance, entry, and code-block fields.
+
+Its graph must have reciprocal parent/child links, every parent chain must terminate at a root, and a non-empty representation must declare a connected active path. This prevents alternate surfaces from receiving a cyclic or partially trusted navigation graph.
 
 ## Encryption and OS protection hook
 
@@ -131,4 +167,4 @@ missing / corrupt / incompatible / drifted / mismatched / expired
              authoritative fetch or display path
 ```
 
-Cache errors never authorize a partial transform, cross-profile lookup, or silent reuse of stale private state.
+Cache errors never authorize a partial transform, cross-profile lookup, unsafe navigation reference, or silent reuse of stale private state.
