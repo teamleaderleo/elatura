@@ -74,14 +74,47 @@ export function validateChatGptConversation(
   }
 
   for (const [key, node] of Object.entries(mapping)) {
-    if (node.parent !== null && !mapping[node.parent]) {
-      issues.push({ path: `$.mapping.${key}.parent`, code: "missing-parent", message: "Parent does not resolve." });
-    }
-    for (const child of node.children) {
-      if (!mapping[child]) {
-        issues.push({ path: `$.mapping.${key}.children`, code: "missing-child", message: "Child does not resolve." });
+    if (node.parent !== null) {
+      const parent = mapping[node.parent];
+      if (!parent) {
+        issues.push({ path: `$.mapping.${key}.parent`, code: "missing-parent", message: "Parent does not resolve." });
+      } else if (!parent.children.includes(key)) {
+        issues.push({
+          path: `$.mapping.${key}.parent`,
+          code: "parent-child-mismatch",
+          message: "The parent does not reference this node as a child.",
+        });
       }
     }
+    for (const childId of node.children) {
+      const child = mapping[childId];
+      if (!child) {
+        issues.push({ path: `$.mapping.${key}.children`, code: "missing-child", message: "Child does not resolve." });
+      } else if (child.parent !== key) {
+        issues.push({
+          path: `$.mapping.${key}.children`,
+          code: "child-parent-mismatch",
+          message: "A child does not reference this node as its parent.",
+        });
+      }
+    }
+  }
+
+  const activePath = new Set<string>();
+  let cursor: string | null = input.current_node;
+  while (cursor !== null) {
+    const current: ChatGptNode | undefined = mapping[cursor];
+    if (!current) break;
+    if (activePath.has(cursor)) {
+      issues.push({
+        path: "$.current_node",
+        code: "active-path-cycle",
+        message: "The active parent path must be acyclic.",
+      });
+      break;
+    }
+    activePath.add(cursor);
+    cursor = current.parent;
   }
 
   if (issues.length > 0) return { ok: false, issues };
