@@ -4,6 +4,12 @@ export const OBSERVATION_STATE_SCHEMA_VERSION = 3 as const;
 export const OBSERVATION_REPORT_SCHEMA_VERSION = 2 as const;
 export const OVERFLOW_PATH_TEMPLATE = "/:elatura-overflow";
 
+const MAX_PATH_TEMPLATE_LENGTH = 4_096;
+const MAX_PATH_AGGREGATES = 4_097;
+const MAX_TAGS_PER_AGGREGATE = 64;
+const MAX_TAG_LENGTH = 128;
+const MAX_RUN_ID_LENGTH = 256;
+
 export type ObservationRun = { id: string; startedAt: string };
 
 export type ObservationRequestSummary = {
@@ -44,11 +50,6 @@ export type StoredObservationState = {
   requestPaths: Record<string, ObservationPathAggregate>;
   pageMarks: ObservationPageMarks;
   integrity: ObservationCaptureIntegrity;
-};
-
-type StoredObservationStateV2 = Omit<StoredObservationState, "storageSchemaVersion" | "integrity"> & {
-  storageSchemaVersion: 2;
-  integrity: Omit<ObservationCaptureIntegrity, "captureInterruptionCount">;
 };
 
 export type ObservationStateMigration = {
@@ -92,125 +93,220 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function migrateStoredObservationState(value: unknown): ObservationStateMigration | null {
+function nonNegativeNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function nonNegativeInteger(value: unknown): number | null {
+  const parsed = nonNegativeNumber(value);
+  return parsed !== null && Number.isInteger(parsed) ? parsed : null;
+}
+
+function positiveInteger(value: unknown): number | null {
+  const parsed = nonNegativeInteger(value);
+  return parsed !== null && parsed > 0 ? parsed : null;
+}
+
+function nullableNonNegativeNumber(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  const parsed = nonNegativeNumber(value);
+  return parsed === null ? undefined : parsed;
+}
+
+function parseTagList(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_TAGS_PER_AGGREGATE) return null;
+  const tags: string[] = [];
+  const seen = new Set<string>();
+  for (const tag of value) {
+    if (typeof tag !== "string" || tag.length === 0 || tag.length > MAX_TAG_LENGTH || seen.has(tag)) {
+      return null;
+    }
+    seen.add(tag);
+    tags.push(tag);
+  }
+  return tags;
+}
+
+function parseRun(value: unknown): ObservationRun | null {
   if (!isRecord(value)) return null;
-  if (value.storageSchemaVersion !== 2 && value.storageSchemaVersion !== OBSERVATION_STATE_SCHEMA_VERSION) {
+  if (
+    typeof value.id !== "string" ||
+    value.id.length === 0 ||
+    value.id.length > MAX_RUN_ID_LENGTH ||
+    typeof value.startedAt !== "string" ||
+    Number.isNaN(Date.parse(value.startedAt))
+  ) {
     return null;
   }
+  return { id: value.id, startedAt: value.startedAt };
+}
+
+function close(left: number, right: number): boolean {
+  return Math.abs(left - right) <= Math.max(1e-6, Math.abs(right) * 1e-9);
+}
+
+function parseStoredObservationState(value: Record<string, unknown>): StoredObservationState | null {
+  const sourceVersion = value.storageSchemaVersion;
+  if (sourceVersion !== 2 && sourceVersion !== OBSERVATION_STATE_SCHEMA_VERSION) return null;
+  if (!isRecord(value.summary) || !isRecord(value.requestPaths) || !isRecord(value.pageMarks) || !isRecord(value.integrity)) {
+    return null;
+  }
+
+  let activeRun: ObservationRun | undefined;
+  if (value.activeRun !== undefined) {
+    const parsedRun = parseRun(value.activeRun);
+    if (!parsedRun) return null;
+    activeRun = parsedRun;
+  }
+
+  const requestCount = nonNegativeInteger(value.summary.requestCount);
+  const totalBytesObserved = nonNegativeInteger(value.summary.totalBytesObserved);
+  const totalRequestDurationMs = nonNegativeNumber(value.summary.totalRequestDurationMs);
+  const requestErrorCount = nonNegativeInteger(value.summary.requestErrorCount);
   if (
-    !isRecord(value.summary) ||
-    !isRecord(value.requestPaths) ||
-    !isRecord(value.pageMarks) ||
-    !isRecord(value.integrity)
+    requestCount === null ||
+    totalBytesObserved === null ||
+    totalRequestDurationMs === null ||
+    requestErrorCount === null ||
+    requestErrorCount > requestCount
   ) {
     return null;
   }
 
-  const migratedFrom = value.storageSchemaVersion === 2 ? 2 : null;
-  const candidate = structuredClone(value) as StoredObservationState | StoredObservationStateV2;
+  const domContentLoadedMs = nullableNonNegativeNumber(value.pageMarks.domContentLoadedMs);
+  const composerReadyMs = nullableNonNegativeNumber(value.pageMarks.composerReadyMs);
+  if (domContentLoadedMs === undefined || composerReadyMs === undefined) return null;
+
+  const pathClassLimit = positiveInteger(value.integrity.pathClassLimit);
+  const overflowRequestCount = nonNegativeInteger(value.integrity.overflowRequestCount);
+  const persistenceErrorCount = nonNegativeInteger(value.integrity.persistenceErrorCount);
   const captureInterruptionCount =
-    candidate.storageSchemaVersion === 2 ? 0 : candidate.integrity.captureInterruptionCount;
-  if (!Number.isInteger(captureInterruptionCount) || captureInterruptionCount < 0) return null;
+    sourceVersion === 2 ? 0 : nonNegativeInteger(value.integrity.captureInterruptionCount);
+  if (
+    pathClassLimit === null ||
+    pathClassLimit > MAX_PATH_AGGREGATES ||
+    typeof value.integrity.pathClassOverflowed !== "boolean" ||
+    overflowRequestCount === null ||
+    persistenceErrorCount === null ||
+    captureInterruptionCount === null
+  ) {
+    return null;
+  }
+  const pathClassOverflowed = value.integrity.pathClassOverflowed;
+
+  const pathEntries = Object.entries(value.requestPaths);
+  if (pathEntries.length > Math.min(MAX_PATH_AGGREGATES, pathClassLimit + 1)) return null;
+
+  const requestPaths: Record<string, ObservationPathAggregate> = {};
+  let aggregateCount = 0;
+  let aggregateBytes = 0;
+  let aggregateDurationMs = 0;
+  let aggregateErrors = 0;
+  let nonOverflowPathCount = 0;
+
+  for (const [key, rawPath] of pathEntries) {
+    if (!isRecord(rawPath) || typeof rawPath.pathTemplate !== "string" || rawPath.pathTemplate !== key) return null;
+    if (
+      key.length === 0 ||
+      key.length > MAX_PATH_TEMPLATE_LENGTH ||
+      !key.startsWith("/") ||
+      key.includes("?") ||
+      key.includes("#")
+    ) {
+      return null;
+    }
+
+    const count = positiveInteger(rawPath.count);
+    const bytes = nonNegativeInteger(rawPath.bytes);
+    const durationMs = nonNegativeNumber(rawPath.durationMs);
+    const maxDurationMs = nonNegativeNumber(rawPath.maxDurationMs);
+    const errors = nonNegativeInteger(rawPath.errors);
+    const methods = parseTagList(rawPath.methods);
+    const resourceTypes = parseTagList(rawPath.resourceTypes);
+    if (
+      count === null ||
+      bytes === null ||
+      durationMs === null ||
+      maxDurationMs === null ||
+      errors === null ||
+      methods === null ||
+      resourceTypes === null ||
+      errors > count ||
+      maxDurationMs > durationMs
+    ) {
+      return null;
+    }
+
+    if (key !== OVERFLOW_PATH_TEMPLATE) nonOverflowPathCount += 1;
+    requestPaths[key] = {
+      pathTemplate: key,
+      count,
+      bytes,
+      durationMs,
+      maxDurationMs,
+      errors,
+      methods,
+      resourceTypes,
+    };
+    aggregateCount += count;
+    aggregateBytes += bytes;
+    aggregateDurationMs += durationMs;
+    aggregateErrors += errors;
+  }
+
+  if (nonOverflowPathCount > pathClassLimit) return null;
+  if (
+    aggregateCount !== requestCount ||
+    aggregateBytes !== totalBytesObserved ||
+    !close(aggregateDurationMs, totalRequestDurationMs) ||
+    aggregateErrors !== requestErrorCount
+  ) {
+    return null;
+  }
+
+  const overflow = requestPaths[OVERFLOW_PATH_TEMPLATE];
+  if (pathClassOverflowed) {
+    if (!overflow || overflow.count !== overflowRequestCount || overflowRequestCount === 0) return null;
+  } else if (overflow || overflowRequestCount !== 0) {
+    return null;
+  }
+
+  const hasData =
+    requestCount > 0 ||
+    domContentLoadedMs !== null ||
+    composerReadyMs !== null ||
+    persistenceErrorCount > 0 ||
+    captureInterruptionCount > 0;
+  if (!activeRun && hasData) return null;
 
   return {
-    state: {
-      ...candidate,
-      storageSchemaVersion: OBSERVATION_STATE_SCHEMA_VERSION,
-      integrity: {
-        ...candidate.integrity,
-        captureInterruptionCount,
-      },
+    storageSchemaVersion: OBSERVATION_STATE_SCHEMA_VERSION,
+    ...(activeRun ? { activeRun } : {}),
+    summary: { requestCount, totalBytesObserved, totalRequestDurationMs, requestErrorCount },
+    requestPaths,
+    pageMarks: { domContentLoadedMs, composerReadyMs },
+    integrity: {
+      pathClassLimit,
+      pathClassOverflowed,
+      overflowRequestCount,
+      persistenceErrorCount,
+      captureInterruptionCount,
     },
-    migratedFrom,
   };
 }
 
-function finiteNonNegative(value: number, name: string): void {
-  if (!Number.isFinite(value) || value < 0) throw new TypeError(`${name} must be finite and non-negative.`);
+export function migrateStoredObservationState(value: unknown): ObservationStateMigration | null {
+  if (!isRecord(value)) return null;
+  const migratedFrom = value.storageSchemaVersion === 2 ? 2 : null;
+  const state = parseStoredObservationState(value);
+  return state ? { state, migratedFrom } : null;
 }
 
-function validateState(state: StoredObservationState): ObservationPathAggregate[] {
-  if (state.storageSchemaVersion !== OBSERVATION_STATE_SCHEMA_VERSION) {
-    throw new TypeError("Unsupported observation-state schema.");
-  }
-  if (!state.activeRun) throw new Error("Start an observation run before exporting.");
-  finiteNonNegative(state.summary.requestCount, "requestCount");
-  finiteNonNegative(state.summary.totalBytesObserved, "totalBytesObserved");
-  finiteNonNegative(state.summary.totalRequestDurationMs, "totalRequestDurationMs");
-  finiteNonNegative(state.summary.requestErrorCount, "requestErrorCount");
-  if (
-    !Number.isInteger(state.summary.requestCount) ||
-    !Number.isInteger(state.summary.totalBytesObserved) ||
-    !Number.isInteger(state.summary.requestErrorCount)
-  ) {
-    throw new TypeError("Request counts, bytes, and errors must be integers.");
-  }
-  finiteNonNegative(state.integrity.pathClassLimit, "pathClassLimit");
-  finiteNonNegative(state.integrity.overflowRequestCount, "overflowRequestCount");
-  finiteNonNegative(state.integrity.persistenceErrorCount, "persistenceErrorCount");
-  finiteNonNegative(state.integrity.captureInterruptionCount, "captureInterruptionCount");
-  if (
-    !Number.isInteger(state.integrity.pathClassLimit) ||
-    state.integrity.pathClassLimit < 1 ||
-    !Number.isInteger(state.integrity.overflowRequestCount) ||
-    !Number.isInteger(state.integrity.persistenceErrorCount) ||
-    !Number.isInteger(state.integrity.captureInterruptionCount)
-  ) {
-    throw new TypeError("Observation integrity counters must be valid integers.");
-  }
-  for (const [name, mark] of Object.entries(state.pageMarks)) {
-    if (mark !== null) finiteNonNegative(mark, name);
-  }
-
-  const entries = Object.entries(state.requestPaths);
-  const paths = entries.map(([key, path]) => {
-    if (key !== path.pathTemplate) throw new TypeError("Observation path map key does not match its aggregate.");
-    return path;
-  });
-  const totals = paths.reduce(
-    (sum, path) => {
-      if (path.pathTemplate.includes("?") || !path.pathTemplate.startsWith("/")) {
-        throw new TypeError("Observation path templates must be redacted paths.");
-      }
-      finiteNonNegative(path.count, `${path.pathTemplate}.count`);
-      finiteNonNegative(path.bytes, `${path.pathTemplate}.bytes`);
-      finiteNonNegative(path.durationMs, `${path.pathTemplate}.durationMs`);
-      finiteNonNegative(path.maxDurationMs, `${path.pathTemplate}.maxDurationMs`);
-      finiteNonNegative(path.errors, `${path.pathTemplate}.errors`);
-      if (!Number.isInteger(path.count) || !Number.isInteger(path.bytes) || !Number.isInteger(path.errors)) {
-        throw new TypeError("Request counts, bytes, and errors must be integers.");
-      }
-      if (path.errors > path.count || path.maxDurationMs > path.durationMs) {
-        throw new TypeError(`Observation aggregate is inconsistent for ${path.pathTemplate}.`);
-      }
-      return {
-        count: sum.count + path.count,
-        bytes: sum.bytes + path.bytes,
-        durationMs: sum.durationMs + path.durationMs,
-        errors: sum.errors + path.errors,
-      };
-    },
-    { count: 0, bytes: 0, durationMs: 0, errors: 0 },
-  );
-  const close = (left: number, right: number) => Math.abs(left - right) <= Math.max(1e-6, Math.abs(right) * 1e-9);
-  if (
-    totals.count !== state.summary.requestCount ||
-    totals.bytes !== state.summary.totalBytesObserved ||
-    !close(totals.durationMs, state.summary.totalRequestDurationMs) ||
-    totals.errors !== state.summary.requestErrorCount
-  ) {
-    throw new TypeError("Observation summary does not reconcile with path aggregates.");
-  }
-
-  const overflow = state.requestPaths[OVERFLOW_PATH_TEMPLATE];
-  if (state.integrity.pathClassOverflowed) {
-    if (!overflow || overflow.count !== state.integrity.overflowRequestCount) {
-      throw new TypeError("Overflow integrity metadata does not reconcile.");
-    }
-  } else if (overflow || state.integrity.overflowRequestCount !== 0) {
-    throw new TypeError("Unexpected overflow aggregate or count.");
-  }
-  return paths;
+function validatedActiveState(state: StoredObservationState): StoredObservationState {
+  const migration = migrateStoredObservationState(state);
+  if (!migration || migration.migratedFrom !== null) throw new TypeError("Invalid observation state.");
+  if (!migration.state.activeRun) throw new Error("Start an observation run before exporting.");
+  return migration.state;
 }
 
 export function hasObservationData(state: StoredObservationState): boolean {
@@ -222,19 +318,20 @@ export function buildObservationReport(
   metadata: ObservationReportMetadata,
   generatedAt = new Date().toISOString(),
 ): ObservationReport {
-  const requestPaths = validateState(state)
+  const validated = validatedActiveState(state);
+  const requestPaths = Object.values(validated.requestPaths)
     .map((path) => ({ ...path, methods: [...path.methods].sort(), resourceTypes: [...path.resourceTypes].sort() }))
     .sort((left, right) => right.bytes - left.bytes || left.pathTemplate.localeCompare(right.pathTemplate));
   const totalsComplete =
-    state.integrity.persistenceErrorCount === 0 && state.integrity.captureInterruptionCount === 0;
-  const pathBreakdownComplete = totalsComplete && !state.integrity.pathClassOverflowed;
+    validated.integrity.persistenceErrorCount === 0 && validated.integrity.captureInterruptionCount === 0;
+  const pathBreakdownComplete = totalsComplete && !validated.integrity.pathClassOverflowed;
   return {
     schemaVersion: OBSERVATION_REPORT_SCHEMA_VERSION,
     generatedAt,
     mode: "observe",
     run: {
-      id: state.activeRun!.id,
-      startedAt: state.activeRun!.startedAt,
+      id: validated.activeRun!.id,
+      startedAt: validated.activeRun!.startedAt,
       exportedAt: generatedAt,
     },
     extension: { version: metadata.extensionVersion },
@@ -249,13 +346,13 @@ export function buildObservationReport(
     integrity: {
       totalsComplete,
       pathBreakdownComplete,
-      pathClassLimit: state.integrity.pathClassLimit,
-      pathClassOverflowed: state.integrity.pathClassOverflowed,
-      overflowRequestCount: state.integrity.overflowRequestCount,
-      persistenceErrorCount: state.integrity.persistenceErrorCount,
-      captureInterruptionCount: state.integrity.captureInterruptionCount,
+      pathClassLimit: validated.integrity.pathClassLimit,
+      pathClassOverflowed: validated.integrity.pathClassOverflowed,
+      overflowRequestCount: validated.integrity.overflowRequestCount,
+      persistenceErrorCount: validated.integrity.persistenceErrorCount,
+      captureInterruptionCount: validated.integrity.captureInterruptionCount,
     },
-    summary: { ...state.summary, ...state.pageMarks },
+    summary: { ...validated.summary, ...validated.pageMarks },
     requestPaths,
   };
 }
