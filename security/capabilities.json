@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "defaultCapability": "observe",
+  "capabilities": {
+    "observe": {
+      "enabled": true,
+      "responseAccess": "byte-pass-through",
+      "responseMutation": false,
+      "persistentData": "content-free-aggregates-only",
+      "outboundNetwork": false,
+      "nativeMessaging": false,
+      "permissions": [
+        "storage",
+        "webRequest",
+        "webRequestBlocking",
+        "webRequestFilterResponse"
+      ],
+      "hostPermissions": [
+        "https://chatgpt.com/*"
+      ]
+    },
+    "transform": {
+      "enabled": false,
+      "responseMutation": false,
+      "persistentData": "none",
+      "outboundNetwork": false,
+      "nativeMessaging": false,
+      "permissions": [],
+      "hostPermissions": []
+    },
+    "cache": {
+      "enabled": false,
+      "responseMutation": false,
+      "persistentData": "none",
+      "outboundNetwork": false,
+      "nativeMessaging": false,
+      "permissions": [],
+      "hostPermissions": []
+    },
+    "nativeCompanion": {
+      "enabled": false,
+      "responseMutation": false,
+      "persistentData": "none",
+      "outboundNetwork": false,
+      "nativeMessaging": false,
+      "permissions": [],
+      "hostPermissions": []
+    }
+  }
+}
