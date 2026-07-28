@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
 import { isRedactedPathTemplate } from "./path-redaction.js";
 
-export const OBSERVATION_STATE_SCHEMA_VERSION = 4 as const;
+export const OBSERVATION_STATE_SCHEMA_VERSION = 5 as const;
 export const OBSERVATION_REPORT_SCHEMA_VERSION = 3 as const;
 export const OVERFLOW_PATH_TEMPLATE = "/:elatura-overflow";
+export const OBSERVATION_ACTIVE_REQUEST_LIMIT = 128 as const;
+export const OBSERVATION_BODY_SIZE_WARNING_THRESHOLD_BYTES = 64 * 1024 * 1024;
 
 const MAX_PATH_TEMPLATE_LENGTH = 4_096;
 const MAX_PATH_AGGREGATES = 4_097;
@@ -42,6 +44,11 @@ export type ObservationCaptureIntegrity = {
   overflowRequestCount: number;
   persistenceErrorCount: number;
   captureInterruptionCount: number;
+  activeRequestLimit: number;
+  activeRequestCount: number;
+  unobservedRequestCount: number;
+  bodySizeWarningThresholdBytes: number;
+  oversizedResponseCount: number;
 };
 
 export type StoredObservationState = {
@@ -55,7 +62,7 @@ export type StoredObservationState = {
 
 export type ObservationStateMigration = {
   state: StoredObservationState;
-  migratedFrom: 2 | 3 | null;
+  migratedFrom: 2 | 3 | 4 | null;
 };
 
 export type ObservationReportMetadata = {
@@ -85,6 +92,11 @@ export type ObservationReport = {
     overflowRequestCount: number;
     persistenceErrorCount: number;
     captureInterruptionCount: number;
+    activeRequestLimit: number;
+    activeRequestCount: number;
+    unobservedRequestCount: number;
+    bodySizeWarningThresholdBytes: number;
+    oversizedResponseCount: number;
   };
   summary: ObservationRequestSummary & ObservationPageMarks;
   requestPaths: ObservationPathAggregate[];
@@ -148,7 +160,12 @@ function close(left: number, right: number): boolean {
 
 function parseStoredObservationState(value: Record<string, unknown>): StoredObservationState | null {
   const sourceVersion = value.storageSchemaVersion;
-  if (sourceVersion !== 2 && sourceVersion !== 3 && sourceVersion !== OBSERVATION_STATE_SCHEMA_VERSION) {
+  if (
+    sourceVersion !== 2 &&
+    sourceVersion !== 3 &&
+    sourceVersion !== 4 &&
+    sourceVersion !== OBSERVATION_STATE_SCHEMA_VERSION
+  ) {
     return null;
   }
   if (!isRecord(value.summary) || !isRecord(value.requestPaths) || !isRecord(value.pageMarks) || !isRecord(value.integrity)) {
@@ -185,13 +202,40 @@ function parseStoredObservationState(value: Record<string, unknown>): StoredObse
   const persistenceErrorCount = nonNegativeInteger(value.integrity.persistenceErrorCount);
   const captureInterruptionCount =
     sourceVersion === 2 ? 0 : nonNegativeInteger(value.integrity.captureInterruptionCount);
+  const activeRequestLimit =
+    sourceVersion === OBSERVATION_STATE_SCHEMA_VERSION
+      ? positiveInteger(value.integrity.activeRequestLimit)
+      : OBSERVATION_ACTIVE_REQUEST_LIMIT;
+  const activeRequestCount =
+    sourceVersion === OBSERVATION_STATE_SCHEMA_VERSION
+      ? nonNegativeInteger(value.integrity.activeRequestCount)
+      : 0;
+  const unobservedRequestCount =
+    sourceVersion === OBSERVATION_STATE_SCHEMA_VERSION
+      ? nonNegativeInteger(value.integrity.unobservedRequestCount)
+      : 0;
+  const bodySizeWarningThresholdBytes =
+    sourceVersion === OBSERVATION_STATE_SCHEMA_VERSION
+      ? positiveInteger(value.integrity.bodySizeWarningThresholdBytes)
+      : OBSERVATION_BODY_SIZE_WARNING_THRESHOLD_BYTES;
+  const oversizedResponseCount =
+    sourceVersion === OBSERVATION_STATE_SCHEMA_VERSION
+      ? nonNegativeInteger(value.integrity.oversizedResponseCount)
+      : 0;
   if (
     pathClassLimit === null ||
     pathClassLimit > MAX_PATH_AGGREGATES ||
     typeof value.integrity.pathClassOverflowed !== "boolean" ||
     overflowRequestCount === null ||
     persistenceErrorCount === null ||
-    captureInterruptionCount === null
+    captureInterruptionCount === null ||
+    activeRequestLimit !== OBSERVATION_ACTIVE_REQUEST_LIMIT ||
+    activeRequestCount === null ||
+    activeRequestCount > activeRequestLimit ||
+    unobservedRequestCount === null ||
+    bodySizeWarningThresholdBytes !== OBSERVATION_BODY_SIZE_WARNING_THRESHOLD_BYTES ||
+    oversizedResponseCount === null ||
+    oversizedResponseCount > requestCount
   ) {
     return null;
   }
@@ -277,7 +321,10 @@ function parseStoredObservationState(value: Record<string, unknown>): StoredObse
     domContentLoadedMs !== null ||
     composerReadyMs !== null ||
     persistenceErrorCount > 0 ||
-    captureInterruptionCount > 0;
+    captureInterruptionCount > 0 ||
+    activeRequestCount > 0 ||
+    unobservedRequestCount > 0 ||
+    oversizedResponseCount > 0;
   if (!activeRun && hasData) return null;
 
   return {
@@ -292,6 +339,11 @@ function parseStoredObservationState(value: Record<string, unknown>): StoredObse
       overflowRequestCount,
       persistenceErrorCount,
       captureInterruptionCount,
+      activeRequestLimit,
+      activeRequestCount,
+      unobservedRequestCount,
+      bodySizeWarningThresholdBytes,
+      oversizedResponseCount,
     },
   };
 }
@@ -300,7 +352,7 @@ export function migrateStoredObservationState(value: unknown): ObservationStateM
   if (!isRecord(value)) return null;
   const sourceVersion = value.storageSchemaVersion;
   const migratedFrom = sourceVersion === OBSERVATION_STATE_SCHEMA_VERSION ? null : sourceVersion;
-  if (migratedFrom !== null && migratedFrom !== 2 && migratedFrom !== 3) return null;
+  if (migratedFrom !== null && migratedFrom !== 2 && migratedFrom !== 3 && migratedFrom !== 4) return null;
   const state = parseStoredObservationState(value);
   return state ? { state, migratedFrom } : null;
 }
@@ -313,7 +365,15 @@ function validatedActiveState(state: StoredObservationState): StoredObservationS
 }
 
 export function hasObservationData(state: StoredObservationState): boolean {
-  return state.summary.requestCount > 0 || state.pageMarks.domContentLoadedMs !== null || state.pageMarks.composerReadyMs !== null;
+  return (
+    state.summary.requestCount > 0 ||
+    state.pageMarks.domContentLoadedMs !== null ||
+    state.pageMarks.composerReadyMs !== null ||
+    state.integrity.activeRequestCount > 0 ||
+    state.integrity.unobservedRequestCount > 0 ||
+    state.integrity.persistenceErrorCount > 0 ||
+    state.integrity.captureInterruptionCount > 0
+  );
 }
 
 export function buildObservationReport(
@@ -326,7 +386,10 @@ export function buildObservationReport(
     .map((path) => ({ ...path, methods: [...path.methods].sort(), resourceTypes: [...path.resourceTypes].sort() }))
     .sort((left, right) => right.bytes - left.bytes || left.pathTemplate.localeCompare(right.pathTemplate));
   const totalsComplete =
-    validated.integrity.persistenceErrorCount === 0 && validated.integrity.captureInterruptionCount === 0;
+    validated.integrity.persistenceErrorCount === 0 &&
+    validated.integrity.captureInterruptionCount === 0 &&
+    validated.integrity.activeRequestCount === 0 &&
+    validated.integrity.unobservedRequestCount === 0;
   const pathBreakdownComplete = totalsComplete && !validated.integrity.pathClassOverflowed;
   return {
     schemaVersion: OBSERVATION_REPORT_SCHEMA_VERSION,
@@ -354,6 +417,11 @@ export function buildObservationReport(
       overflowRequestCount: validated.integrity.overflowRequestCount,
       persistenceErrorCount: validated.integrity.persistenceErrorCount,
       captureInterruptionCount: validated.integrity.captureInterruptionCount,
+      activeRequestLimit: validated.integrity.activeRequestLimit,
+      activeRequestCount: validated.integrity.activeRequestCount,
+      unobservedRequestCount: validated.integrity.unobservedRequestCount,
+      bodySizeWarningThresholdBytes: validated.integrity.bodySizeWarningThresholdBytes,
+      oversizedResponseCount: validated.integrity.oversizedResponseCount,
     },
     summary: { ...validated.summary, ...validated.pageMarks },
     requestPaths,
