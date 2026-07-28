@@ -4,7 +4,6 @@
   "version": "0.0.4",
   "description": "Observe content-free performance characteristics of oversized ChatGPT application state.",
   "permissions": [
-    "downloads",
     "storage",
     "webRequest",
     "webRequestBlocking",
@@ -31,7 +30,7 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "observer@elatura.com",
-      "strict_min_version": "110.0"
+      "strict_min_version": "112.0"
     }
   }
 }

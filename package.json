@@ -10,13 +10,15 @@
   ],
   "scripts": {
     "build": "tsc -b && node scripts/copy-extension-assets.mjs",
-    "check": "npm run typecheck && npm run test && npm run lint:extension",
+    "build:manifest": "node scripts/generate-build-manifest.mjs",
+    "check": "npm run security:gate && npm run typecheck && npm run test && npm run lint:extension && npm run build:manifest",
+    "security:gate": "node scripts/security-gate.mjs",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint:extension": "npm run build && web-ext lint --source-dir extension/firefox/dist",
     "run:firefox": "npm run build && web-ext run --source-dir extension/firefox/dist",
-    "build:extension": "npm run build && web-ext build --overwrite-dest --source-dir extension/firefox/dist --artifacts-dir artifacts",
+    "build:extension": "npm run build && npm run security:gate && web-ext build --overwrite-dest --source-dir extension/firefox/dist --artifacts-dir artifacts && npm run build:manifest",
     "generate:fixture": "npm run build && node scripts/generate-fixture.mjs",
     "analyze:reports": "npm run build && node scripts/analyze-reports.mjs",
     "compare:benchmarks": "npm run build && node scripts/compare-benchmarks.mjs"

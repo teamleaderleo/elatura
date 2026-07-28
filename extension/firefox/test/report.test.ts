@@ -54,14 +54,54 @@ describe("popup observation report builder", () => {
     expect(parseObservationReport(report)).toEqual(report);
   });
 
-  it("migrates stored schema v2 without inventing an interruption", () => {
-    const legacy = state() as unknown as Record<string, unknown>;
+  it("migrates a completely valid stored schema v2 without inventing an interruption", () => {
+    const legacy = structuredClone(state()) as unknown as Record<string, unknown>;
     legacy.storageSchemaVersion = 2;
     delete (legacy.integrity as Record<string, unknown>).captureInterruptionCount;
     const migration = migrateStoredObservationState(legacy);
     expect(migration?.migratedFrom).toBe(2);
     expect(migration?.state.storageSchemaVersion).toBe(3);
     expect(migration?.state.integrity.captureInterruptionCount).toBe(0);
+  });
+
+  it("rejects corrupt stored state before the background runtime can use it", () => {
+    const corruptions: Array<(input: Record<string, unknown>) => void> = [
+      (input) => {
+        (input.activeRun as Record<string, unknown>).startedAt = "not-a-date";
+      },
+      (input) => {
+        (input.summary as Record<string, unknown>).requestCount = "250";
+      },
+      (input) => {
+        (input.pageMarks as Record<string, unknown>).composerReadyMs = -1;
+      },
+      (input) => {
+        (input.integrity as Record<string, unknown>).pathClassOverflowed = "false";
+      },
+      (input) => {
+        const paths = input.requestPaths as Record<string, Record<string, unknown>>;
+        paths["/backend-api/conversation/:id"]!.pathTemplate = "/different";
+      },
+      (input) => {
+        const paths = input.requestPaths as Record<string, Record<string, unknown>>;
+        paths["/backend-api/conversation/:id"]!.methods = ["GET", "GET"];
+      },
+      (input) => {
+        (input.summary as Record<string, unknown>).totalBytesObserved = 1;
+      },
+    ];
+
+    for (const corrupt of corruptions) {
+      const input = structuredClone(state()) as unknown as Record<string, unknown>;
+      corrupt(input);
+      expect(migrateStoredObservationState(input)).toBeNull();
+    }
+  });
+
+  it("rejects persisted data that has no active run", () => {
+    const input = structuredClone(state()) as unknown as Record<string, unknown>;
+    delete input.activeRun;
+    expect(migrateStoredObservationState(input)).toBeNull();
   });
 
   it("marks resumed capture totals incomplete", () => {
@@ -108,6 +148,6 @@ describe("popup observation report builder", () => {
   it("refuses inconsistent state instead of exporting a misleading report", () => {
     const input = state();
     input.summary.requestCount = 249;
-    expect(() => buildObservationReport(input, metadata)).toThrow(/does not reconcile/);
+    expect(() => buildObservationReport(input, metadata)).toThrow(/Invalid observation state/);
   });
 });
