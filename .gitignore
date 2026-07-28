@@ -1,0 +1,7 @@
+node_modules/
+*.tsbuildinfo
+coverage/
+artifacts/
+benchmarks/reports/
+extension/firefox/dist/
+.DS_Store
