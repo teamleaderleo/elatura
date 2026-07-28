@@ -26,7 +26,7 @@ function report(
       startedAt: "2026-07-29T00:00:00.000Z",
       exportedAt: "2026-07-29T00:00:02.000Z",
     },
-    extension: { version: schemaVersion === 3 ? "0.0.5" : "0.0.4" },
+    extension: { version: schemaVersion === 3 ? "0.0.6" : "0.0.4" },
     browser: { name: "Firefox", vendor: "Mozilla", version: "140.0", buildID: "build" },
     privacy: {
       responseBodiesCaptured: false,
@@ -43,6 +43,11 @@ function report(
       overflowRequestCount: 0,
       persistenceErrorCount: 0,
       ...(schemaVersion === 3 ? { captureInterruptionCount: 0 } : {}),
+      activeRequestLimit: 128,
+      activeRequestCount: 0,
+      unobservedRequestCount: 0,
+      bodySizeWarningThresholdBytes: 67_108_864,
+      oversizedResponseCount: 0,
     },
     summary: {
       requestCount: 2,
@@ -91,9 +96,23 @@ describe("observation report analysis", () => {
   });
 
   it("keeps schema-v2 reports readable while enforcing the v3 path grammar", () => {
-    const legacy = parseObservationReport(report("legacy", 1000, 1000, 2));
-    expect(legacy.schemaVersion).toBe(2);
-    expect(legacy.integrity.captureInterruptionCount).toBe(0);
+    const legacy = report("legacy", 1000, 1000, 2);
+    const legacyIntegrity = legacy.integrity as Record<string, unknown>;
+    delete legacyIntegrity.activeRequestLimit;
+    delete legacyIntegrity.activeRequestCount;
+    delete legacyIntegrity.unobservedRequestCount;
+    delete legacyIntegrity.bodySizeWarningThresholdBytes;
+    delete legacyIntegrity.oversizedResponseCount;
+    const parsedLegacy = parseObservationReport(legacy);
+    expect(parsedLegacy.schemaVersion).toBe(2);
+    expect(parsedLegacy.integrity).toMatchObject({
+      captureInterruptionCount: 0,
+      activeRequestLimit: 0,
+      activeRequestCount: 0,
+      unobservedRequestCount: 0,
+      bodySizeWarningThresholdBytes: 0,
+      oversizedResponseCount: 0,
+    });
 
     const literalV3 = report("literal-v3", 1000);
     ((literalV3.requestPaths as Array<Record<string, unknown>>)[0]!).pathTemplate =
@@ -116,14 +135,26 @@ describe("observation report analysis", () => {
     expect(() => parseObservationReport(unreconciled)).toThrow(/reconcile/);
   });
 
-  it("rejects false completeness and inconsistent overflow claims", () => {
+  it("rejects false completeness and inconsistent integrity claims", () => {
     const persistenceFailure = report("run-1", 1000);
     (persistenceFailure.integrity as Record<string, unknown>).persistenceErrorCount = 1;
     expect(() => parseObservationReport(persistenceFailure)).toThrow(/cannot claim complete totals/);
 
-    const interrupted = report("run-interrupted", 1000);
-    (interrupted.integrity as Record<string, unknown>).captureInterruptionCount = 1;
-    expect(() => parseObservationReport(interrupted)).toThrow(/cannot claim complete totals/);
+    const interruption = report("run-interrupted", 1000);
+    (interruption.integrity as Record<string, unknown>).captureInterruptionCount = 1;
+    expect(() => parseObservationReport(interruption)).toThrow(/cannot claim complete totals/);
+
+    const active = report("run-active", 1000);
+    (active.integrity as Record<string, unknown>).activeRequestCount = 1;
+    expect(() => parseObservationReport(active)).toThrow(/cannot claim complete totals/);
+
+    const unobserved = report("run-unobserved", 1000);
+    (unobserved.integrity as Record<string, unknown>).unobservedRequestCount = 1;
+    expect(() => parseObservationReport(unobserved)).toThrow(/cannot claim complete totals/);
+
+    const oversized = report("run-oversized", 1000);
+    (oversized.integrity as Record<string, unknown>).oversizedResponseCount = 3;
+    expect(() => parseObservationReport(oversized)).toThrow(/cannot exceed requestCount/);
 
     const overflow = report("run-2", 1000);
     Object.assign(overflow.integrity as object, {
@@ -134,14 +165,21 @@ describe("observation report analysis", () => {
     expect(() => parseObservationReport(overflow)).toThrow(/Overflow path totals/);
   });
 
-  it("accepts explicit incomplete interruption reports", () => {
-    const interrupted = report("run-1", 1000);
-    Object.assign(interrupted.integrity as object, {
+  it("accepts explicit incomplete active and capacity-gap reports", () => {
+    const active = report("run-active", 1000);
+    Object.assign(active.integrity as object, {
       totalsComplete: false,
       pathBreakdownComplete: false,
-      captureInterruptionCount: 2,
+      activeRequestCount: 1,
+      unobservedRequestCount: 2,
+      oversizedResponseCount: 1,
     });
-    expect(parseObservationReport(interrupted).integrity.captureInterruptionCount).toBe(2);
+    const parsed = parseObservationReport(active);
+    expect(parsed.integrity).toMatchObject({
+      activeRequestCount: 1,
+      unobservedRequestCount: 2,
+      oversizedResponseCount: 1,
+    });
   });
 
   it("rejects duplicate run identifiers", () => {
@@ -176,6 +214,9 @@ describe("observation report analysis", () => {
       totalsComplete: false,
       pathBreakdownComplete: false,
       captureInterruptionCount: 2,
+      activeRequestCount: 2,
+      unobservedRequestCount: 3,
+      oversizedResponseCount: 1,
     });
     const summary = summarizeObservationReports([
       report("run-1", 1000, 900),
@@ -190,6 +231,9 @@ describe("observation report analysis", () => {
     expect(group.metrics.composerReadyMs?.sampleCount).toBe(2);
     expect(group.integrity.totalsCompleteReportCount).toBe(2);
     expect(group.integrity.captureInterruptionCount).toBe(2);
+    expect(group.integrity.activeRequestCount).toBe(2);
+    expect(group.integrity.unobservedRequestCount).toBe(3);
+    expect(group.integrity.oversizedResponseCount).toBe(1);
     expect(group.requestPaths[0]?.pathTemplate).toBe("/:compound-l/:word-l/:uuid");
     expect(group.requestPaths[0]?.totalBytes).toBe(5700);
   });
