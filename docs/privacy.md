@@ -33,13 +33,15 @@ Every non-empty path segment is replaced before storage with a content-independe
 
 This stronger redaction deliberately reduces route fidelity. Reports can still distinguish path depth and broad segment patterns while avoiding filenames, slugs, identifiers, and future upstream path values.
 
-The content-independent grammar uses observation storage schema 4 and report schema 3. Extension startup preserves schema-2 or schema-3 state only when every stored path already satisfies the content-independent grammar; other legacy state is cleared. A preserved active run increments `captureInterruptionCount`, because Firefox recreated the background context while request-local capture state disappeared. Reports with persistence failures or capture interruptions mark totals and path breakdown incomplete.
+The observer holds at most 128 simultaneous response filters. When that limit is reached, or Firefox refuses filter attachment, the request continues through Firefox and a numeric `unobservedRequestCount` makes the resulting report incomplete. Open filters are represented only by `activeRequestCount`; request identifiers and partial response bytes are never stored. A 64 MiB response-size policy records a numeric oversized-response count after completion while continuing exact byte counting and direct pass-through.
 
-The analyzer reads historical report schema 2, treating a missing interruption counter as zero. It refuses to aggregate report schema 2 and report schema 3 in one comparison because their path-template keys use different semantics.
+The content-independent grammar and stream-integrity counters use observation storage schema 5 and report schema 3. Extension startup preserves schema-2, schema-3, or schema-4 state only when every stored path already satisfies the content-independent grammar; other legacy state is cleared. A preserved active run increments `captureInterruptionCount`, because Firefox recreated the background context while request-local capture state disappeared. Reports with persistence failures, capture interruptions, active requests, or unobserved requests mark totals and path breakdown incomplete.
+
+The analyzer reads historical report schema 2, treating missing additive integrity counters as zero. It refuses to aggregate report schema 2 and report schema 3 in one comparison because their path-template keys use different semantics.
 
 Readiness messages contain the readiness kind, elapsed duration, and a content-free timestamp used to reject marks recorded before the active run. They carry no page path.
 
-The JSON export omits individual request identifiers. It reports persistence failures, background-context interruptions, and path overflow instead of silently claiming complete data. The extension does not persist response bytes. Firefox extension storage is not encrypted, so even content-free diagnostics should be treated as local browser data and kept minimal.
+The JSON export omits individual request identifiers. It reports persistence failures, background-context interruptions, active requests, observation-capacity gaps, oversized responses, and path overflow instead of silently claiming complete data. The extension does not persist response bytes. Firefox extension storage is not encrypted, so even content-free diagnostics should be treated as local browser data and kept minimal.
 
 ## Structural fingerprints
 

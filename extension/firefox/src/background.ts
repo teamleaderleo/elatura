@@ -2,6 +2,8 @@
 
 import {
   migrateStoredObservationState,
+  OBSERVATION_ACTIVE_REQUEST_LIMIT,
+  OBSERVATION_BODY_SIZE_WARNING_THRESHOLD_BYTES,
   OBSERVATION_STATE_SCHEMA_VERSION,
   OVERFLOW_PATH_TEMPLATE,
   type ObservationPathAggregate,
@@ -20,6 +22,7 @@ type BackgroundRequestMetric = {
   bytes: number;
   durationMs: number;
   outcome: "stopped" | "error";
+  oversized: boolean;
 };
 type BackgroundPageMetric = {
   kind: "dom-content-loaded" | "composer-like-input";
@@ -44,6 +47,11 @@ function idleState(): StoredObservationState {
       overflowRequestCount: 0,
       persistenceErrorCount: 0,
       captureInterruptionCount: 0,
+      activeRequestLimit: OBSERVATION_ACTIVE_REQUEST_LIMIT,
+      activeRequestCount: 0,
+      unobservedRequestCount: 0,
+      bodySizeWarningThresholdBytes: OBSERVATION_BODY_SIZE_WARNING_THRESHOLD_BYTES,
+      oversizedResponseCount: 0,
     },
   };
 }
@@ -64,6 +72,7 @@ let storageWriteQueue: Promise<void> = browser.storage.local
 
     observationState = migration.state;
     if (observationState.activeRun) {
+      observationState.integrity.activeRequestCount = 0;
       observationState.integrity.captureInterruptionCount += 1;
       await persistCurrentState();
     } else if (migration.migratedFrom !== null) {
@@ -113,14 +122,27 @@ function sortedUnion(values: readonly string[], addition: string): string[] {
   return values.includes(addition) ? [...values] : [...values, addition].sort();
 }
 
+function recordUnobservedRequest(runId: string): Promise<void> {
+  return enqueueStorage(async () => {
+    if (observationState.activeRun?.id !== runId) return;
+    observationState.integrity.unobservedRequestCount += 1;
+    await persistCurrentState();
+  });
+}
+
 function aggregateRequest(metric: BackgroundRequestMetric): Promise<void> {
   return enqueueStorage(async () => {
     if (observationState.activeRun?.id !== metric.runId) return;
 
+    observationState.integrity.activeRequestCount = Math.max(
+      0,
+      observationState.integrity.activeRequestCount - 1,
+    );
     observationState.summary.requestCount += 1;
     observationState.summary.totalBytesObserved += metric.bytes;
     observationState.summary.totalRequestDurationMs += metric.durationMs;
     if (metric.outcome === "error") observationState.summary.requestErrorCount += 1;
+    if (metric.oversized) observationState.integrity.oversizedResponseCount += 1;
 
     let pathTemplate = metric.pathTemplate;
     let aggregate = observationState.requestPaths[pathTemplate];
@@ -184,14 +206,21 @@ browser.webRequest.onBeforeRequest.addListener(
   (details) => {
     const run = observationState.activeRun;
     if (!run) return;
+    if (observationState.integrity.activeRequestCount >= observationState.integrity.activeRequestLimit) {
+      void recordUnobservedRequest(run.id);
+      return;
+    }
 
     let filter: StreamFilter;
     try {
       filter = browser.webRequest.filterResponseData(details.requestId);
     } catch {
+      void recordUnobservedRequest(run.id);
       return;
     }
 
+    observationState.integrity.activeRequestCount += 1;
+    const bodySizeWarningThresholdBytes = observationState.integrity.bodySizeWarningThresholdBytes;
     const startedAt = performance.now();
     let bytes = 0;
     let completed = false;
@@ -212,6 +241,7 @@ browser.webRequest.onBeforeRequest.addListener(
         bytes,
         durationMs: Math.max(0, performance.now() - startedAt),
         outcome,
+        oversized: bytes > bodySizeWarningThresholdBytes,
       });
     };
 

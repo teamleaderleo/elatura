@@ -1,6 +1,6 @@
 # Running the M0 observer
 
-The observer is intentionally inactive until a benchmark run is started from the extension popup. Use Elatura Observer 0.0.5 or later for schema-3 reports with content-independent path classes.
+The observer is intentionally inactive until a benchmark run is started from the extension popup. Use Elatura Observer 0.0.6 or later for schema-3 reports with content-independent path classes and active-stream integrity counters.
 
 ## Install and launch
 
@@ -18,7 +18,7 @@ Use a dedicated Firefox profile for benchmark work. Sign in to ChatGPT normally 
 2. Choose **Start new run**. This clears previous local measurements and enables byte-for-byte response observation.
 3. Open or hard-reload the target conversation.
 4. Wait until the newest useful content is visible and the composer can accept input, or record that the page failed.
-5. Open the popup and choose **Export JSON**.
+5. Open the popup and choose **Export JSON** after `activeRequestCount` reaches zero.
 6. Choose **Clear and stop** before ordinary browsing.
 
 The schema-3 report contains aggregated content-independent path classes, counts, observed bytes, request durations, errors, browser and extension versions, page readiness marks, and an `integrity` section. It does not contain response bodies, message text, query strings, cookies, authorization headers, raw conversation identifiers, filenames, slugs, or literal URL path segments.
@@ -27,16 +27,21 @@ The analyzer reads historical schema-2 exports. Analyze schema-2 and schema-3 re
 
 ### Integrity fields
 
-- `totalsComplete` is false if local persistence failed or capture continuity was interrupted during the run.
+- `totalsComplete` is false if local persistence failed, capture continuity was interrupted, a response was still active at export, or observation capacity was exhausted.
 - `pathBreakdownComplete` is false when totals are incomplete or the redacted path-class limit was exceeded.
-- `overflowRequestCount` reports how many requests entered the explicit `/:elatura-overflow` path bucket.
+- `overflowRequestCount` reports how many completed requests entered the explicit `/:elatura-overflow` path bucket.
 - `persistenceErrorCount` reports failed local state writes observed by the active background session.
 - `captureInterruptionCount` increments when Firefox recreates the extension background context while a run remains active.
+- `activeRequestCount` reports response streams that were still open at export.
+- `activeRequestLimit` is the maximum number of response filters held concurrently. The current policy is 128.
+- `unobservedRequestCount` reports requests that continued normally after filter attachment failed or the active-request limit was reached.
+- `bodySizeWarningThresholdBytes` is the numeric response-size warning threshold. The current policy is 64 MiB.
+- `oversizedResponseCount` reports completed responses above that threshold. Their full byte totals remain counted and their chunks remain direct pass-through.
 - Aggregate request totals are no longer limited to the most recent 200 requests.
 
-Do not compare or publish a report without checking its integrity section. A report with complete totals but an incomplete path breakdown is still useful for total byte and timing comparisons, but not for claiming an exact per-path distribution. A report with any capture interruption can describe the aggregates that survived, yet it cannot support a complete-run total.
+Check the integrity section before comparing or publishing a report. A report with complete totals and an incomplete path breakdown remains useful for total byte and timing comparisons. A report with active or unobserved requests describes completed aggregates only and cannot support a complete-run total.
 
-For benchmark runs, export and clear before quitting Firefox or reloading the extension. Start a fresh run after any browser or extension restart.
+For benchmark runs, export after `activeRequestCount` reaches zero, then clear before quitting Firefox or reloading the extension. Start a fresh run after any browser or extension restart.
 
 ## Baseline matrix
 

@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
 import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  buildObservationReport,
+  OBSERVATION_ACTIVE_REQUEST_LIMIT,
+  OBSERVATION_BODY_SIZE_WARNING_THRESHOLD_BYTES,
+  type StoredObservationState,
+} from "../src/report.js";
 
 type MessageListener = (message: unknown) => unknown;
 type BeforeRequestListener = (details: {
@@ -19,7 +25,15 @@ type TestFilter = {
   disconnect: ReturnType<typeof vi.fn>;
 };
 
-function createHarness(initialStorage: Record<string, unknown> = {}) {
+const metadata = {
+  extensionVersion: "0.0.6",
+  browser: { name: "Firefox", vendor: "Mozilla", version: "140.0", buildID: "build" },
+};
+
+function createHarness(
+  initialStorage: Record<string, unknown> = {},
+  failRequestIds: ReadonlySet<string> = new Set(),
+) {
   let stored = structuredClone(initialStorage);
   let messageListener: MessageListener | undefined;
   let beforeRequestListener: BeforeRequestListener | undefined;
@@ -34,6 +48,19 @@ function createHarness(initialStorage: Record<string, unknown> = {}) {
       stored = {};
     }),
   };
+  const filterResponseData = vi.fn((requestId: string) => {
+    if (failRequestIds.has(requestId)) throw new Error("filter unavailable");
+    const filter: TestFilter = {
+      ondata: null,
+      onstop: null,
+      onerror: null,
+      write: vi.fn(),
+      close: vi.fn(),
+      disconnect: vi.fn(),
+    };
+    filters.set(requestId, filter);
+    return filter;
+  });
 
   vi.stubGlobal("browser", {
     storage: { local },
@@ -50,32 +77,27 @@ function createHarness(initialStorage: Record<string, unknown> = {}) {
           beforeRequestListener = listener;
         },
       },
-      filterResponseData(requestId: string) {
-        const filter: TestFilter = {
-          ondata: null,
-          onstop: null,
-          onerror: null,
-          write: vi.fn(),
-          close: vi.fn(),
-          disconnect: vi.fn(),
-        };
-        filters.set(requestId, filter);
-        return filter;
-      },
+      filterResponseData,
     },
   });
+
+  const fireRequest = (details: Parameters<BeforeRequestListener>[0]): TestFilter | undefined => {
+    if (!beforeRequestListener) throw new Error("Request listener was not registered.");
+    beforeRequestListener(details);
+    return filters.get(details.requestId);
+  };
 
   return {
     local,
     filters,
+    filterResponseData,
     message(message: unknown) {
       if (!messageListener) throw new Error("Message listener was not registered.");
       return messageListener(message);
     },
+    fireRequest,
     request(details: Parameters<BeforeRequestListener>[0]) {
-      if (!beforeRequestListener) throw new Error("Request listener was not registered.");
-      beforeRequestListener(details);
-      const filter = filters.get(details.requestId);
+      const filter = fireRequest(details);
       if (!filter) throw new Error(`No filter was created for ${details.requestId}.`);
       return filter;
     },
@@ -87,7 +109,7 @@ async function loadBackground() {
   await import("../src/background.js");
 }
 
-function activeState(pathTemplate: string): Record<string, unknown> {
+function legacyActiveState(pathTemplate = "/:word-m"): Record<string, unknown> {
   return {
     storageSchemaVersion: 3,
     activeRun: { id: "resumed-run", startedAt: "2026-07-29T00:00:00.000Z" },
@@ -120,6 +142,16 @@ function activeState(pathTemplate: string): Record<string, unknown> {
   };
 }
 
+function requestDetails(requestId: string) {
+  return {
+    requestId,
+    url: `https://chatgpt.com/${requestId}`,
+    method: "GET",
+    type: "xmlhttprequest",
+    timeStamp: 0,
+  };
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -127,34 +159,24 @@ afterEach(() => {
 
 describe("observer background lifecycle", () => {
   it("clears legacy active state that contains literal path content", async () => {
-    const harness = createHarness(activeState("/private-project"));
-    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const harness = createHarness(legacyActiveState("/private-project"));
     await loadBackground();
 
-    const state = (await harness.message({ type: "elatura:get-state" })) as {
-      storageSchemaVersion: number;
-      activeRun?: unknown;
-      summary: { requestCount: number };
-    };
-    expect(state.storageSchemaVersion).toBe(4);
+    const state = (await harness.message({ type: "elatura:get-state" })) as StoredObservationState;
+    expect(state.storageSchemaVersion).toBe(5);
     expect(state.activeRun).toBeUndefined();
     expect(state.summary.requestCount).toBe(0);
     expect(harness.local.clear).toHaveBeenCalled();
   });
 
-  it("migrates a safe active run and marks resumed capture interrupted", async () => {
-    const harness = createHarness(activeState("/:word-m"));
-    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  it("migrates and marks a resumed active run as interrupted", async () => {
+    const harness = createHarness(legacyActiveState());
     await loadBackground();
 
-    const state = (await harness.message({ type: "elatura:get-state" })) as {
-      storageSchemaVersion: number;
-      requestPaths: Record<string, unknown>;
-      integrity: { captureInterruptionCount: number; persistenceErrorCount: number };
-    };
-    expect(state.storageSchemaVersion).toBe(4);
-    expect(state.requestPaths).toHaveProperty("/:word-m");
+    const state = (await harness.message({ type: "elatura:get-state" })) as StoredObservationState;
+    expect(state.storageSchemaVersion).toBe(5);
     expect(state.integrity.captureInterruptionCount).toBe(1);
+    expect(state.integrity.activeRequestCount).toBe(0);
     expect(state.integrity.persistenceErrorCount).toBe(0);
     expect(harness.local.set).toHaveBeenCalled();
   });
@@ -164,20 +186,8 @@ describe("observer background lifecycle", () => {
     await loadBackground();
     await harness.message({ type: "elatura:start-run" });
 
-    const first = harness.request({
-      requestId: "first",
-      url: "https://chatgpt.com/a",
-      method: "GET",
-      type: "xmlhttprequest",
-      timeStamp: 0,
-    });
-    const second = harness.request({
-      requestId: "second",
-      url: "https://chatgpt.com/b",
-      method: "POST",
-      type: "other",
-      timeStamp: 0,
-    });
+    const first = harness.request(requestDetails("first"));
+    const second = harness.request({ ...requestDetails("second"), method: "POST", type: "other" });
     const chunkA = new Uint8Array([1, 2]).buffer;
     const chunkB = new Uint8Array([3]).buffer;
     const chunkC = new Uint8Array([4, 5]).buffer;
@@ -188,23 +198,101 @@ describe("observer background lifecycle", () => {
     first.onstop?.();
     first.onstop?.();
 
-    const state = (await harness.message({ type: "elatura:get-state" })) as {
-      summary: { requestCount: number; totalBytesObserved: number; requestErrorCount: number };
-      requestPaths: Record<string, { count: number }>;
-    };
+    const state = (await harness.message({ type: "elatura:get-state" })) as StoredObservationState;
     expect(first.write.mock.calls.map((call: unknown[]) => call[0])).toEqual([chunkA, chunkB]);
     expect(second.write.mock.calls.map((call: unknown[]) => call[0])).toEqual([chunkC]);
     expect(second.disconnect).toHaveBeenCalledOnce();
     expect(first.close).toHaveBeenCalledTimes(2);
+    expect(state.integrity.activeRequestCount).toBe(0);
     expect(state.summary).toMatchObject({ requestCount: 2, totalBytesObserved: 5, requestErrorCount: 1 });
-    expect(Object.keys(state.requestPaths)).toEqual(["/:word-s"]);
-    expect(state.requestPaths["/:word-s"]?.count).toBe(2);
+  });
+
+  it("marks an export incomplete until the active response completes", async () => {
+    const harness = createHarness();
+    await loadBackground();
+    await harness.message({ type: "elatura:start-run" });
+    const filter = harness.request(requestDetails("inflight"));
+    const chunk = new Uint8Array([1, 2, 3, 4]).buffer;
+    filter.ondata?.({ data: chunk });
+
+    const during = (await harness.message({ type: "elatura:get-state" })) as StoredObservationState;
+    const interruptedExport = buildObservationReport(during, metadata);
+    expect(during.integrity.activeRequestCount).toBe(1);
+    expect(interruptedExport.integrity.totalsComplete).toBe(false);
+    expect(interruptedExport.summary.requestCount).toBe(0);
+
+    filter.onstop?.();
+    const after = (await harness.message({ type: "elatura:get-state" })) as StoredObservationState;
+    const completeExport = buildObservationReport(after, metadata);
+    expect(after.integrity.activeRequestCount).toBe(0);
+    expect(completeExport.integrity.totalsComplete).toBe(true);
+    expect(completeExport.summary).toMatchObject({ requestCount: 1, totalBytesObserved: 4 });
+  });
+
+  it("bounds active observer state and records capacity gaps during a synthetic storm", async () => {
+    const harness = createHarness();
+    await loadBackground();
+    await harness.message({ type: "elatura:start-run" });
+
+    for (let index = 0; index < OBSERVATION_ACTIVE_REQUEST_LIMIT; index += 1) {
+      const filter = harness.request(requestDetails(`storm-${index}`));
+      filter.ondata?.({ data: new Uint8Array([index % 256]).buffer });
+    }
+    for (let index = 0; index < 7; index += 1) {
+      expect(harness.fireRequest(requestDetails(`overflow-${index}`))).toBeUndefined();
+    }
+
+    const saturated = (await harness.message({ type: "elatura:get-state" })) as StoredObservationState;
+    expect(saturated.integrity.activeRequestCount).toBe(OBSERVATION_ACTIVE_REQUEST_LIMIT);
+    expect(saturated.integrity.unobservedRequestCount).toBe(7);
+    expect(harness.filterResponseData).toHaveBeenCalledTimes(OBSERVATION_ACTIVE_REQUEST_LIMIT);
+    expect(buildObservationReport(saturated, metadata).integrity.totalsComplete).toBe(false);
+
+    for (const filter of harness.filters.values()) filter.onstop?.();
+    const completed = (await harness.message({ type: "elatura:get-state" })) as StoredObservationState;
+    expect(completed.integrity.activeRequestCount).toBe(0);
+    expect(completed.summary.requestCount).toBe(OBSERVATION_ACTIVE_REQUEST_LIMIT);
+    expect(completed.summary.totalBytesObserved).toBe(OBSERVATION_ACTIVE_REQUEST_LIMIT);
+    expect(completed.integrity.unobservedRequestCount).toBe(7);
+  });
+
+  it("records filter attachment failure as an unobserved request", async () => {
+    const harness = createHarness({}, new Set(["unavailable"]));
+    await loadBackground();
+    await harness.message({ type: "elatura:start-run" });
+    expect(harness.fireRequest(requestDetails("unavailable"))).toBeUndefined();
+
+    const state = (await harness.message({ type: "elatura:get-state" })) as StoredObservationState;
+    expect(state.integrity.unobservedRequestCount).toBe(1);
+    expect(buildObservationReport(state, metadata).integrity.totalsComplete).toBe(false);
+  });
+
+  it("flags an oversized response while preserving exact counting and pass-through", async () => {
+    const harness = createHarness();
+    await loadBackground();
+    await harness.message({ type: "elatura:start-run" });
+    const filter = harness.request(requestDetails("large"));
+    const largeChunk = { byteLength: OBSERVATION_BODY_SIZE_WARNING_THRESHOLD_BYTES + 1 } as ArrayBuffer;
+    filter.ondata?.({ data: largeChunk });
+    filter.onstop?.();
+
+    const state = (await harness.message({ type: "elatura:get-state" })) as StoredObservationState;
+    expect(filter.write).toHaveBeenCalledWith(largeChunk);
+    expect(state.summary.totalBytesObserved).toBe(OBSERVATION_BODY_SIZE_WARNING_THRESHOLD_BYTES + 1);
+    expect(state.integrity.oversizedResponseCount).toBe(1);
+    expect(buildObservationReport(state, metadata).integrity.totalsComplete).toBe(true);
   });
 
   it("clears an active run without interrupting pass-through or accepting stale marks", async () => {
     const harness = createHarness();
     await loadBackground();
     await harness.message({ type: "elatura:start-run" });
+    const filter = harness.request(requestDetails("active"));
+
+    await harness.message({ type: "elatura:clear-run" });
+    const chunk = new Uint8Array([9, 8, 7]).buffer;
+    filter.ondata?.({ data: chunk });
+    filter.onstop?.();
     await harness.message({
       type: "elatura:page-metric",
       metric: {
@@ -213,24 +301,8 @@ describe("observer background lifecycle", () => {
         recordedAt: "2000-01-01T00:00:00.000Z",
       },
     });
-    const filter = harness.request({
-      requestId: "active",
-      url: "https://chatgpt.com/active",
-      method: "GET",
-      type: "xmlhttprequest",
-      timeStamp: 0,
-    });
 
-    await harness.message({ type: "elatura:clear-run" });
-    const chunk = new Uint8Array([9, 8, 7]).buffer;
-    filter.ondata?.({ data: chunk });
-    filter.onstop?.();
-
-    const state = (await harness.message({ type: "elatura:get-state" })) as {
-      activeRun?: unknown;
-      summary: { requestCount: number; totalBytesObserved: number };
-      pageMarks: { composerReadyMs: number | null };
-    };
+    const state = (await harness.message({ type: "elatura:get-state" })) as StoredObservationState;
     expect(filter.write).toHaveBeenCalledWith(chunk);
     expect(state.activeRun).toBeUndefined();
     expect(state.summary).toEqual({
@@ -239,19 +311,17 @@ describe("observer background lifecycle", () => {
       totalRequestDurationMs: 0,
       requestErrorCount: 0,
     });
+    expect(state.integrity.activeRequestCount).toBe(0);
     expect(state.pageMarks.composerReadyMs).toBeNull();
   });
 
   it("surfaces a storage failure in the active run integrity state", async () => {
     const harness = createHarness();
-    vi.spyOn(console, "warn").mockImplementation(() => undefined);
     await loadBackground();
     harness.local.set.mockRejectedValueOnce(new Error("quota"));
     await harness.message({ type: "elatura:start-run" });
 
-    const state = (await harness.message({ type: "elatura:get-state" })) as {
-      integrity: { persistenceErrorCount: number };
-    };
+    const state = (await harness.message({ type: "elatura:get-state" })) as StoredObservationState;
     expect(state.integrity.persistenceErrorCount).toBe(1);
   });
 });
