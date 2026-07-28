@@ -11,6 +11,18 @@ function formatBytes(value: number): string {
   return `${(value / 1024 ** 2).toFixed(1)} MiB`;
 }
 
+function downloadJson(json: string, filename: string): void {
+  const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.hidden = true;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 async function getState(): Promise<StoredObservationState> {
   return (await browser.runtime.sendMessage({ type: "elatura:get-state" })) as StoredObservationState;
 }
@@ -48,18 +60,14 @@ document.querySelector("#export")!.addEventListener("click", async () => {
     });
     const json = JSON.stringify(report, null, 2);
     const timestamp = new Date().toISOString().replaceAll(":", "-");
-    await browser.downloads.download({
-      url: `data:application/json;charset=utf-8,${encodeURIComponent(json)}`,
-      filename: `elatura/observe-${timestamp}.json`,
-      saveAs: true,
-    });
+    downloadJson(json, `elatura-observe-${timestamp}.json`);
     setStatus(
       report.integrity.pathBreakdownComplete
         ? "Content-free JSON report exported."
         : "Report exported with integrity warnings; inspect the integrity section.",
     );
-  } catch (error) {
-    setStatus(error instanceof Error ? error.message : "Report export failed.");
+  } catch {
+    setStatus("Report export failed.");
   }
 });
 
