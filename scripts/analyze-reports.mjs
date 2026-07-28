@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { extname, join, resolve } from "node:path";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname, extname, join, resolve } from "node:path";
 import { summarizeObservationReports } from "../benchmarks/dist/observation.js";
 
 function usage() {
@@ -35,7 +35,10 @@ for (let index = 0; index < args.length; index += 1) {
 
 try {
   if (positional.length === 0) throw new Error("Provide at least one report file or directory.");
-  const paths = [...new Set((await Promise.all(positional.map(collect))).flat())].sort();
+  const resolvedOutputPath = outputPath ? resolve(outputPath) : null;
+  const paths = [...new Set((await Promise.all(positional.map(collect))).flat())]
+    .filter((pathname) => pathname !== resolvedOutputPath)
+    .sort();
   if (paths.length === 0) throw new Error("No JSON report files were found.");
   const reports = [];
   for (const pathname of paths) {
@@ -46,8 +49,10 @@ try {
     }
   }
   const json = `${JSON.stringify(summarizeObservationReports(reports), null, 2)}\n`;
-  if (outputPath) await writeFile(resolve(outputPath), json, "utf8");
-  else process.stdout.write(json);
+  if (resolvedOutputPath) {
+    await mkdir(dirname(resolvedOutputPath), { recursive: true });
+    await writeFile(resolvedOutputPath, json, "utf8");
+  } else process.stdout.write(json);
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   usage();
