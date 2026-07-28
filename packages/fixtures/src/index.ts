@@ -40,6 +40,8 @@ export type SyntheticConversationFixture = {
   future_top_level_field?: Record<string, unknown>;
 };
 
+const MAX_ESTIMATED_PAYLOAD_BYTES = 512 * 1024 * 1024;
+
 const LIMITS = {
   turnGroups: 100_000,
   branchEvery: 100_000,
@@ -111,6 +113,18 @@ export function generateSyntheticConversation(
     throw new RangeError("seed must be an integer between 0 and 4294967295.");
   }
   const seed = rawSeed >>> 0;
+  const hiddenPayloadBytes =
+    payloadBytesPerMessage === 0 ? 0 : Math.max(16, Math.floor(payloadBytesPerMessage / 4));
+  const branchCount = branchEvery > 0 ? Math.floor(turnGroups / branchEvery) : 0;
+  const estimatedPayloadBytes =
+    turnGroups * payloadBytesPerMessage * 2 +
+    branchCount * payloadBytesPerMessage +
+    turnGroups * hiddenNodesPerTurn * hiddenPayloadBytes;
+  if (estimatedPayloadBytes > MAX_ESTIMATED_PAYLOAD_BYTES) {
+    throw new RangeError(
+      `Synthetic message payload estimate ${estimatedPayloadBytes} exceeds the ${MAX_ESTIMATED_PAYLOAD_BYTES} byte safety limit.`,
+    );
+  }
   const includeUnknownFields = options.includeUnknownFields ?? true;
   const random = mulberry32(seed);
   const mapping: Record<string, SyntheticFixtureNode> = {};
@@ -200,10 +214,7 @@ export function generateSyntheticConversation(
         message: message(
           hiddenId,
           "tool",
-          payload(
-            payloadBytesPerMessage === 0 ? 0 : Math.max(16, Math.floor(payloadBytesPerMessage / 4)),
-            random,
-          ),
+          payload(hiddenPayloadBytes, random),
           turn,
           "hidden",
         ),
