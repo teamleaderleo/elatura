@@ -13,7 +13,7 @@ export type ObservationRequestPath = {
 };
 
 export type ObservationReport = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   generatedAt: string;
   mode: "observe";
   run: { id: string; startedAt: string; exportedAt: string };
@@ -25,6 +25,14 @@ export type ObservationReport = {
     queryStringsCaptured: false;
     credentialsCaptured: false;
     pathsRedacted: true;
+  };
+  integrity: {
+    totalsComplete: boolean;
+    pathBreakdownComplete: boolean;
+    pathClassLimit: number;
+    pathClassOverflowed: boolean;
+    overflowRequestCount: number;
+    persistenceErrorCount: number;
   };
   summary: {
     requestCount: number;
@@ -60,6 +68,12 @@ export type ObservationGroupSummary = {
     domContentLoadedMs: DistributionSummary | null;
     composerReadyMs: DistributionSummary | null;
   };
+  integrity: {
+    totalsCompleteReportCount: number;
+    pathBreakdownCompleteReportCount: number;
+    overflowRequestCount: number;
+    persistenceErrorCount: number;
+  };
   requestPaths: Array<{
     pathTemplate: string;
     reportCount: number;
@@ -74,7 +88,7 @@ export type ObservationGroupSummary = {
 };
 
 export type ObservationBatchSummary = {
-  schemaVersion: 1;
+  schemaVersion: 2;
   reportCount: number;
   groups: ObservationGroupSummary[];
 };
@@ -89,17 +103,13 @@ function record(value: unknown, path: string): JsonRecord {
 }
 
 function string(value: unknown, path: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new TypeError(`${path} must be a non-empty string.`);
-  }
+  if (typeof value !== "string" || value.length === 0) throw new TypeError(`${path} must be a non-empty string.`);
   return value;
 }
 
 function dateString(value: unknown, path: string): string {
   const parsed = string(value, path);
-  if (Number.isNaN(Date.parse(parsed))) {
-    throw new TypeError(`${path} must be an ISO-compatible date string.`);
-  }
+  if (Number.isNaN(Date.parse(parsed))) throw new TypeError(`${path} must be an ISO-compatible date string.`);
   return parsed;
 }
 
@@ -123,14 +133,18 @@ function nullableNumber(value: unknown, path: string): number | null {
 function stringArray(value: unknown, path: string): string[] {
   if (!Array.isArray(value)) throw new TypeError(`${path} must be an array.`);
   const parsed = value.map((item, index) => string(item, `${path}[${index}]`));
-  if (new Set(parsed).size !== parsed.length) {
-    throw new TypeError(`${path} must not contain duplicates.`);
-  }
+  if (new Set(parsed).size !== parsed.length) throw new TypeError(`${path} must not contain duplicates.`);
   return [...parsed].sort();
 }
 
+function boolean(value: unknown, path: string): boolean {
+  if (typeof value !== "boolean") throw new TypeError(`${path} must be a boolean.`);
+  return value;
+}
+
 function exactBoolean(value: unknown, expected: boolean, path: string): boolean {
-  if (value !== expected) throw new TypeError(`${path} must be ${String(expected)}.`);
+  const parsed = boolean(value, path);
+  if (parsed !== expected) throw new TypeError(`${path} must be ${String(expected)}.`);
   return expected;
 }
 
@@ -141,7 +155,7 @@ function closeEnough(left: number, right: number): boolean {
 export function parseObservationReport(input: unknown): ObservationReport {
   assertContentFreeReport(input);
   const root = record(input, "$report");
-  if (root.schemaVersion !== 1) throw new TypeError("$report.schemaVersion must be 1.");
+  if (root.schemaVersion !== 2) throw new TypeError("$report.schemaVersion must be 2.");
   if (root.mode !== "observe") throw new TypeError('$report.mode must be "observe".');
 
   const run = record(root.run, "$report.run");
@@ -149,6 +163,7 @@ export function parseObservationReport(input: unknown): ObservationReport {
   const browser = record(root.browser, "$report.browser");
   const privacy = record(root.privacy, "$report.privacy");
   const summary = record(root.summary, "$report.summary");
+  const integrity = record(root.integrity, "$report.integrity");
 
   exactBoolean(privacy.responseBodiesCaptured, false, "$report.privacy.responseBodiesCaptured");
   exactBoolean(privacy.messageTextCaptured, false, "$report.privacy.messageTextCaptured");
@@ -156,25 +171,56 @@ export function parseObservationReport(input: unknown): ObservationReport {
   exactBoolean(privacy.credentialsCaptured, false, "$report.privacy.credentialsCaptured");
   exactBoolean(privacy.pathsRedacted, true, "$report.privacy.pathsRedacted");
 
+  const parsedIntegrity = {
+    totalsComplete: boolean(integrity.totalsComplete, "$report.integrity.totalsComplete"),
+    pathBreakdownComplete: boolean(
+      integrity.pathBreakdownComplete,
+      "$report.integrity.pathBreakdownComplete",
+    ),
+    pathClassLimit: nonNegativeInteger(integrity.pathClassLimit, "$report.integrity.pathClassLimit"),
+    pathClassOverflowed: boolean(
+      integrity.pathClassOverflowed,
+      "$report.integrity.pathClassOverflowed",
+    ),
+    overflowRequestCount: nonNegativeInteger(
+      integrity.overflowRequestCount,
+      "$report.integrity.overflowRequestCount",
+    ),
+    persistenceErrorCount: nonNegativeInteger(
+      integrity.persistenceErrorCount,
+      "$report.integrity.persistenceErrorCount",
+    ),
+  };
+  if (parsedIntegrity.pathClassLimit < 1) {
+    throw new TypeError("$report.integrity.pathClassLimit must be positive.");
+  }
+  if (parsedIntegrity.totalsComplete && parsedIntegrity.persistenceErrorCount > 0) {
+    throw new TypeError("A report with persistence errors cannot claim complete totals.");
+  }
+  if (!parsedIntegrity.pathClassOverflowed && parsedIntegrity.overflowRequestCount > 0) {
+    throw new TypeError("Overflow requests require pathClassOverflowed=true.");
+  }
+  if (
+    parsedIntegrity.pathBreakdownComplete &&
+    (!parsedIntegrity.totalsComplete || parsedIntegrity.pathClassOverflowed)
+  ) {
+    throw new TypeError("Complete path breakdown requires complete totals and no path overflow.");
+  }
+
   if (!Array.isArray(root.requestPaths)) throw new TypeError("$report.requestPaths must be an array.");
   const seenPaths = new Set<string>();
   const requestPaths = root.requestPaths.map((item, index): ObservationRequestPath => {
     const path = record(item, `$report.requestPaths[${index}]`);
     const pathTemplate = string(path.pathTemplate, `$report.requestPaths[${index}].pathTemplate`);
     if (!pathTemplate.startsWith("/") || pathTemplate.includes("?") || pathTemplate.includes("://")) {
-      throw new TypeError(
-        `$report.requestPaths[${index}].pathTemplate must be a redacted path without host or query.`,
-      );
+      throw new TypeError(`$report.requestPaths[${index}].pathTemplate must be a redacted path without host or query.`);
     }
     if (seenPaths.has(pathTemplate)) throw new TypeError(`Duplicate path template: ${pathTemplate}`);
     seenPaths.add(pathTemplate);
     const count = nonNegativeInteger(path.count, `$report.requestPaths[${index}].count`);
     const bytes = nonNegativeInteger(path.bytes, `$report.requestPaths[${index}].bytes`);
     const durationMs = nonNegativeNumber(path.durationMs, `$report.requestPaths[${index}].durationMs`);
-    const maxDurationMs = nonNegativeNumber(
-      path.maxDurationMs,
-      `$report.requestPaths[${index}].maxDurationMs`,
-    );
+    const maxDurationMs = nonNegativeNumber(path.maxDurationMs, `$report.requestPaths[${index}].maxDurationMs`);
     const errors = nonNegativeInteger(path.errors, `$report.requestPaths[${index}].errors`);
     if (errors > count) throw new TypeError(`$report.requestPaths[${index}].errors cannot exceed count.`);
     if (count === 0 && (bytes > 0 || durationMs > 0 || maxDurationMs > 0 || errors > 0)) {
@@ -197,22 +243,13 @@ export function parseObservationReport(input: unknown): ObservationReport {
 
   const parsedSummary = {
     requestCount: nonNegativeInteger(summary.requestCount, "$report.summary.requestCount"),
-    totalBytesObserved: nonNegativeInteger(
-      summary.totalBytesObserved,
-      "$report.summary.totalBytesObserved",
-    ),
+    totalBytesObserved: nonNegativeInteger(summary.totalBytesObserved, "$report.summary.totalBytesObserved"),
     totalRequestDurationMs: nonNegativeNumber(
       summary.totalRequestDurationMs,
       "$report.summary.totalRequestDurationMs",
     ),
-    requestErrorCount: nonNegativeInteger(
-      summary.requestErrorCount,
-      "$report.summary.requestErrorCount",
-    ),
-    domContentLoadedMs: nullableNumber(
-      summary.domContentLoadedMs,
-      "$report.summary.domContentLoadedMs",
-    ),
+    requestErrorCount: nonNegativeInteger(summary.requestErrorCount, "$report.summary.requestErrorCount"),
+    domContentLoadedMs: nullableNumber(summary.domContentLoadedMs, "$report.summary.domContentLoadedMs"),
     composerReadyMs: nullableNumber(summary.composerReadyMs, "$report.summary.composerReadyMs"),
   };
 
@@ -225,12 +262,8 @@ export function parseObservationReport(input: unknown): ObservationReport {
     }),
     { count: 0, bytes: 0, durationMs: 0, errors: 0 },
   );
-  if (parsedSummary.requestCount !== reconciled.count) {
-    throw new TypeError("Summary requestCount does not reconcile.");
-  }
-  if (parsedSummary.totalBytesObserved !== reconciled.bytes) {
-    throw new TypeError("Summary totalBytesObserved does not reconcile.");
-  }
+  if (parsedSummary.requestCount !== reconciled.count) throw new TypeError("Summary requestCount does not reconcile.");
+  if (parsedSummary.totalBytesObserved !== reconciled.bytes) throw new TypeError("Summary totalBytesObserved does not reconcile.");
   if (!closeEnough(parsedSummary.totalRequestDurationMs, reconciled.durationMs)) {
     throw new TypeError("Summary totalRequestDurationMs does not reconcile.");
   }
@@ -238,8 +271,17 @@ export function parseObservationReport(input: unknown): ObservationReport {
     throw new TypeError("Summary requestErrorCount does not reconcile.");
   }
 
+  const overflowPath = requestPaths.find((path) => path.pathTemplate === "/:elatura-overflow");
+  if (parsedIntegrity.pathClassOverflowed) {
+    if (!overflowPath || overflowPath.count !== parsedIntegrity.overflowRequestCount) {
+      throw new TypeError("Overflow path totals do not reconcile with integrity metadata.");
+    }
+  } else if (overflowPath || parsedIntegrity.overflowRequestCount !== 0) {
+    throw new TypeError("Unexpected overflow path or count.");
+  }
+
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAt: dateString(root.generatedAt, "$report.generatedAt"),
     mode: "observe",
     run: {
@@ -261,6 +303,7 @@ export function parseObservationReport(input: unknown): ObservationReport {
       credentialsCaptured: false,
       pathsRedacted: true,
     },
+    integrity: parsedIntegrity,
     summary: parsedSummary,
     requestPaths,
   };
@@ -296,9 +339,7 @@ export function summarizeObservationReports(inputs: readonly unknown[]): Observa
   const reports = inputs.map(parseObservationReport);
   const runIds = new Set<string>();
   for (const report of reports) {
-    if (runIds.has(report.run.id)) {
-      throw new TypeError(`Duplicate observation run id: ${report.run.id}`);
-    }
+    if (runIds.has(report.run.id)) throw new TypeError(`Duplicate observation run id: ${report.run.id}`);
     runIds.add(report.run.id);
   }
   const groups = new Map<string, ObservationReport[]>();
@@ -356,20 +397,26 @@ export function summarizeObservationReports(inputs: readonly unknown[]): Observa
         reportCount: group.length,
         metrics: {
           requestCount: summarizeDistribution(group.map((report) => report.summary.requestCount)),
-          totalBytesObserved: summarizeDistribution(
-            group.map((report) => report.summary.totalBytesObserved),
-          ),
+          totalBytesObserved: summarizeDistribution(group.map((report) => report.summary.totalBytesObserved)),
           totalRequestDurationMs: summarizeDistribution(
             group.map((report) => report.summary.totalRequestDurationMs),
           ),
-          requestErrorCount: summarizeDistribution(
-            group.map((report) => report.summary.requestErrorCount),
+          requestErrorCount: summarizeDistribution(group.map((report) => report.summary.requestErrorCount)),
+          domContentLoadedMs: optionalDistribution(group.map((report) => report.summary.domContentLoadedMs)),
+          composerReadyMs: optionalDistribution(group.map((report) => report.summary.composerReadyMs)),
+        },
+        integrity: {
+          totalsCompleteReportCount: group.filter((report) => report.integrity.totalsComplete).length,
+          pathBreakdownCompleteReportCount: group.filter(
+            (report) => report.integrity.pathBreakdownComplete,
+          ).length,
+          overflowRequestCount: group.reduce(
+            (sum, report) => sum + report.integrity.overflowRequestCount,
+            0,
           ),
-          domContentLoadedMs: optionalDistribution(
-            group.map((report) => report.summary.domContentLoadedMs),
-          ),
-          composerReadyMs: optionalDistribution(
-            group.map((report) => report.summary.composerReadyMs),
+          persistenceErrorCount: group.reduce(
+            (sum, report) => sum + report.integrity.persistenceErrorCount,
+            0,
           ),
         },
         requestPaths: [...pathTotals.entries()]
@@ -384,12 +431,9 @@ export function summarizeObservationReports(inputs: readonly unknown[]): Observa
             methods: [...totals.methods].sort(),
             resourceTypes: [...totals.resourceTypes].sort(),
           }))
-          .sort(
-            (left, right) =>
-              right.totalBytes - left.totalBytes || left.pathTemplate.localeCompare(right.pathTemplate),
-          ),
+          .sort((left, right) => right.totalBytes - left.totalBytes || left.pathTemplate.localeCompare(right.pathTemplate)),
       };
     });
 
-  return { schemaVersion: 1, reportCount: reports.length, groups: summaries };
+  return { schemaVersion: 2, reportCount: reports.length, groups: summaries };
 }
