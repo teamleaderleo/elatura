@@ -40,6 +40,7 @@ export type SyntheticConversationFixture = {
   future_top_level_field?: Record<string, unknown>;
 };
 
+const MAX_ESTIMATED_NODES = 500_000;
 const MAX_ESTIMATED_PAYLOAD_BYTES = 512 * 1024 * 1024;
 
 const LIMITS = {
@@ -116,6 +117,12 @@ export function generateSyntheticConversation(
   const hiddenPayloadBytes =
     payloadBytesPerMessage === 0 ? 0 : Math.max(16, Math.floor(payloadBytesPerMessage / 4));
   const branchCount = branchEvery > 0 ? Math.floor(turnGroups / branchEvery) : 0;
+  const estimatedNodes = 1 + turnGroups * (2 + hiddenNodesPerTurn) + branchCount;
+  if (estimatedNodes > MAX_ESTIMATED_NODES) {
+    throw new RangeError(
+      `Synthetic node estimate ${estimatedNodes} exceeds the ${MAX_ESTIMATED_NODES} node safety limit.`,
+    );
+  }
   const estimatedPayloadBytes =
     turnGroups * payloadBytesPerMessage * 2 +
     branchCount * payloadBytesPerMessage +
@@ -250,12 +257,26 @@ function cloneFixture(source: SyntheticConversationFixture): SyntheticConversati
   return structuredClone(source);
 }
 
+function firstParentWithChild(
+  source: SyntheticConversationFixture,
+): SyntheticFixtureNode {
+  const parent = Object.values(source.mapping).find((node) => node.children.length > 0);
+  if (!parent) throw new Error("Fixture has no child reference to corrupt.");
+  return parent;
+}
+
+function uniqueCorruptionId(source: SyntheticConversationFixture, suffix: string): string {
+  let candidate = `synthetic-corrupt-${suffix}`;
+  let counter = 0;
+  while (source.mapping[candidate]) candidate = `synthetic-corrupt-${suffix}-${++counter}`;
+  return candidate;
+}
+
 export function corruptMissingChild(
   source: SyntheticConversationFixture,
 ): SyntheticConversationFixture {
   const copy = cloneFixture(source);
-  const parent = Object.values(copy.mapping).find((node) => node.children.length > 0);
-  if (!parent) throw new Error("Fixture has no child reference to corrupt.");
+  const parent = firstParentWithChild(copy);
   parent.children[0] = "synthetic-missing-node";
   return copy;
 }
@@ -282,4 +303,75 @@ export function corruptActiveCycle(
   root.parent = current.id;
   if (!current.children.includes(root.id)) current.children.push(root.id);
   return copy;
+}
+
+export function corruptDuplicateChild(
+  source: SyntheticConversationFixture,
+): SyntheticConversationFixture {
+  const copy = cloneFixture(source);
+  const parent = firstParentWithChild(copy);
+  const child = parent.children[0];
+  if (!child) throw new Error("Fixture has no child reference to duplicate.");
+  parent.children.push(child);
+  return copy;
+}
+
+export function corruptNodeIdMismatch(
+  source: SyntheticConversationFixture,
+): SyntheticConversationFixture {
+  const copy = cloneFixture(source);
+  const entry = Object.entries(copy.mapping)[0];
+  if (!entry) throw new Error("Fixture has no node id to corrupt.");
+  const [key, node] = entry;
+  node.id = `${key}-mismatch`;
+  return copy;
+}
+
+export function corruptDisconnectedCycle(
+  source: SyntheticConversationFixture,
+): SyntheticConversationFixture {
+  const copy = cloneFixture(source);
+  const firstId = uniqueCorruptionId(copy, "disconnected-a");
+  const secondId = uniqueCorruptionId(copy, "disconnected-b");
+  copy.mapping[firstId] = {
+    id: firstId,
+    parent: secondId,
+    children: [secondId],
+    elatura_fixture: { turnGroup: "corrupt-disconnected", kind: "hidden", active: false },
+  };
+  copy.mapping[secondId] = {
+    id: secondId,
+    parent: firstId,
+    children: [firstId],
+    elatura_fixture: { turnGroup: "corrupt-disconnected", kind: "hidden", active: false },
+  };
+  return copy;
+}
+
+export function corruptMalformedRoot(
+  source: SyntheticConversationFixture,
+): SyntheticConversationFixture {
+  const copy = cloneFixture(source);
+  const root = Object.values(copy.mapping).find((node) => node.parent === null);
+  if (!root) throw new Error("Fixture has no root to corrupt.");
+  (root as unknown as { parent: unknown }).parent = 42;
+  return copy;
+}
+
+export function reorderSyntheticConversationKeys(
+  source: SyntheticConversationFixture,
+): SyntheticConversationFixture {
+  const copy = cloneFixture(source);
+  const reversedMapping = Object.fromEntries(
+    Object.entries(copy.mapping)
+      .reverse()
+      .map(([id, node]) => [
+        id,
+        Object.fromEntries(Object.entries(node).reverse()) as unknown as SyntheticFixtureNode,
+      ]),
+  );
+  copy.mapping = reversedMapping;
+  return Object.fromEntries(
+    Object.entries(copy).reverse(),
+  ) as unknown as SyntheticConversationFixture;
 }
