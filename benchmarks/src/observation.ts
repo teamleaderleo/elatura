@@ -294,6 +294,13 @@ function optionalDistribution(values: readonly (number | null)[]): DistributionS
 export function summarizeObservationReports(inputs: readonly unknown[]): ObservationBatchSummary {
   if (inputs.length === 0) throw new RangeError("At least one observation report is required.");
   const reports = inputs.map(parseObservationReport);
+  const runIds = new Set<string>();
+  for (const report of reports) {
+    if (runIds.has(report.run.id)) {
+      throw new TypeError(`Duplicate observation run id: ${report.run.id}`);
+    }
+    runIds.add(report.run.id);
+  }
   const groups = new Map<string, ObservationReport[]>();
   for (const report of reports) {
     const key = [report.mode, report.browser.name, report.browser.version, report.extension.version].join("|");
