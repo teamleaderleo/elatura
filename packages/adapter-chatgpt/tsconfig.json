@@ -4,7 +4,8 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "paths": {
-      "@elatura/core": ["../core/src/index.ts"]
+      "@elatura/core": ["../core/src/index.ts"],
+      "@elatura/core/orchestration": ["../core/src/orchestration.ts"]
     },
     "strict": true,
     "noUncheckedIndexedAccess": true,

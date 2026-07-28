@@ -18,6 +18,10 @@
     "./contracts": {
       "types": "./dist/contracts.d.ts",
       "default": "./dist/contracts.js"
+    },
+    "./synthetic": {
+      "types": "./dist/synthetic.d.ts",
+      "default": "./dist/synthetic.js"
     }
   },
   "types": "./dist/index.d.ts"

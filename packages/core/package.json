@@ -21,6 +21,10 @@
       "types": "./dist/conformance.d.ts",
       "default": "./dist/conformance.js"
     },
+    "./orchestration": {
+      "types": "./dist/orchestration.d.ts",
+      "default": "./dist/orchestration.js"
+    },
     "./representation": {
       "types": "./dist/representation.d.ts",
       "default": "./dist/representation.js"
