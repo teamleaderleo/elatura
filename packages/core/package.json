@@ -4,6 +4,27 @@
   "private": true,
   "type": "module",
   "license": "MPL-2.0",
-  "exports": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./adapter-contract": {
+      "types": "./dist/adapter-contract.d.ts",
+      "default": "./dist/adapter-contract.js"
+    },
+    "./cache": {
+      "types": "./dist/cache.d.ts",
+      "default": "./dist/cache.js"
+    },
+    "./conformance": {
+      "types": "./dist/conformance.d.ts",
+      "default": "./dist/conformance.js"
+    },
+    "./representation": {
+      "types": "./dist/representation.d.ts",
+      "default": "./dist/representation.js"
+    }
+  },
   "types": "./dist/index.d.ts"
 }

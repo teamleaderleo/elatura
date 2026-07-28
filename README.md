@@ -11,13 +11,20 @@ Elatura is in **M0: evidence and observation**. The current code does not modify
 - an observe-only Firefox extension that passes response bytes through unchanged
 - explicit benchmark runs with content-free JSON export
 - lossless run totals, bounded redacted path aggregation, and report integrity flags
-- generic adapter and validation contracts
+- capability-driven generic adapter contracts
+- a reusable staged adapter conformance runner
+- explicit schema-drift and adapter-version compatibility rules
 - a conservative ChatGPT graph-shape inspector
 - deterministic oversized synthetic fixtures and malformed graph families
 - generic active-path selection planning without response materialization
 - identifier-free, bounded structural fingerprints
+- a versioned synthetic-only in-memory cache with isolation, expiry, invalidation, retention, deletion, and corruption recovery
+- provenance and read-only representation contracts for search, timelines, branch navigation, code extraction, and jump-back
+- a synthetic-only ChatGPT alternate representation
 - privacy-validating batch analysis for observation reports
 - property and compatibility tests
+
+Private transcript persistence, private alternate-surface bridging, and live response transformation remain disabled behind the project gates.
 
 Do not rely on Elatura for data recovery or production browsing yet.
 
@@ -51,15 +58,21 @@ npm run analyze:reports -- benchmarks/reports --out artifacts/summary.json
 
 See `docs/offline-development.md` for the boundary between safe synthetic work and live-schema-dependent work.
 
+## Contract documentation
+
+- `docs/adapter-contracts.md` — capability declarations, staged methods, conformance, schema drift, and version compatibility
+- `docs/cache-and-provenance.md` — cache envelopes, isolation, content identity, freshness, retention, recovery, provenance, and protection hooks
+- `docs/second-workload-rubric.md` — evidence-based selection criteria for the second real adapter
+
 ## Repository map
 
 ```text
 extension/firefox/        observe-only Firefox transport and tested report export
-packages/core/            generic runtime contracts, fingerprints, and selection planning
-packages/adapter-chatgpt/ ChatGPT-specific graph inspection
+packages/core/            generic runtime, adapter, cache, provenance, representation, fingerprint, and selection contracts
+packages/adapter-chatgpt/ ChatGPT-specific graph inspection and synthetic representation
 packages/fixtures/        deterministic synthetic and malformed graph workloads
 benchmarks/               report privacy validation, parsing, integrity, and batch analysis
-docs/                     architecture, privacy, measurement, and development decisions
+docs/                     architecture, privacy, contracts, measurement, and development decisions
 ```
 
 ## License
