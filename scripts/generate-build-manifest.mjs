@@ -44,7 +44,7 @@ function sourceRevision() {
   return revision;
 }
 
-async function adapterVersions() {
+async function adapterPackageVersions() {
   const packageRoot = join(ROOT, "packages");
   const directories = (await readdir(packageRoot, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory() && entry.name.startsWith("adapter-"))
@@ -64,7 +64,7 @@ const extensionManifest = JSON.parse(await readFile(join(ROOT, "extension/firefo
 const extension = await digestDirectory(join(ROOT, "extension/firefox/dist"));
 
 const manifest = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   revision: sourceRevision(),
   dependencyLockSha256: sha256(lockBytes),
   capabilityPolicySha256: sha256(capabilityBytes),
@@ -72,7 +72,7 @@ const manifest = {
   extensionFiles: extension.files,
   requestedPermissions: [...(extensionManifest.permissions ?? [])].sort(),
   requestedHostPermissions: [...(extensionManifest.host_permissions ?? [])].sort(),
-  adapterVersions: await adapterVersions(),
+  adapterPackageVersions: await adapterPackageVersions(),
 };
 
 const outputPath = join(ROOT, "artifacts/build-manifest.json");
