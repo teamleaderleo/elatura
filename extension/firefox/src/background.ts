@@ -1,14 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 
-const MAX_REQUEST_METRICS = 200;
-const MAX_PAGE_METRICS = 100;
-let storageWriteQueue: Promise<void> = Promise.resolve();
+const OBSERVATION_STATE_SCHEMA_VERSION = 2 as const;
+const MAX_PATH_CLASSES = 256;
+const OVERFLOW_PATH_TEMPLATE = "/:elatura-overflow";
 
-type BackgroundObservationRun = {
-  id: string;
-  startedAt: string;
-};
-
+type BackgroundObservationRun = { id: string; startedAt: string };
 type BackgroundRequestMetric = {
   runId: string;
   method: string;
@@ -17,30 +13,92 @@ type BackgroundRequestMetric = {
   bytes: number;
   durationMs: number;
   outcome: "stopped" | "error";
-  recordedAt: string;
 };
-
 type BackgroundPageMetric = {
-  runId: string;
   kind: "dom-content-loaded" | "composer-like-input";
   elapsedMs: number;
   recordedAt: string;
   pathTemplate: string;
 };
-
-type StoredObservationState = {
+type BackgroundPathAggregate = {
+  pathTemplate: string;
+  count: number;
+  bytes: number;
+  durationMs: number;
+  maxDurationMs: number;
+  errors: number;
+  methods: string[];
+  resourceTypes: string[];
+};
+type BackgroundObservationState = {
+  storageSchemaVersion: typeof OBSERVATION_STATE_SCHEMA_VERSION;
   activeRun?: BackgroundObservationRun;
-  requestMetrics?: BackgroundRequestMetric[];
-  pageMetrics?: BackgroundPageMetric[];
+  summary: {
+    requestCount: number;
+    totalBytesObserved: number;
+    totalRequestDurationMs: number;
+    requestErrorCount: number;
+  };
+  requestPaths: Record<string, BackgroundPathAggregate>;
+  pageMarks: { domContentLoadedMs: number | null; composerReadyMs: number | null };
+  integrity: {
+    pathClassLimit: number;
+    pathClassOverflowed: boolean;
+    overflowRequestCount: number;
+    persistenceErrorCount: number;
+  };
 };
 
-let activeRun: BackgroundObservationRun | null = null;
-void browser.storage.local
-  .get<StoredObservationState>()
-  .then((stored) => {
-    activeRun = stored.activeRun ?? null;
+function idleState(): BackgroundObservationState {
+  return {
+    storageSchemaVersion: OBSERVATION_STATE_SCHEMA_VERSION,
+    summary: {
+      requestCount: 0,
+      totalBytesObserved: 0,
+      totalRequestDurationMs: 0,
+      requestErrorCount: 0,
+    },
+    requestPaths: {},
+    pageMarks: { domContentLoadedMs: null, composerReadyMs: null },
+    integrity: {
+      pathClassLimit: MAX_PATH_CLASSES,
+      pathClassOverflowed: false,
+      overflowRequestCount: 0,
+      persistenceErrorCount: 0,
+    },
+  };
+}
+
+function activeState(run: BackgroundObservationRun): BackgroundObservationState {
+  return { ...idleState(), activeRun: run };
+}
+
+function isCurrentState(value: unknown): value is BackgroundObservationState {
+  if (!value || typeof value !== "object") return false;
+  const state = value as Partial<BackgroundObservationState>;
+  return (
+    state.storageSchemaVersion === OBSERVATION_STATE_SCHEMA_VERSION &&
+    typeof state.summary === "object" &&
+    state.summary !== null &&
+    typeof state.requestPaths === "object" &&
+    state.requestPaths !== null &&
+    typeof state.pageMarks === "object" &&
+    state.pageMarks !== null &&
+    typeof state.integrity === "object" &&
+    state.integrity !== null
+  );
+}
+
+let observationState = idleState();
+let storageWriteQueue: Promise<void> = browser.storage.local
+  .get<Record<string, unknown>>()
+  .then(async (stored) => {
+    if (isCurrentState(stored)) observationState = stored;
+    else await browser.storage.local.clear();
   })
-  .catch(() => undefined);
+  .catch((error: unknown) => {
+    console.warn("Elatura could not initialize observation storage.", error);
+  });
 
 function redactPath(rawUrl: string): string {
   try {
@@ -64,45 +122,86 @@ function enqueueStorage(operation: () => Promise<void>): Promise<void> {
     .catch(() => undefined)
     .then(operation)
     .catch((error: unknown) => {
+      if (observationState.activeRun) observationState.integrity.persistenceErrorCount += 1;
       console.warn("Elatura could not persist observation state.", error);
     });
   return storageWriteQueue;
 }
 
-function appendBounded<T>(key: string, item: T, limit: number): Promise<void> {
-  return enqueueStorage(async () => {
-    const stored = await browser.storage.local.get<Record<string, T[]>>({ [key]: [] });
-    const current = Array.isArray(stored[key]) ? stored[key] : [];
-    await browser.storage.local.set({ [key]: [...current, item].slice(-limit) });
-  });
+function persistCurrentState(): Promise<void> {
+  return browser.storage.local.set(observationState as unknown as Record<string, unknown>);
 }
 
 function startObservationRun(): Promise<BackgroundObservationRun> {
-  const run: BackgroundObservationRun = {
-    id: crypto.randomUUID(),
-    startedAt: new Date().toISOString(),
-  };
-  activeRun = run;
+  const run: BackgroundObservationRun = { id: crypto.randomUUID(), startedAt: new Date().toISOString() };
   return enqueueStorage(async () => {
+    observationState = activeState(run);
     await browser.storage.local.clear();
-    await browser.storage.local.set({ activeRun: run });
+    await persistCurrentState();
   }).then(() => run);
 }
 
 function clearObservationRun(): Promise<void> {
-  activeRun = null;
-  return enqueueStorage(() => browser.storage.local.clear());
-}
-
-async function getObservationState(): Promise<StoredObservationState> {
-  await storageWriteQueue.catch(() => undefined);
-  return browser.storage.local.get<StoredObservationState>({
-    requestMetrics: [],
-    pageMetrics: [],
+  return enqueueStorage(async () => {
+    observationState = idleState();
+    await browser.storage.local.clear();
   });
 }
 
-function isPageMetric(value: unknown): value is Omit<BackgroundPageMetric, "runId"> {
+async function getObservationState(): Promise<BackgroundObservationState> {
+  await storageWriteQueue.catch(() => undefined);
+  return structuredClone(observationState);
+}
+
+function sortedUnion(values: readonly string[], addition: string): string[] {
+  return values.includes(addition) ? [...values] : [...values, addition].sort();
+}
+
+function aggregateRequest(metric: BackgroundRequestMetric): Promise<void> {
+  return enqueueStorage(async () => {
+    if (observationState.activeRun?.id !== metric.runId) return;
+
+    observationState.summary.requestCount += 1;
+    observationState.summary.totalBytesObserved += metric.bytes;
+    observationState.summary.totalRequestDurationMs += metric.durationMs;
+    if (metric.outcome === "error") observationState.summary.requestErrorCount += 1;
+
+    let pathTemplate = metric.pathTemplate;
+    let aggregate = observationState.requestPaths[pathTemplate];
+    if (!aggregate) {
+      const knownPathCount = Object.keys(observationState.requestPaths).filter(
+        (path) => path !== OVERFLOW_PATH_TEMPLATE,
+      ).length;
+      if (knownPathCount >= observationState.integrity.pathClassLimit) {
+        pathTemplate = OVERFLOW_PATH_TEMPLATE;
+        observationState.integrity.pathClassOverflowed = true;
+        observationState.integrity.overflowRequestCount += 1;
+        aggregate = observationState.requestPaths[pathTemplate];
+      }
+    }
+    aggregate ??= {
+      pathTemplate,
+      count: 0,
+      bytes: 0,
+      durationMs: 0,
+      maxDurationMs: 0,
+      errors: 0,
+      methods: [],
+      resourceTypes: [],
+    };
+    aggregate.count += 1;
+    aggregate.bytes += metric.bytes;
+    aggregate.durationMs += metric.durationMs;
+    aggregate.maxDurationMs = Math.max(aggregate.maxDurationMs, metric.durationMs);
+    if (metric.outcome === "error") aggregate.errors += 1;
+    aggregate.methods = sortedUnion(aggregate.methods, metric.method);
+    aggregate.resourceTypes = sortedUnion(aggregate.resourceTypes, metric.resourceType);
+    observationState.requestPaths[pathTemplate] = aggregate;
+    await persistCurrentState();
+  });
+}
+
+function isPageMetric(value: unknown): value is BackgroundPageMetric {
   if (!value || typeof value !== "object") return false;
   const metric = value as Partial<BackgroundPageMetric>;
   return (
@@ -116,9 +215,18 @@ function isPageMetric(value: unknown): value is Omit<BackgroundPageMetric, "runI
   );
 }
 
+function recordPageMetric(metric: BackgroundPageMetric): Promise<void> {
+  return enqueueStorage(async () => {
+    if (!observationState.activeRun) return;
+    if (metric.kind === "dom-content-loaded") observationState.pageMarks.domContentLoadedMs = metric.elapsedMs;
+    else observationState.pageMarks.composerReadyMs = metric.elapsedMs;
+    await persistCurrentState();
+  });
+}
+
 browser.webRequest.onBeforeRequest.addListener(
   (details) => {
-    const run = activeRun;
+    const run = observationState.activeRun;
     if (!run) return;
 
     let filter: StreamFilter;
@@ -140,7 +248,7 @@ browser.webRequest.onBeforeRequest.addListener(
     const finish = (outcome: BackgroundRequestMetric["outcome"]) => {
       if (completed) return;
       completed = true;
-      const metric: BackgroundRequestMetric = {
+      void aggregateRequest({
         runId: run.id,
         method: details.method,
         resourceType: details.type,
@@ -148,9 +256,7 @@ browser.webRequest.onBeforeRequest.addListener(
         bytes,
         durationMs: Math.max(0, performance.now() - startedAt),
         outcome,
-        recordedAt: new Date().toISOString(),
-      };
-      void appendBounded("requestMetrics", metric, MAX_REQUEST_METRICS);
+      });
     };
 
     filter.onstop = () => {
@@ -167,26 +273,17 @@ browser.webRequest.onBeforeRequest.addListener(
       }
     };
   },
-  {
-    urls: ["https://chatgpt.com/*"],
-    types: ["xmlhttprequest", "other"],
-  },
+  { urls: ["https://chatgpt.com/*"], types: ["xmlhttprequest", "other"] },
 );
 
 browser.runtime.onMessage.addListener((message) => {
   if (!message || typeof message !== "object") return undefined;
   const candidate = message as { type?: string; metric?: unknown };
-
   if (candidate.type === "elatura:start-run") return startObservationRun();
   if (candidate.type === "elatura:clear-run") return clearObservationRun();
   if (candidate.type === "elatura:get-state") return getObservationState();
-
-  if (candidate.type !== "elatura:page-metric" || !isPageMetric(candidate.metric)) return undefined;
-  const run = activeRun;
-  if (!run) return undefined;
-  return appendBounded(
-    "pageMetrics",
-    { ...candidate.metric, runId: run.id },
-    MAX_PAGE_METRICS,
-  );
+  if (candidate.type === "elatura:page-metric" && isPageMetric(candidate.metric)) {
+    return recordPageMetric(candidate.metric);
+  }
+  return undefined;
 });
