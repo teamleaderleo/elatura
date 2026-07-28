@@ -60,3 +60,5 @@ Building an engine would bury the experiment under security, compatibility, medi
 ## WebKit position
 
 A focused macOS shell using WKWebView remains a plausible later transport. It may offer a cleaner product surface and tighter lifecycle control, but its public API does not expose the same ordinary-HTTPS response-body interception primitive. Prove the adapter and cache model in Firefox first; revisit WebKit after M1.
+
+The evidence, cross-browser capability matrix, engine-neutral contract requirements, and measurable Firefox exit criteria are maintained in [`transport-capability-matrix.md`](transport-capability-matrix.md).
