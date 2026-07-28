@@ -1,0 +1,30 @@
+name: Bootstrap frozen lockfile
+
+on:
+  push:
+    branches: [agent-1/security-release-gate]
+
+permissions:
+  contents: write
+
+jobs:
+  commit-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: agent-1/security-release-gate
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - run: npm install --package-lock-only --ignore-scripts
+      - name: Commit frozen lockfile
+        run: |
+          if git diff --quiet -- package-lock.json && git ls-files --error-unmatch package-lock.json >/dev/null 2>&1; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "Commit frozen npm lockfile"
+          git push origin HEAD:agent-1/security-release-gate
