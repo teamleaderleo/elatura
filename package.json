@@ -21,7 +21,8 @@
     "build:extension": "npm run build && npm run security:gate && web-ext build --overwrite-dest --source-dir extension/firefox/dist --artifacts-dir artifacts && npm run build:manifest",
     "generate:fixture": "npm run build && node scripts/generate-fixture.mjs",
     "analyze:reports": "npm run build && node scripts/analyze-reports.mjs",
-    "compare:benchmarks": "npm run build && node scripts/compare-benchmarks.mjs"
+    "compare:benchmarks": "npm run build && node scripts/compare-benchmarks.mjs",
+    "benchmark:synthetic-materialization": "npm run build && node --expose-gc scripts/benchmark-synthetic-materialization.mjs"
   },
   "engines": {
     "node": ">=22"
