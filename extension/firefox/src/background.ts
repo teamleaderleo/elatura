@@ -4,7 +4,7 @@ const MAX_REQUEST_METRICS = 200;
 const MAX_PAGE_METRICS = 100;
 let storageWriteQueue: Promise<void> = Promise.resolve();
 
-type ObservationRun = {
+type BackgroundObservationRun = {
   id: string;
   startedAt: string;
 };
@@ -29,12 +29,12 @@ type BackgroundPageMetric = {
 };
 
 type StoredObservationState = {
-  activeRun?: ObservationRun;
+  activeRun?: BackgroundObservationRun;
   requestMetrics?: BackgroundRequestMetric[];
   pageMetrics?: BackgroundPageMetric[];
 };
 
-let activeRun: ObservationRun | null = null;
+let activeRun: BackgroundObservationRun | null = null;
 void browser.storage.local
   .get<StoredObservationState>()
   .then((stored) => {
@@ -77,8 +77,8 @@ function appendBounded<T>(key: string, item: T, limit: number): Promise<void> {
   });
 }
 
-function startObservationRun(): Promise<ObservationRun> {
-  const run: ObservationRun = {
+function startObservationRun(): Promise<BackgroundObservationRun> {
+  const run: BackgroundObservationRun = {
     id: crypto.randomUUID(),
     startedAt: new Date().toISOString(),
   };
