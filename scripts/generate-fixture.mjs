@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { generateSyntheticConversation } from "../packages/fixtures/dist/index.js";
 
 function usage() {
@@ -55,8 +56,11 @@ for (let index = 0; index < args.length; index += 1) {
 
 try {
   const json = `${JSON.stringify(generateSyntheticConversation(options), null, 2)}\n`;
-  if (outputPath) await writeFile(outputPath, json, "utf8");
-  else process.stdout.write(json);
+  if (outputPath) {
+    const resolved = resolve(outputPath);
+    await mkdir(dirname(resolved), { recursive: true });
+    await writeFile(resolved, json, "utf8");
+  } else process.stdout.write(json);
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   usage();
