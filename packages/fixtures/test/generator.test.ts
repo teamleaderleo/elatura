@@ -45,5 +45,8 @@ describe("synthetic conversation fixtures", () => {
     expect(() => generateSyntheticConversation({ turnGroups: 0 })).toThrow(/turnGroups/);
     expect(() => generateSyntheticConversation({ seed: -1 })).toThrow(/seed/);
     expect(() => generateSyntheticConversation({ payloadBytesPerMessage: 1_000_001 })).toThrow(/payloadBytesPerMessage/);
+    expect(() =>
+      generateSyntheticConversation({ turnGroups: 100_000, payloadBytesPerMessage: 1_000_000 }),
+    ).toThrow(/safety limit/);
   });
 });
