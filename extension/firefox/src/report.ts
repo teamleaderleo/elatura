@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
-export const OBSERVATION_STATE_SCHEMA_VERSION = 2 as const;
+export const OBSERVATION_STATE_SCHEMA_VERSION = 3 as const;
 export const OBSERVATION_REPORT_SCHEMA_VERSION = 2 as const;
 export const OVERFLOW_PATH_TEMPLATE = "/:elatura-overflow";
 
@@ -34,6 +34,7 @@ export type ObservationCaptureIntegrity = {
   pathClassOverflowed: boolean;
   overflowRequestCount: number;
   persistenceErrorCount: number;
+  captureInterruptionCount: number;
 };
 
 export type StoredObservationState = {
@@ -43,6 +44,16 @@ export type StoredObservationState = {
   requestPaths: Record<string, ObservationPathAggregate>;
   pageMarks: ObservationPageMarks;
   integrity: ObservationCaptureIntegrity;
+};
+
+type StoredObservationStateV2 = Omit<StoredObservationState, "storageSchemaVersion" | "integrity"> & {
+  storageSchemaVersion: 2;
+  integrity: Omit<ObservationCaptureIntegrity, "captureInterruptionCount">;
+};
+
+export type ObservationStateMigration = {
+  state: StoredObservationState;
+  migratedFrom: 2 | null;
 };
 
 export type ObservationReportMetadata = {
@@ -71,10 +82,48 @@ export type ObservationReport = {
     pathClassOverflowed: boolean;
     overflowRequestCount: number;
     persistenceErrorCount: number;
+    captureInterruptionCount: number;
   };
   summary: ObservationRequestSummary & ObservationPageMarks;
   requestPaths: ObservationPathAggregate[];
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function migrateStoredObservationState(value: unknown): ObservationStateMigration | null {
+  if (!isRecord(value)) return null;
+  if (value.storageSchemaVersion !== 2 && value.storageSchemaVersion !== OBSERVATION_STATE_SCHEMA_VERSION) {
+    return null;
+  }
+  if (
+    !isRecord(value.summary) ||
+    !isRecord(value.requestPaths) ||
+    !isRecord(value.pageMarks) ||
+    !isRecord(value.integrity)
+  ) {
+    return null;
+  }
+
+  const migratedFrom = value.storageSchemaVersion === 2 ? 2 : null;
+  const candidate = structuredClone(value) as StoredObservationState | StoredObservationStateV2;
+  const captureInterruptionCount =
+    candidate.storageSchemaVersion === 2 ? 0 : candidate.integrity.captureInterruptionCount;
+  if (!Number.isInteger(captureInterruptionCount) || captureInterruptionCount < 0) return null;
+
+  return {
+    state: {
+      ...candidate,
+      storageSchemaVersion: OBSERVATION_STATE_SCHEMA_VERSION,
+      integrity: {
+        ...candidate.integrity,
+        captureInterruptionCount,
+      },
+    },
+    migratedFrom,
+  };
+}
 
 function finiteNonNegative(value: number, name: string): void {
   if (!Number.isFinite(value) || value < 0) throw new TypeError(`${name} must be finite and non-negative.`);
@@ -99,11 +148,13 @@ function validateState(state: StoredObservationState): ObservationPathAggregate[
   finiteNonNegative(state.integrity.pathClassLimit, "pathClassLimit");
   finiteNonNegative(state.integrity.overflowRequestCount, "overflowRequestCount");
   finiteNonNegative(state.integrity.persistenceErrorCount, "persistenceErrorCount");
+  finiteNonNegative(state.integrity.captureInterruptionCount, "captureInterruptionCount");
   if (
     !Number.isInteger(state.integrity.pathClassLimit) ||
     state.integrity.pathClassLimit < 1 ||
     !Number.isInteger(state.integrity.overflowRequestCount) ||
-    !Number.isInteger(state.integrity.persistenceErrorCount)
+    !Number.isInteger(state.integrity.persistenceErrorCount) ||
+    !Number.isInteger(state.integrity.captureInterruptionCount)
   ) {
     throw new TypeError("Observation integrity counters must be valid integers.");
   }
@@ -174,7 +225,8 @@ export function buildObservationReport(
   const requestPaths = validateState(state)
     .map((path) => ({ ...path, methods: [...path.methods].sort(), resourceTypes: [...path.resourceTypes].sort() }))
     .sort((left, right) => right.bytes - left.bytes || left.pathTemplate.localeCompare(right.pathTemplate));
-  const totalsComplete = state.integrity.persistenceErrorCount === 0;
+  const totalsComplete =
+    state.integrity.persistenceErrorCount === 0 && state.integrity.captureInterruptionCount === 0;
   const pathBreakdownComplete = totalsComplete && !state.integrity.pathClassOverflowed;
   return {
     schemaVersion: OBSERVATION_REPORT_SCHEMA_VERSION,
@@ -201,6 +253,7 @@ export function buildObservationReport(
       pathClassOverflowed: state.integrity.pathClassOverflowed,
       overflowRequestCount: state.integrity.overflowRequestCount,
       persistenceErrorCount: state.integrity.persistenceErrorCount,
+      captureInterruptionCount: state.integrity.captureInterruptionCount,
     },
     summary: { ...state.summary, ...state.pageMarks },
     requestPaths,

@@ -29,7 +29,7 @@ During an active run, the M0 extension stores run-scoped aggregates containing:
 
 Individual request records are not retained. Aggregate totals do not have the former 200-request ring-buffer limit. Redacted path cardinality is capped; additional path classes enter an explicit overflow bucket so total counts and bytes remain represented while the report marks its path breakdown as incomplete.
 
-The JSON export omits individual request identifiers. It reports persistence failures and path overflow instead of silently claiming complete data. The extension does not persist response bytes. Firefox extension storage is not encrypted, so even content-free diagnostics should be treated as local browser data and kept minimal.
+The JSON export omits individual request identifiers. It reports persistence failures, background-context interruptions, and path overflow instead of silently claiming complete data. A resumed active run increments a numeric interruption counter; no page content or response bytes are needed to detect that lifecycle event. The extension does not persist response bytes. Firefox extension storage is not encrypted, so even content-free diagnostics should be treated as local browser data and kept minimal.
 
 ## Structural fingerprints
 

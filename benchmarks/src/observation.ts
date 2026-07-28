@@ -33,6 +33,7 @@ export type ObservationReport = {
     pathClassOverflowed: boolean;
     overflowRequestCount: number;
     persistenceErrorCount: number;
+    captureInterruptionCount: number;
   };
   summary: {
     requestCount: number;
@@ -73,6 +74,7 @@ export type ObservationGroupSummary = {
     pathBreakdownCompleteReportCount: number;
     overflowRequestCount: number;
     persistenceErrorCount: number;
+    captureInterruptionCount: number;
   };
   requestPaths: Array<{
     pathTemplate: string;
@@ -173,29 +175,24 @@ export function parseObservationReport(input: unknown): ObservationReport {
 
   const parsedIntegrity = {
     totalsComplete: boolean(integrity.totalsComplete, "$report.integrity.totalsComplete"),
-    pathBreakdownComplete: boolean(
-      integrity.pathBreakdownComplete,
-      "$report.integrity.pathBreakdownComplete",
-    ),
+    pathBreakdownComplete: boolean(integrity.pathBreakdownComplete, "$report.integrity.pathBreakdownComplete"),
     pathClassLimit: nonNegativeInteger(integrity.pathClassLimit, "$report.integrity.pathClassLimit"),
-    pathClassOverflowed: boolean(
-      integrity.pathClassOverflowed,
-      "$report.integrity.pathClassOverflowed",
-    ),
-    overflowRequestCount: nonNegativeInteger(
-      integrity.overflowRequestCount,
-      "$report.integrity.overflowRequestCount",
-    ),
-    persistenceErrorCount: nonNegativeInteger(
-      integrity.persistenceErrorCount,
-      "$report.integrity.persistenceErrorCount",
-    ),
+    pathClassOverflowed: boolean(integrity.pathClassOverflowed, "$report.integrity.pathClassOverflowed"),
+    overflowRequestCount: nonNegativeInteger(integrity.overflowRequestCount, "$report.integrity.overflowRequestCount"),
+    persistenceErrorCount: nonNegativeInteger(integrity.persistenceErrorCount, "$report.integrity.persistenceErrorCount"),
+    captureInterruptionCount:
+      integrity.captureInterruptionCount === undefined
+        ? 0
+        : nonNegativeInteger(integrity.captureInterruptionCount, "$report.integrity.captureInterruptionCount"),
   };
   if (parsedIntegrity.pathClassLimit < 1) {
     throw new TypeError("$report.integrity.pathClassLimit must be positive.");
   }
-  if (parsedIntegrity.totalsComplete && parsedIntegrity.persistenceErrorCount > 0) {
-    throw new TypeError("A report with persistence errors cannot claim complete totals.");
+  if (
+    parsedIntegrity.totalsComplete &&
+    (parsedIntegrity.persistenceErrorCount > 0 || parsedIntegrity.captureInterruptionCount > 0)
+  ) {
+    throw new TypeError("A report with persistence errors or capture interruptions cannot claim complete totals.");
   }
   if (!parsedIntegrity.pathClassOverflowed && parsedIntegrity.overflowRequestCount > 0) {
     throw new TypeError("Overflow requests require pathClassOverflowed=true.");
@@ -244,10 +241,7 @@ export function parseObservationReport(input: unknown): ObservationReport {
   const parsedSummary = {
     requestCount: nonNegativeInteger(summary.requestCount, "$report.summary.requestCount"),
     totalBytesObserved: nonNegativeInteger(summary.totalBytesObserved, "$report.summary.totalBytesObserved"),
-    totalRequestDurationMs: nonNegativeNumber(
-      summary.totalRequestDurationMs,
-      "$report.summary.totalRequestDurationMs",
-    ),
+    totalRequestDurationMs: nonNegativeNumber(summary.totalRequestDurationMs, "$report.summary.totalRequestDurationMs"),
     requestErrorCount: nonNegativeInteger(summary.requestErrorCount, "$report.summary.requestErrorCount"),
     domContentLoadedMs: nullableNumber(summary.domContentLoadedMs, "$report.summary.domContentLoadedMs"),
     composerReadyMs: nullableNumber(summary.composerReadyMs, "$report.summary.composerReadyMs"),
@@ -398,24 +392,18 @@ export function summarizeObservationReports(inputs: readonly unknown[]): Observa
         metrics: {
           requestCount: summarizeDistribution(group.map((report) => report.summary.requestCount)),
           totalBytesObserved: summarizeDistribution(group.map((report) => report.summary.totalBytesObserved)),
-          totalRequestDurationMs: summarizeDistribution(
-            group.map((report) => report.summary.totalRequestDurationMs),
-          ),
+          totalRequestDurationMs: summarizeDistribution(group.map((report) => report.summary.totalRequestDurationMs)),
           requestErrorCount: summarizeDistribution(group.map((report) => report.summary.requestErrorCount)),
           domContentLoadedMs: optionalDistribution(group.map((report) => report.summary.domContentLoadedMs)),
           composerReadyMs: optionalDistribution(group.map((report) => report.summary.composerReadyMs)),
         },
         integrity: {
           totalsCompleteReportCount: group.filter((report) => report.integrity.totalsComplete).length,
-          pathBreakdownCompleteReportCount: group.filter(
-            (report) => report.integrity.pathBreakdownComplete,
-          ).length,
-          overflowRequestCount: group.reduce(
-            (sum, report) => sum + report.integrity.overflowRequestCount,
-            0,
-          ),
-          persistenceErrorCount: group.reduce(
-            (sum, report) => sum + report.integrity.persistenceErrorCount,
+          pathBreakdownCompleteReportCount: group.filter((report) => report.integrity.pathBreakdownComplete).length,
+          overflowRequestCount: group.reduce((sum, report) => sum + report.integrity.overflowRequestCount, 0),
+          persistenceErrorCount: group.reduce((sum, report) => sum + report.integrity.persistenceErrorCount, 0),
+          captureInterruptionCount: group.reduce(
+            (sum, report) => sum + report.integrity.captureInterruptionCount,
             0,
           ),
         },

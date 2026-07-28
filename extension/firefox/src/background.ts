@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: MPL-2.0
 
-const OBSERVATION_STATE_SCHEMA_VERSION = 2 as const;
-const MAX_PATH_CLASSES = 256;
-const OVERFLOW_PATH_TEMPLATE = "/:elatura-overflow";
+import {
+  migrateStoredObservationState,
+  OBSERVATION_STATE_SCHEMA_VERSION,
+  OVERFLOW_PATH_TEMPLATE,
+  type ObservationPathAggregate,
+  type ObservationRun,
+  type StoredObservationState,
+} from "./report.js";
 
-type BackgroundObservationRun = { id: string; startedAt: string };
+const MAX_PATH_CLASSES = 256;
+
 type BackgroundRequestMetric = {
   runId: string;
   method: string;
@@ -20,36 +26,8 @@ type BackgroundPageMetric = {
   recordedAt: string;
   pathTemplate: string;
 };
-type BackgroundPathAggregate = {
-  pathTemplate: string;
-  count: number;
-  bytes: number;
-  durationMs: number;
-  maxDurationMs: number;
-  errors: number;
-  methods: string[];
-  resourceTypes: string[];
-};
-type BackgroundObservationState = {
-  storageSchemaVersion: typeof OBSERVATION_STATE_SCHEMA_VERSION;
-  activeRun?: BackgroundObservationRun;
-  summary: {
-    requestCount: number;
-    totalBytesObserved: number;
-    totalRequestDurationMs: number;
-    requestErrorCount: number;
-  };
-  requestPaths: Record<string, BackgroundPathAggregate>;
-  pageMarks: { domContentLoadedMs: number | null; composerReadyMs: number | null };
-  integrity: {
-    pathClassLimit: number;
-    pathClassOverflowed: boolean;
-    overflowRequestCount: number;
-    persistenceErrorCount: number;
-  };
-};
 
-function idleState(): BackgroundObservationState {
+function idleState(): StoredObservationState {
   return {
     storageSchemaVersion: OBSERVATION_STATE_SCHEMA_VERSION,
     summary: {
@@ -65,38 +43,35 @@ function idleState(): BackgroundObservationState {
       pathClassOverflowed: false,
       overflowRequestCount: 0,
       persistenceErrorCount: 0,
+      captureInterruptionCount: 0,
     },
   };
 }
 
-function activeState(run: BackgroundObservationRun): BackgroundObservationState {
+function activeState(run: ObservationRun): StoredObservationState {
   return { ...idleState(), activeRun: run };
-}
-
-function isCurrentState(value: unknown): value is BackgroundObservationState {
-  if (!value || typeof value !== "object") return false;
-  const state = value as Partial<BackgroundObservationState>;
-  return (
-    state.storageSchemaVersion === OBSERVATION_STATE_SCHEMA_VERSION &&
-    typeof state.summary === "object" &&
-    state.summary !== null &&
-    typeof state.requestPaths === "object" &&
-    state.requestPaths !== null &&
-    typeof state.pageMarks === "object" &&
-    state.pageMarks !== null &&
-    typeof state.integrity === "object" &&
-    state.integrity !== null
-  );
 }
 
 let observationState = idleState();
 let storageWriteQueue: Promise<void> = browser.storage.local
   .get<Record<string, unknown>>()
   .then(async (stored) => {
-    if (isCurrentState(stored)) observationState = stored;
-    else await browser.storage.local.clear();
+    const migration = migrateStoredObservationState(stored);
+    if (!migration) {
+      await browser.storage.local.clear();
+      return;
+    }
+
+    observationState = migration.state;
+    if (observationState.activeRun) {
+      observationState.integrity.captureInterruptionCount += 1;
+      await persistCurrentState();
+    } else if (migration.migratedFrom !== null) {
+      await persistCurrentState();
+    }
   })
   .catch((error: unknown) => {
+    if (observationState.activeRun) observationState.integrity.persistenceErrorCount += 1;
     console.warn("Elatura could not initialize observation storage.", error);
   });
 
@@ -132,8 +107,8 @@ function persistCurrentState(): Promise<void> {
   return browser.storage.local.set(observationState as unknown as Record<string, unknown>);
 }
 
-function startObservationRun(): Promise<BackgroundObservationRun> {
-  const run: BackgroundObservationRun = { id: crypto.randomUUID(), startedAt: new Date().toISOString() };
+function startObservationRun(): Promise<ObservationRun> {
+  const run: ObservationRun = { id: crypto.randomUUID(), startedAt: new Date().toISOString() };
   return enqueueStorage(async () => {
     observationState = activeState(run);
     await browser.storage.local.clear();
@@ -148,7 +123,7 @@ function clearObservationRun(): Promise<void> {
   });
 }
 
-async function getObservationState(): Promise<BackgroundObservationState> {
+async function getObservationState(): Promise<StoredObservationState> {
   await storageWriteQueue.catch(() => undefined);
   return structuredClone(observationState);
 }
@@ -188,7 +163,7 @@ function aggregateRequest(metric: BackgroundRequestMetric): Promise<void> {
       errors: 0,
       methods: [],
       resourceTypes: [],
-    };
+    } satisfies ObservationPathAggregate;
     aggregate.count += 1;
     aggregate.bytes += metric.bytes;
     aggregate.durationMs += metric.durationMs;
@@ -210,6 +185,7 @@ function isPageMetric(value: unknown): value is BackgroundPageMetric {
     Number.isFinite(metric.elapsedMs) &&
     metric.elapsedMs >= 0 &&
     typeof metric.recordedAt === "string" &&
+    !Number.isNaN(Date.parse(metric.recordedAt)) &&
     typeof metric.pathTemplate === "string" &&
     !metric.pathTemplate.includes("?")
   );
@@ -217,7 +193,8 @@ function isPageMetric(value: unknown): value is BackgroundPageMetric {
 
 function recordPageMetric(metric: BackgroundPageMetric): Promise<void> {
   return enqueueStorage(async () => {
-    if (!observationState.activeRun) return;
+    const run = observationState.activeRun;
+    if (!run || Date.parse(metric.recordedAt) < Date.parse(run.startedAt)) return;
     if (metric.kind === "dom-content-loaded") observationState.pageMarks.domContentLoadedMs = metric.elapsedMs;
     else observationState.pageMarks.composerReadyMs = metric.elapsedMs;
     await persistCurrentState();
