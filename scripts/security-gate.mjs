@@ -8,12 +8,14 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const APPROVED_PERMISSIONS = ["storage", "webRequest", "webRequestBlocking", "webRequestFilterResponse"];
 const APPROVED_HOSTS = ["https://chatgpt.com/*"];
 const SKIPPED_DIRECTORIES = new Set([".git", "artifacts", "dist", "node_modules"]);
-const SOURCE_EXTENSIONS = new Set([".html", ".js", ".json", ".mjs", ".ts"]);
+const SOURCE_EXTENSIONS = new Set([".css", ".html", ".js", ".json", ".mjs", ".ts"]);
 
 const FORBIDDEN_SOURCE_PATTERNS = [
   ["dynamic-evaluation", /\beval\s*\(/u],
   ["dynamic-function", /\bnew\s+Function\s*\(/u],
   ["remote-import", /\b(?:importScripts|import)\s*\(\s*["'`]https?:/iu],
+  ["remote-static-import", /\b(?:import|export)\s+(?:(?:[^"'`;]+?)\s+from\s+)?["'`]https?:/iu],
+  ["remote-css-import", /@import\s+(?:url\(\s*)?["']?https?:/iu],
   ["remote-script", /<script\b[^>]*\bsrc\s*=\s*["']https?:/iu],
   ["network-fetch", /\bfetch\s*\(/u],
   ["network-xhr", /\bXMLHttpRequest\b/u],
@@ -111,7 +113,7 @@ function scanWorkflow(path, text) {
   for (const match of text.matchAll(/^\s*[A-Za-z][A-Za-z0-9_-]*\s*:\s*write\s*(?:#.*)?$/gmu)) {
     findings.push(`${path}:${lineForIndex(text, match.index)} write-permission-forbidden`);
   }
-  for (const match of text.matchAll(/^\s*-\s*uses\s*:\s*([^\s#]+)@([^\s#]+)(?:\s+#.*)?$/gmu)) {
+  for (const match of text.matchAll(/^\s*(?:-\s*)?uses\s*:\s*([^\s#]+)@([^\s#]+)(?:\s+#.*)?$/gmu)) {
     const action = match[1];
     const revision = match[2];
     if (action.startsWith("./")) continue;
@@ -216,7 +218,7 @@ async function auditRepository(root = ROOT) {
   }
   findings.push(...verifyCapabilities(capabilityPolicy));
 
-  const productionRoots = ["extension/firefox/src", "packages", "benchmarks/src"];
+  const productionRoots = ["extension/firefox/src", "extension/firefox/static", "packages", "benchmarks/src"];
   for (const relativeRoot of productionRoots) {
     for (const absolutePath of await walk(join(root, relativeRoot))) {
       if (!SOURCE_EXTENSIONS.has(extname(absolutePath))) continue;
@@ -251,6 +253,8 @@ function runSelfTests() {
     ["native", "extension/firefox/src/content.ts", "browser.runtime.sendNativeMessage(pageData)", "native-messaging"],
     ["permission", "extension/firefox/src/content.ts", "browser.permissions.request(pageData)", "permission-change"],
     ["evaluation", "packages/core/src/index.ts", "eval(pageData)", "dynamic-evaluation"],
+    ["remote static import", "extension/firefox/src/content.ts", "import 'https://example.invalid/code.js'", "remote-static-import"],
+    ["remote CSS import", "extension/firefox/static/popup.css", "@import url('https://example.invalid/theme.css');", "remote-css-import"],
     ["logging", "extension/firefox/src/background.ts", "console.warn(pageData)", "content-logging"],
     ["private URL", "packages/core/src/index.ts", "fetch('http://127.0.0.1:9000')", "private-url"],
   ];
@@ -262,6 +266,7 @@ function runSelfTests() {
   assert(scanPatterns("packages/fixtures/test/secret.test.ts", fakeToken, TOKEN_PATTERNS).length === 1);
   assert.deepEqual(verifyPassThrough("filter.ondata = (event) => {\n bytes += event.data.byteLength;\n filter.write(event.data);\n };"), []);
   assert(scanWorkflow(".github/workflows/test.yml", "steps:\n  - uses: actions/checkout@v6\n").some((finding) => finding.includes("action-must-use-full-sha")));
+  assert(scanWorkflow(".github/workflows/test.yml", "jobs:\n  delegated:\n    uses: owner/repo/.github/workflows/check.yml@main\n").some((finding) => finding.includes("action-must-use-full-sha")));
   assert(scanWorkflow(".github/workflows/test.yml", "permissions:\n  contents: write\n").some((finding) => finding.includes("write-permission-forbidden")));
   assert(scanWorkflow(".github/workflows/test.yml", "on:\n  pull_request_target:\n").some((finding) => finding.includes("pull-request-target-forbidden")));
 }
