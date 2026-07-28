@@ -4,7 +4,6 @@
   "version": "0.0.4",
   "description": "Observe content-free performance characteristics of oversized ChatGPT application state.",
   "permissions": [
-    "downloads",
     "storage",
     "webRequest",
     "webRequestBlocking",
