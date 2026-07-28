@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MPL-2.0
 
 declare const browser: {
+  downloads: {
+    download(options: { url: string; filename?: string; saveAs?: boolean }): Promise<number>;
+  };
   storage: {
     local: {
       get<T>(defaults?: T): Promise<T>;
@@ -9,6 +12,8 @@ declare const browser: {
     };
   };
   runtime: {
+    getBrowserInfo(): Promise<{ name: string; vendor: string; version: string; buildID: string }>;
+    getManifest(): { version: string };
     sendMessage(message: unknown): Promise<unknown>;
     onMessage: {
       addListener(listener: (message: unknown) => unknown): void;
