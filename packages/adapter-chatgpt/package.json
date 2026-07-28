@@ -7,6 +7,9 @@
   "dependencies": {
     "@elatura/core": "0.0.0"
   },
+  "devDependencies": {
+    "@elatura/fixtures": "0.0.0"
+  },
   "exports": "./dist/index.js",
   "types": "./dist/index.d.ts"
 }
