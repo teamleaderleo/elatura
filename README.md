@@ -13,8 +13,10 @@ Elatura is in **M0: evidence and observation**. The current code does not modify
 - local, bounded request and readiness measurements
 - generic adapter and validation contracts
 - a conservative ChatGPT graph-shape inspector
-- synthetic graph fixtures and property tests
-- benchmark report privacy guardrails
+- deterministic oversized synthetic fixtures and malformed graph families
+- generic active-path selection planning without response materialization
+- privacy-validating batch analysis for observation reports
+- property and compatibility tests
 
 Do not rely on Elatura for data recovery or production browsing yet.
 
@@ -39,15 +41,24 @@ Open the extension popup and choose **Start new run** before loading the test co
 
 The report contains aggregated redacted request paths, byte counts, durations, outcomes, browser/version information, and page-readiness timings. It does not contain response bodies, message text, cookies, authorization headers, query strings, or raw conversation identifiers.
 
+Offline work does not need to stop while the private baseline is unavailable:
+
+```bash
+npm run generate:fixture -- --turns 5000 --branches-every 20 --out artifacts/fixture.json
+npm run analyze:reports -- benchmarks/reports --out artifacts/summary.json
+```
+
+See `docs/offline-development.md` for the boundary between safe synthetic work and live-schema-dependent work.
+
 ## Repository map
 
 ```text
 extension/firefox/        observe-only Firefox transport
-packages/core/            generic runtime contracts and structural fingerprints
+packages/core/            generic runtime contracts, fingerprints, and selection planning
 packages/adapter-chatgpt/ ChatGPT-specific graph inspection
-benchmarks/               local report types and privacy validation
-fixtures/                 generated or redacted structural fixtures (later)
-docs/                     architecture, privacy, and measurement decisions
+packages/fixtures/        deterministic synthetic and malformed graph workloads
+benchmarks/               report privacy validation, parsing, and batch analysis
+docs/                     architecture, privacy, measurement, and development decisions
 ```
 
 ## License
