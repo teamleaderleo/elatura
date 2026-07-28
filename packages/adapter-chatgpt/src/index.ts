@@ -126,5 +126,11 @@ export function validateChatGptConversation(
 }
 
 export function fingerprintChatGptConversation(source: ChatGptConversation): StructuralFingerprint {
-  return fingerprintShape("chatgpt-conversation", "0.1.0", source.raw, 4);
+  return fingerprintShape("chatgpt-conversation", "0.2.0", source.raw, {
+    depth: 7,
+    dictionaryPaths: ["$.mapping"],
+    maxUniqueVariants: 64,
+    maxObjectKeys: 128,
+    maxShapeLength: 65_536,
+  });
 }
