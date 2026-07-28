@@ -16,7 +16,9 @@
     "test:watch": "vitest",
     "lint:extension": "npm run build && web-ext lint --source-dir extension/firefox/dist",
     "run:firefox": "npm run build && web-ext run --source-dir extension/firefox/dist",
-    "build:extension": "npm run build && web-ext build --overwrite-dest --source-dir extension/firefox/dist --artifacts-dir artifacts"
+    "build:extension": "npm run build && web-ext build --overwrite-dest --source-dir extension/firefox/dist --artifacts-dir artifacts",
+    "generate:fixture": "npm run build && node scripts/generate-fixture.mjs",
+    "analyze:reports": "npm run build && node scripts/analyze-reports.mjs"
   },
   "engines": {
     "node": ">=22"
