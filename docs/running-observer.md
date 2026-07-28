@@ -46,9 +46,11 @@ Use the same private conversation and comparable clean profiles:
 
 Record at least five cold opens and ten hard reloads per mode. Keep individual runs and compare medians plus worst cases. A cold open should begin after a full browser quit and relaunch. Start the Elatura observation run only after Firefox relaunches, so the deliberate cold-start boundary does not interrupt an active run. A hard reload should use the same signed-in profile without clearing application data between every run.
 
+Record each run with the strict content-free manifest and compare cohorts using the workflow in [`benchmark-manifests.md`](benchmark-manifests.md). Observe-mode manifests use the same UUID and readiness timings as their exported observer report.
+
 ## Memory
 
-Until Elatura gains native process instrumentation, record numeric peak memory separately with macOS Activity Monitor or a documented command-line procedure. Do not attach screenshots containing private page content.
+Until Elatura gains native process instrumentation, record numeric peak memory separately with macOS Activity Monitor or a documented command-line procedure. Do not attach screenshots containing private page content. Store bounded process classes and numeric byte peaks in the run manifest instead of raw process names or command lines.
 
 ## Interpretation
 
