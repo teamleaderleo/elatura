@@ -9,11 +9,12 @@ It keeps the authenticated website and browser session as the source of truth, b
 Elatura is in **M0: evidence and observation**. The current code does not modify ChatGPT responses. It provides:
 
 - an observe-only Firefox extension that passes response bytes through unchanged
-- local, content-free request and readiness measurements
+- explicit benchmark runs with content-free JSON export
+- local, bounded request and readiness measurements
 - generic adapter and validation contracts
 - a conservative ChatGPT graph-shape inspector
-- synthetic graph fixtures and tests
-- a benchmark report schema
+- synthetic graph fixtures and property tests
+- benchmark report privacy guardrails
 
 Do not rely on Elatura for data recovery or production browsing yet.
 
@@ -34,7 +35,9 @@ npm run check
 npm run run:firefox
 ```
 
-The extension records only local diagnostics such as redacted request paths, byte counts, durations, and page-readiness timings. It does not record response bodies, message text, cookies, authorization headers, or query strings.
+Open the extension popup and choose **Start new run** before loading the test conversation. Ordinary browsing is not observed while the extension is idle. After the run, use **Export JSON**, then **Clear and stop**. See `docs/running-observer.md` for the comparison protocol.
+
+The report contains aggregated redacted request paths, byte counts, durations, outcomes, browser/version information, and page-readiness timings. It does not contain response bodies, message text, cookies, authorization headers, query strings, or raw conversation identifiers.
 
 ## Repository map
 
@@ -42,7 +45,7 @@ The extension records only local diagnostics such as redacted request paths, byt
 extension/firefox/        observe-only Firefox transport
 packages/core/            generic runtime contracts and structural fingerprints
 packages/adapter-chatgpt/ ChatGPT-specific graph inspection
-benchmarks/               local report types and aggregation
+benchmarks/               local report types and privacy validation
 fixtures/                 generated or redacted structural fixtures (later)
 docs/                     architecture, privacy, and measurement decisions
 ```
