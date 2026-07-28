@@ -23,15 +23,8 @@ export type CacheIsolationKey = {
   resource: string;
 };
 
-export type CacheStructuralIdentity = {
-  fingerprintHash: string;
-};
-
-export type CacheContentIdentity = {
-  scheme: string;
-  value: string;
-  revision?: string;
-};
+export type CacheStructuralIdentity = { fingerprintHash: string };
+export type CacheContentIdentity = { scheme: string; value: string; revision?: string };
 
 export type SnapshotCacheEnvelope<T> = {
   envelopeVersion: typeof CACHE_ENVELOPE_VERSION;
@@ -44,18 +37,13 @@ export type SnapshotCacheEnvelope<T> = {
   payload: T;
 };
 
-export type CacheRetentionPolicy = {
-  maxEntries: number;
-  maxAgeMs: number;
-};
-
+export type CacheRetentionPolicy = { maxEntries: number; maxAgeMs: number };
 export type CacheLookupContext = {
   adapter: AdapterVersionPolicy;
   structuralFingerprintHash: string;
   expectedContent?: CacheContentIdentity;
   now?: number;
 };
-
 export type CacheMissReason =
   | "missing"
   | "corrupt"
@@ -65,23 +53,11 @@ export type CacheMissReason =
   | "schema-drift"
   | "content-identity-mismatch"
   | "expired";
-
 export type CacheReadResult<T> =
-  | {
-      status: "hit";
-      freshness: Exclude<FreshnessState, "expired">;
-      envelope: SnapshotCacheEnvelope<T>;
-    }
+  | { status: "hit"; freshness: Exclude<FreshnessState, "expired">; envelope: SnapshotCacheEnvelope<T> }
   | { status: "miss"; reason: CacheMissReason };
-
-export type CacheInvalidationScope = Partial<
-  Pick<CacheIsolationKey, "origin" | "profile" | "adapter" | "namespace" | "resource">
->;
-
-export type CacheProtectionContext = {
-  key: CacheIsolationKey;
-  envelopeVersion: number;
-};
+export type CacheInvalidationScope = Partial<CacheIsolationKey>;
+export type CacheProtectionContext = { key: CacheIsolationKey; envelopeVersion: number };
 
 export interface PersistentCacheProtectionHooks {
   readonly id: string;
@@ -114,10 +90,7 @@ function nonEmptyBounded(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 512 && !/[\u0000-\u001f\u007f]/u.test(value);
 }
 
-export function validateCacheIsolationKey(
-  input: unknown,
-  path = "$.key",
-): ValidationResult<CacheIsolationKey> {
+export function validateCacheIsolationKey(input: unknown, path = "$.key"): ValidationResult<CacheIsolationKey> {
   if (!isRecord(input)) {
     return { ok: false, issues: [{ path, code: "cache-key-not-object", message: "Expected an object." }] };
   }
@@ -146,69 +119,69 @@ function sameIsolationKey(left: CacheIsolationKey, right: CacheIsolationKey): bo
   return serializeCacheIsolationKey(left) === serializeCacheIsolationKey(right);
 }
 
+function withPayloadPath(issue: ValidationIssue): ValidationIssue {
+  return { ...issue, path: `$.payload${issue.path === "$" ? "" : issue.path.slice(1)}` };
+}
+
 function validateEnvelope<T>(
   input: unknown,
   validatePayload: (payload: unknown) => ValidationResult<T>,
 ): ValidationResult<SnapshotCacheEnvelope<T>> {
-  const issues: ValidationIssue[] = [];
   if (!isRecord(input)) {
     return { ok: false, issues: [{ path: "$", code: "cache-envelope-not-object", message: "Expected an object." }] };
   }
+  const issues: ValidationIssue[] = [];
   if (input.envelopeVersion !== CACHE_ENVELOPE_VERSION) {
     issues.push({ path: "$.envelopeVersion", code: "unsupported-envelope-version", message: "Unsupported cache envelope version." });
   }
   const keyResult = validateCacheIsolationKey(input.key);
   if (!keyResult.ok) issues.push(...keyResult.issues);
-  if (!isRecord(input.adapter) || !nonEmptyBounded(input.adapter.id) || !nonEmptyBounded(input.adapter.version)) {
+  const adapter = input.adapter;
+  if (!isRecord(adapter) || !nonEmptyBounded(adapter.id) || !nonEmptyBounded(adapter.version)) {
     issues.push({ path: "$.adapter", code: "invalid-adapter-identity", message: "Expected adapter id and version." });
   }
-  if (!isRecord(input.structural) || !nonEmptyBounded(input.structural.fingerprintHash)) {
+  const structural = input.structural;
+  if (!isRecord(structural) || !nonEmptyBounded(structural.fingerprintHash)) {
     issues.push({ path: "$.structural.fingerprintHash", code: "invalid-structural-identity", message: "Expected a fingerprint hash." });
   }
-  if (!isRecord(input.content) || !nonEmptyBounded(input.content.scheme) || !nonEmptyBounded(input.content.value)) {
+  const content = input.content;
+  if (!isRecord(content) || !nonEmptyBounded(content.scheme) || !nonEmptyBounded(content.value)) {
     issues.push({ path: "$.content", code: "invalid-content-identity", message: "Expected an opaque content identity." });
+  } else if (content.revision !== undefined && !nonEmptyBounded(content.revision)) {
+    issues.push({ path: "$.content.revision", code: "invalid-content-revision", message: "Expected a bounded non-empty string." });
   }
   const freshnessResult = validateFreshnessWindow(input.freshness);
   if (!freshnessResult.ok) issues.push(...freshnessResult.issues);
-  if (!isRecord(input.provenance)) {
+
+  const provenance = input.provenance;
+  if (!isRecord(provenance)) {
     issues.push({ path: "$.provenance", code: "invalid-provenance", message: "Expected provenance metadata." });
   } else {
-    if (input.provenance.synthetic !== true) {
+    if (provenance.synthetic !== true) {
       issues.push({ path: "$.provenance.synthetic", code: "private-content-disabled", message: "This cache accepts synthetic entries only." });
     }
-    if (!isRecord(input.provenance.authority) || input.provenance.authority.origin !== keyResult.ok ? undefined : keyResult.value.origin) {
-      // The comparison is performed below once both records are known.
+    if (!isRecord(provenance.authority) || !nonEmptyBounded(provenance.authority.origin)) {
+      issues.push({ path: "$.provenance.authority", code: "invalid-authority", message: "Expected authority metadata." });
     }
-    if (input.provenance.cache !== undefined) {
-      const cache = input.provenance.cache;
-      if (!isRecord(cache) || cache.kind !== "memory" || cache.envelopeVersion !== CACHE_ENVELOPE_VERSION) {
-        issues.push({ path: "$.provenance.cache", code: "invalid-cache-provenance", message: "Expected memory cache provenance for envelope version 1." });
-      }
+    if (!isRecord(provenance.cache) || provenance.cache.kind !== "memory" || provenance.cache.envelopeVersion !== CACHE_ENVELOPE_VERSION) {
+      issues.push({ path: "$.provenance.cache", code: "invalid-cache-provenance", message: "Expected memory cache provenance for envelope version 1." });
     }
   }
-  const payloadResult = validatePayload(input.payload);
-  if (!payloadResult.ok) issues.push(...payloadResult.issues.map((issue) => ({ ...issue, path: `$.payload${issue.path === "$" ? "" : issue.path.slice(1)}` })));
 
-  if (
-    issues.length === 0 &&
-    keyResult.ok &&
-    freshnessResult.ok &&
-    isRecord(input.adapter) &&
-    isRecord(input.structural) &&
-    isRecord(input.content) &&
-    isRecord(input.provenance) &&
-    isRecord(input.provenance.authority)
-  ) {
-    if (input.adapter.id !== keyResult.value.adapter) {
+  const payloadResult = validatePayload(input.payload);
+  if (!payloadResult.ok) issues.push(...payloadResult.issues.map(withPayloadPath));
+
+  if (keyResult.ok && freshnessResult.ok && isRecord(adapter) && isRecord(provenance)) {
+    if (adapter.id !== keyResult.value.adapter) {
       issues.push({ path: "$.adapter.id", code: "cache-key-adapter-mismatch", message: "Adapter id must match the isolation key." });
     }
-    if (input.provenance.authority.origin !== keyResult.value.origin) {
+    if (isRecord(provenance.authority) && provenance.authority.origin !== keyResult.value.origin) {
       issues.push({ path: "$.provenance.authority.origin", code: "cache-key-origin-mismatch", message: "Authority origin must match the isolation key." });
     }
-    if (input.provenance.capturedAt !== freshnessResult.value.capturedAt) {
+    if (provenance.capturedAt !== freshnessResult.value.capturedAt) {
       issues.push({ path: "$.provenance.capturedAt", code: "capture-time-mismatch", message: "Capture time must match freshness metadata." });
     }
-    if (!isRecord(input.provenance.adapter) || input.provenance.adapter.id !== input.adapter.id || input.provenance.adapter.version !== input.adapter.version) {
+    if (!isRecord(provenance.adapter) || provenance.adapter.id !== adapter.id || provenance.adapter.version !== adapter.version) {
       issues.push({ path: "$.provenance.adapter", code: "provenance-adapter-mismatch", message: "Provenance adapter must match the envelope adapter." });
     }
   }
@@ -250,10 +223,7 @@ export class SyntheticMemorySnapshotCache<T> {
     try {
       serialized = JSON.stringify(parsed.value);
     } catch {
-      return {
-        ok: false,
-        issues: [{ path: "$", code: "cache-serialization-failed", message: "Envelope must be JSON serializable." }],
-      };
+      return { ok: false, issues: [{ path: "$", code: "cache-serialization-failed", message: "Envelope must be JSON serializable." }] };
     }
     this.#entries.set(serializeCacheIsolationKey(parsed.value.key), serialized);
     this.prune(this.#now());
@@ -285,11 +255,10 @@ export class SyntheticMemorySnapshotCache<T> {
       this.#entries.delete(serializedKey);
       return { status: "miss", reason: "corrupt" };
     }
-
-    const adapterCompatibility = assessAdapterVersionCompatibility(envelope.adapter, context.adapter);
-    if (!adapterCompatibility.compatible) {
+    const compatibility = assessAdapterVersionCompatibility(envelope.adapter, context.adapter);
+    if (!compatibility.compatible) {
       this.#entries.delete(serializedKey);
-      return { status: "miss", reason: adapterCompatibility.reason };
+      return { status: "miss", reason: compatibility.reason };
     }
     if (envelope.structural.fingerprintHash !== context.structuralFingerprintHash) {
       this.#entries.delete(serializedKey);
@@ -299,7 +268,6 @@ export class SyntheticMemorySnapshotCache<T> {
       this.#entries.delete(serializedKey);
       return { status: "miss", reason: "content-identity-mismatch" };
     }
-
     const freshness = resolveFreshnessState(envelope.freshness, context.now ?? this.#now());
     if (freshness === "expired") {
       this.#entries.delete(serializedKey);
@@ -330,8 +298,8 @@ export class SyntheticMemorySnapshotCache<T> {
         deleted += 1;
         continue;
       }
-      const matches = Object.entries(scope).every(
-        ([field, value]) => value === undefined || keyResult.value[field as keyof CacheIsolationKey] === value,
+      const matches = (Object.keys(scope) as Array<keyof CacheIsolationKey>).every(
+        (field) => scope[field] === undefined || keyResult.value[field] === scope[field],
       );
       if (matches) {
         this.#entries.delete(serializedKey);
@@ -352,8 +320,7 @@ export class SyntheticMemorySnapshotCache<T> {
     const retained: Array<{ key: string; capturedAt: number }> = [];
     for (const [key, serialized] of this.#entries) {
       try {
-        const decoded = JSON.parse(serialized) as unknown;
-        const parsed = validateEnvelope(decoded, this.#validatePayload);
+        const parsed = validateEnvelope(JSON.parse(serialized) as unknown, this.#validatePayload);
         if (!parsed.ok || now - parsed.value.freshness.capturedAt > this.#retention.maxAgeMs || now >= parsed.value.freshness.expiresAt) {
           this.#entries.delete(key);
           deleted += 1;
