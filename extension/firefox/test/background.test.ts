@@ -87,9 +87,9 @@ async function loadBackground() {
   await import("../src/background.js");
 }
 
-function legacyActiveState(): Record<string, unknown> {
+function activeState(pathTemplate: string): Record<string, unknown> {
   return {
-    storageSchemaVersion: 2,
+    storageSchemaVersion: 3,
     activeRun: { id: "resumed-run", startedAt: "2026-07-29T00:00:00.000Z" },
     summary: {
       requestCount: 1,
@@ -98,8 +98,8 @@ function legacyActiveState(): Record<string, unknown> {
       requestErrorCount: 0,
     },
     requestPaths: {
-      "/existing": {
-        pathTemplate: "/existing",
+      [pathTemplate]: {
+        pathTemplate,
         count: 1,
         bytes: 10,
         durationMs: 5,
@@ -115,6 +115,7 @@ function legacyActiveState(): Record<string, unknown> {
       pathClassOverflowed: false,
       overflowRequestCount: 0,
       persistenceErrorCount: 0,
+      captureInterruptionCount: 0,
     },
   };
 }
@@ -125,16 +126,34 @@ afterEach(() => {
 });
 
 describe("observer background lifecycle", () => {
-  it("migrates and marks a resumed active run as interrupted", async () => {
-    const harness = createHarness(legacyActiveState());
+  it("clears legacy active state that contains literal path content", async () => {
+    const harness = createHarness(activeState("/private-project"));
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     await loadBackground();
 
     const state = (await harness.message({ type: "elatura:get-state" })) as {
       storageSchemaVersion: number;
+      activeRun?: unknown;
+      summary: { requestCount: number };
+    };
+    expect(state.storageSchemaVersion).toBe(4);
+    expect(state.activeRun).toBeUndefined();
+    expect(state.summary.requestCount).toBe(0);
+    expect(harness.local.clear).toHaveBeenCalled();
+  });
+
+  it("migrates a safe active run and marks resumed capture interrupted", async () => {
+    const harness = createHarness(activeState("/:word-m"));
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await loadBackground();
+
+    const state = (await harness.message({ type: "elatura:get-state" })) as {
+      storageSchemaVersion: number;
+      requestPaths: Record<string, unknown>;
       integrity: { captureInterruptionCount: number; persistenceErrorCount: number };
     };
-    expect(state.storageSchemaVersion).toBe(3);
+    expect(state.storageSchemaVersion).toBe(4);
+    expect(state.requestPaths).toHaveProperty("/:word-m");
     expect(state.integrity.captureInterruptionCount).toBe(1);
     expect(state.integrity.persistenceErrorCount).toBe(0);
     expect(harness.local.set).toHaveBeenCalled();
@@ -171,18 +190,29 @@ describe("observer background lifecycle", () => {
 
     const state = (await harness.message({ type: "elatura:get-state" })) as {
       summary: { requestCount: number; totalBytesObserved: number; requestErrorCount: number };
+      requestPaths: Record<string, { count: number }>;
     };
     expect(first.write.mock.calls.map((call: unknown[]) => call[0])).toEqual([chunkA, chunkB]);
     expect(second.write.mock.calls.map((call: unknown[]) => call[0])).toEqual([chunkC]);
     expect(second.disconnect).toHaveBeenCalledOnce();
     expect(first.close).toHaveBeenCalledTimes(2);
     expect(state.summary).toMatchObject({ requestCount: 2, totalBytesObserved: 5, requestErrorCount: 1 });
+    expect(Object.keys(state.requestPaths)).toEqual(["/:word-s"]);
+    expect(state.requestPaths["/:word-s"]?.count).toBe(2);
   });
 
   it("clears an active run without interrupting pass-through or accepting stale marks", async () => {
     const harness = createHarness();
     await loadBackground();
     await harness.message({ type: "elatura:start-run" });
+    await harness.message({
+      type: "elatura:page-metric",
+      metric: {
+        kind: "composer-like-input",
+        elapsedMs: 10,
+        recordedAt: "2000-01-01T00:00:00.000Z",
+      },
+    });
     const filter = harness.request({
       requestId: "active",
       url: "https://chatgpt.com/active",
@@ -195,15 +225,6 @@ describe("observer background lifecycle", () => {
     const chunk = new Uint8Array([9, 8, 7]).buffer;
     filter.ondata?.({ data: chunk });
     filter.onstop?.();
-    await harness.message({
-      type: "elatura:page-metric",
-      metric: {
-        kind: "composer-like-input",
-        elapsedMs: 10,
-        recordedAt: "2000-01-01T00:00:00.000Z",
-        pathTemplate: "/stale",
-      },
-    });
 
     const state = (await harness.message({ type: "elatura:get-state" })) as {
       activeRun?: unknown;

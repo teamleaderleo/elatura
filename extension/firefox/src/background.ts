@@ -8,6 +8,7 @@ import {
   type ObservationRun,
   type StoredObservationState,
 } from "./report.js";
+import { redactPath } from "./path-redaction.js";
 
 const MAX_PATH_CLASSES = 256;
 
@@ -24,7 +25,6 @@ type BackgroundPageMetric = {
   kind: "dom-content-loaded" | "composer-like-input";
   elapsedMs: number;
   recordedAt: string;
-  pathTemplate: string;
 };
 
 function idleState(): StoredObservationState {
@@ -73,23 +73,6 @@ let storageWriteQueue: Promise<void> = browser.storage.local
   .catch(() => {
     if (observationState.activeRun) observationState.integrity.persistenceErrorCount += 1;
   });
-
-function redactPath(rawUrl: string): string {
-  try {
-    const url = new URL(rawUrl);
-    return url.pathname
-      .split("/")
-      .map((segment) => {
-        if (/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(segment)) return ":uuid";
-        if (/^\d{6,}$/.test(segment)) return ":number";
-        if (/^[A-Za-z0-9_-]{20,}$/.test(segment)) return ":id";
-        return segment;
-      })
-      .join("/");
-  } catch {
-    return "/:invalid-url";
-  }
-}
 
 function enqueueStorage(operation: () => Promise<void>): Promise<void> {
   storageWriteQueue = storageWriteQueue
@@ -183,9 +166,7 @@ function isPageMetric(value: unknown): value is BackgroundPageMetric {
     Number.isFinite(metric.elapsedMs) &&
     metric.elapsedMs >= 0 &&
     typeof metric.recordedAt === "string" &&
-    !Number.isNaN(Date.parse(metric.recordedAt)) &&
-    typeof metric.pathTemplate === "string" &&
-    !metric.pathTemplate.includes("?")
+    !Number.isNaN(Date.parse(metric.recordedAt))
   );
 }
 

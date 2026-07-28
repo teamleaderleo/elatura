@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 import { assertContentFreeReport } from "./report.js";
 
+export type ObservationReportSchemaVersion = 2 | 3;
+
 export type ObservationRequestPath = {
   pathTemplate: string;
   count: number;
@@ -13,7 +15,7 @@ export type ObservationRequestPath = {
 };
 
 export type ObservationReport = {
-  schemaVersion: 2;
+  schemaVersion: ObservationReportSchemaVersion;
   generatedAt: string;
   mode: "observe";
   run: { id: string; startedAt: string; exportedAt: string };
@@ -154,10 +156,35 @@ function closeEnough(left: number, right: number): boolean {
   return Math.abs(left - right) <= Math.max(1e-6, Math.abs(right) * 1e-9);
 }
 
+const SEGMENT_CLASS = /^:(?:uuid|invalid-url|elatura-overflow|path-overflow|empty|(?:number|hex|compound|word|token|file|encoded|segment)-(?:s|m|l|xl))$/;
+
+function validLegacyPathTemplate(pathTemplate: string): boolean {
+  return (
+    pathTemplate.startsWith("/") &&
+    !pathTemplate.includes("?") &&
+    !pathTemplate.includes("#") &&
+    !pathTemplate.includes("://")
+  );
+}
+
+function validSegmentClassPathTemplate(pathTemplate: string): boolean {
+  if (pathTemplate === "/") return true;
+  if (!validLegacyPathTemplate(pathTemplate)) return false;
+  return pathTemplate
+    .slice(1)
+    .split("/")
+    .every((segment) => SEGMENT_CLASS.test(segment));
+}
+
+function reportSchemaVersion(value: unknown): ObservationReportSchemaVersion {
+  if (value !== 2 && value !== 3) throw new TypeError("$report.schemaVersion must be 2 or 3.");
+  return value;
+}
+
 export function parseObservationReport(input: unknown): ObservationReport {
   assertContentFreeReport(input);
   const root = record(input, "$report");
-  if (root.schemaVersion !== 2) throw new TypeError("$report.schemaVersion must be 2.");
+  const schemaVersion = reportSchemaVersion(root.schemaVersion);
   if (root.mode !== "observe") throw new TypeError('$report.mode must be "observe".');
 
   const run = record(root.run, "$report.run");
@@ -173,17 +200,33 @@ export function parseObservationReport(input: unknown): ObservationReport {
   exactBoolean(privacy.credentialsCaptured, false, "$report.privacy.credentialsCaptured");
   exactBoolean(privacy.pathsRedacted, true, "$report.privacy.pathsRedacted");
 
+  const captureInterruptionCount =
+    schemaVersion === 2 && integrity.captureInterruptionCount === undefined
+      ? 0
+      : nonNegativeInteger(
+          integrity.captureInterruptionCount,
+          "$report.integrity.captureInterruptionCount",
+        );
   const parsedIntegrity = {
     totalsComplete: boolean(integrity.totalsComplete, "$report.integrity.totalsComplete"),
-    pathBreakdownComplete: boolean(integrity.pathBreakdownComplete, "$report.integrity.pathBreakdownComplete"),
+    pathBreakdownComplete: boolean(
+      integrity.pathBreakdownComplete,
+      "$report.integrity.pathBreakdownComplete",
+    ),
     pathClassLimit: nonNegativeInteger(integrity.pathClassLimit, "$report.integrity.pathClassLimit"),
-    pathClassOverflowed: boolean(integrity.pathClassOverflowed, "$report.integrity.pathClassOverflowed"),
-    overflowRequestCount: nonNegativeInteger(integrity.overflowRequestCount, "$report.integrity.overflowRequestCount"),
-    persistenceErrorCount: nonNegativeInteger(integrity.persistenceErrorCount, "$report.integrity.persistenceErrorCount"),
-    captureInterruptionCount:
-      integrity.captureInterruptionCount === undefined
-        ? 0
-        : nonNegativeInteger(integrity.captureInterruptionCount, "$report.integrity.captureInterruptionCount"),
+    pathClassOverflowed: boolean(
+      integrity.pathClassOverflowed,
+      "$report.integrity.pathClassOverflowed",
+    ),
+    overflowRequestCount: nonNegativeInteger(
+      integrity.overflowRequestCount,
+      "$report.integrity.overflowRequestCount",
+    ),
+    persistenceErrorCount: nonNegativeInteger(
+      integrity.persistenceErrorCount,
+      "$report.integrity.persistenceErrorCount",
+    ),
+    captureInterruptionCount,
   };
   if (parsedIntegrity.pathClassLimit < 1) {
     throw new TypeError("$report.integrity.pathClassLimit must be positive.");
@@ -192,7 +235,7 @@ export function parseObservationReport(input: unknown): ObservationReport {
     parsedIntegrity.totalsComplete &&
     (parsedIntegrity.persistenceErrorCount > 0 || parsedIntegrity.captureInterruptionCount > 0)
   ) {
-    throw new TypeError("A report with persistence errors or capture interruptions cannot claim complete totals.");
+    throw new TypeError("A report with persistence failures or capture interruptions cannot claim complete totals.");
   }
   if (!parsedIntegrity.pathClassOverflowed && parsedIntegrity.overflowRequestCount > 0) {
     throw new TypeError("Overflow requests require pathClassOverflowed=true.");
@@ -209,8 +252,16 @@ export function parseObservationReport(input: unknown): ObservationReport {
   const requestPaths = root.requestPaths.map((item, index): ObservationRequestPath => {
     const path = record(item, `$report.requestPaths[${index}]`);
     const pathTemplate = string(path.pathTemplate, `$report.requestPaths[${index}].pathTemplate`);
-    if (!pathTemplate.startsWith("/") || pathTemplate.includes("?") || pathTemplate.includes("://")) {
-      throw new TypeError(`$report.requestPaths[${index}].pathTemplate must be a redacted path without host or query.`);
+    const pathValid =
+      schemaVersion === 3
+        ? validSegmentClassPathTemplate(pathTemplate)
+        : validLegacyPathTemplate(pathTemplate);
+    if (!pathValid) {
+      throw new TypeError(
+        schemaVersion === 3
+          ? `$report.requestPaths[${index}].pathTemplate must contain only content-independent segment classes.`
+          : `$report.requestPaths[${index}].pathTemplate must be a redacted path without host or query.`,
+      );
     }
     if (seenPaths.has(pathTemplate)) throw new TypeError(`Duplicate path template: ${pathTemplate}`);
     seenPaths.add(pathTemplate);
@@ -241,7 +292,10 @@ export function parseObservationReport(input: unknown): ObservationReport {
   const parsedSummary = {
     requestCount: nonNegativeInteger(summary.requestCount, "$report.summary.requestCount"),
     totalBytesObserved: nonNegativeInteger(summary.totalBytesObserved, "$report.summary.totalBytesObserved"),
-    totalRequestDurationMs: nonNegativeNumber(summary.totalRequestDurationMs, "$report.summary.totalRequestDurationMs"),
+    totalRequestDurationMs: nonNegativeNumber(
+      summary.totalRequestDurationMs,
+      "$report.summary.totalRequestDurationMs",
+    ),
     requestErrorCount: nonNegativeInteger(summary.requestErrorCount, "$report.summary.requestErrorCount"),
     domContentLoadedMs: nullableNumber(summary.domContentLoadedMs, "$report.summary.domContentLoadedMs"),
     composerReadyMs: nullableNumber(summary.composerReadyMs, "$report.summary.composerReadyMs"),
@@ -275,7 +329,7 @@ export function parseObservationReport(input: unknown): ObservationReport {
   }
 
   return {
-    schemaVersion: 2,
+    schemaVersion,
     generatedAt: dateString(root.generatedAt, "$report.generatedAt"),
     mode: "observe",
     run: {
@@ -331,6 +385,11 @@ function optionalDistribution(values: readonly (number | null)[]): DistributionS
 export function summarizeObservationReports(inputs: readonly unknown[]): ObservationBatchSummary {
   if (inputs.length === 0) throw new RangeError("At least one observation report is required.");
   const reports = inputs.map(parseObservationReport);
+  const schemaVersions = new Set(reports.map((report) => report.schemaVersion));
+  if (schemaVersions.size > 1) {
+    throw new TypeError("Observation report schema versions must be analyzed separately.");
+  }
+
   const runIds = new Set<string>();
   for (const report of reports) {
     if (runIds.has(report.run.id)) throw new TypeError(`Duplicate observation run id: ${report.run.id}`);
@@ -392,16 +451,26 @@ export function summarizeObservationReports(inputs: readonly unknown[]): Observa
         metrics: {
           requestCount: summarizeDistribution(group.map((report) => report.summary.requestCount)),
           totalBytesObserved: summarizeDistribution(group.map((report) => report.summary.totalBytesObserved)),
-          totalRequestDurationMs: summarizeDistribution(group.map((report) => report.summary.totalRequestDurationMs)),
+          totalRequestDurationMs: summarizeDistribution(
+            group.map((report) => report.summary.totalRequestDurationMs),
+          ),
           requestErrorCount: summarizeDistribution(group.map((report) => report.summary.requestErrorCount)),
           domContentLoadedMs: optionalDistribution(group.map((report) => report.summary.domContentLoadedMs)),
           composerReadyMs: optionalDistribution(group.map((report) => report.summary.composerReadyMs)),
         },
         integrity: {
           totalsCompleteReportCount: group.filter((report) => report.integrity.totalsComplete).length,
-          pathBreakdownCompleteReportCount: group.filter((report) => report.integrity.pathBreakdownComplete).length,
-          overflowRequestCount: group.reduce((sum, report) => sum + report.integrity.overflowRequestCount, 0),
-          persistenceErrorCount: group.reduce((sum, report) => sum + report.integrity.persistenceErrorCount, 0),
+          pathBreakdownCompleteReportCount: group.filter(
+            (report) => report.integrity.pathBreakdownComplete,
+          ).length,
+          overflowRequestCount: group.reduce(
+            (sum, report) => sum + report.integrity.overflowRequestCount,
+            0,
+          ),
+          persistenceErrorCount: group.reduce(
+            (sum, report) => sum + report.integrity.persistenceErrorCount,
+            0,
+          ),
           captureInterruptionCount: group.reduce(
             (sum, report) => sum + report.integrity.captureInterruptionCount,
             0,
