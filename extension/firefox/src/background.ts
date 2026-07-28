@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
 const MAX_REQUEST_METRICS = 200;
-const STORAGE_KEY = "requestMetrics";
+const MAX_PAGE_METRICS = 100;
+let storageWriteQueue: Promise<void> = Promise.resolve();
 
 type BackgroundRequestMetric = {
   id: string;
@@ -12,6 +13,13 @@ type BackgroundRequestMetric = {
   durationMs: number;
   outcome: "stopped" | "error";
   recordedAt: string;
+};
+
+type BackgroundPageMetric = {
+  kind: "dom-content-loaded" | "composer-like-input";
+  elapsedMs: number;
+  recordedAt: string;
+  pathTemplate: string;
 };
 
 function redactPath(rawUrl: string): string {
@@ -31,12 +39,31 @@ function redactPath(rawUrl: string): string {
   }
 }
 
-async function appendMetric(metric: BackgroundRequestMetric): Promise<void> {
-  const stored = await browser.storage.local.get<{ requestMetrics?: BackgroundRequestMetric[] }>({
-    requestMetrics: [],
-  });
-  const metrics = [...(stored.requestMetrics ?? []), metric].slice(-MAX_REQUEST_METRICS);
-  await browser.storage.local.set({ [STORAGE_KEY]: metrics });
+function appendBounded<T>(key: string, item: T, limit: number): Promise<void> {
+  storageWriteQueue = storageWriteQueue
+    .catch(() => undefined)
+    .then(async () => {
+      const stored = await browser.storage.local.get<Record<string, T[]>>({ [key]: [] });
+      const current = Array.isArray(stored[key]) ? stored[key] : [];
+      await browser.storage.local.set({ [key]: [...current, item].slice(-limit) });
+    })
+    .catch((error: unknown) => {
+      console.warn("Elatura could not persist an observation metric.", error);
+    });
+  return storageWriteQueue;
+}
+
+function isPageMetric(value: unknown): value is BackgroundPageMetric {
+  if (!value || typeof value !== "object") return false;
+  const metric = value as Partial<BackgroundPageMetric>;
+  return (
+    (metric.kind === "dom-content-loaded" || metric.kind === "composer-like-input") &&
+    typeof metric.elapsedMs === "number" &&
+    Number.isFinite(metric.elapsedMs) &&
+    typeof metric.recordedAt === "string" &&
+    typeof metric.pathTemplate === "string" &&
+    !metric.pathTemplate.includes("?")
+  );
 }
 
 browser.webRequest.onBeforeRequest.addListener(
@@ -70,7 +97,7 @@ browser.webRequest.onBeforeRequest.addListener(
         outcome,
         recordedAt: new Date().toISOString(),
       };
-      void appendMetric(metric);
+      void appendBounded("requestMetrics", metric, MAX_REQUEST_METRICS);
     };
 
     filter.onstop = () => {
@@ -96,10 +123,6 @@ browser.webRequest.onBeforeRequest.addListener(
 browser.runtime.onMessage.addListener((message) => {
   if (!message || typeof message !== "object") return undefined;
   const candidate = message as { type?: string; metric?: unknown };
-  if (candidate.type !== "elatura:page-metric") return undefined;
-  return browser.storage.local.get<{ pageMetrics?: unknown[] }>({ pageMetrics: [] }).then((stored) =>
-    browser.storage.local.set({
-      pageMetrics: [...(stored.pageMetrics ?? []), candidate.metric].slice(-100),
-    }),
-  );
+  if (candidate.type !== "elatura:page-metric" || !isPageMetric(candidate.metric)) return undefined;
+  return appendBounded("pageMetrics", candidate.metric, MAX_PAGE_METRICS);
 });
