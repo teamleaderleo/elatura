@@ -51,6 +51,22 @@ describe("fingerprintShape", () => {
     expect(first.shape).toContain("…");
   });
 
+  it("retains the same bounded object keys across adversarial insertion orders", () => {
+    const entries = Array.from({ length: 500 }, (_, index) => [
+      `field-${index.toString().padStart(3, "0")}`,
+      { value: index },
+    ] as const);
+    const forward = Object.fromEntries(entries);
+    const reverse = Object.fromEntries([...entries].reverse());
+    const options = { depth: 4, maxObjectKeys: 8, maxShapeLength: 1_024 };
+    const first = fingerprintShape("example", "2", forward, options);
+    const second = fingerprintShape("example", "2", reverse, options);
+    expect(first).toEqual(second);
+    expect(first.shape).toContain("…");
+    expect(first.shape).toContain("field-000");
+    expect(first.shape).not.toContain("field-499");
+  });
+
   it("handles cycles and bounds the exposed shape string", () => {
     const cyclic: { self?: unknown } = {};
     cyclic.self = cyclic;
@@ -67,10 +83,23 @@ describe("fingerprintShape", () => {
     expect(fingerprint.shape).toContain("<truncated:");
   });
 
+  it("stops traversing when the visited-value budget is exhausted", () => {
+    const input = Array.from({ length: 20 }, (_, index) => ({ value: index }));
+    expect(() =>
+      fingerprintShape("example", "2", input, {
+        depth: 4,
+        maxVisitedValues: 10,
+      }),
+    ).toThrow(/value budget/);
+  });
+
   it("rejects unsafe limits", () => {
     expect(() => fingerprintShape("example", "2", {}, { depth: -1 })).toThrow(/depth/);
     expect(() => fingerprintShape("example", "2", {}, { maxShapeLength: 8 })).toThrow(
       /maxShapeLength/,
+    );
+    expect(() => fingerprintShape("example", "2", {}, { maxVisitedValues: 0 })).toThrow(
+      /maxVisitedValues/,
     );
     expect(() => fingerprintShape("example", "2", {}, { dictionaryPaths: ["mapping"] })).toThrow(
       /dictionaryPaths/,
