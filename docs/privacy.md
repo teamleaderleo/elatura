@@ -34,4 +34,10 @@ The JSON export aggregates these measurements by redacted path and omits individ
 
 ## Structural fingerprints
 
-Structural fingerprints describe schema shape and adapter compatibility. They must not be browser/device fingerprints and must not become cross-site identifiers. A structural fingerprint may use field names, expected types, graph invariants, adapter version, and content-type tags. It must not include message text or raw identifiers.
+Structural fingerprints describe schema shape and adapter compatibility. They must not be browser/device fingerprints and must not become cross-site identifiers.
+
+A structural fingerprint may use field names, expected types, graph invariants, adapter version, and bounded content-type variants. It must not include message text, scalar values, or raw identifiers.
+
+Dictionary-shaped fields require an adapter-declared dictionary path. At those paths, Elatura fingerprints the sorted union of value shapes and never serializes the dictionary keys. The ChatGPT adapter treats `$.mapping` this way so conversation node identifiers cannot enter the fingerprint.
+
+Array and dictionary variants are bounded and order-independent. Traversal is depth-limited and cycle-safe, object-key and variant counts are capped, and the exposed shape string has a fixed maximum length. A structural fingerprint is a compatibility hint, not an authoritative content hash or cache-freshness proof.
