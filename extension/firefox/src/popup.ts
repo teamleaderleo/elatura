@@ -54,8 +54,9 @@ function metricsForRun(state: ObservationState): {
   };
 }
 
-async function render(state = await getState()): Promise<void> {
-  const { run, requests, pages } = metricsForRun(state);
+async function render(state?: ObservationState): Promise<void> {
+  const resolvedState = state ?? (await getState());
+  const { run, requests, pages } = metricsForRun(resolvedState);
   const totalBytes = requests.reduce((sum, metric) => sum + metric.bytes, 0);
   const composer = [...pages].reverse().find((metric) => metric.kind === "composer-like-input");
 
