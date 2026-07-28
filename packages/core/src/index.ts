@@ -272,18 +272,147 @@ export function planActivePathWindow<TNode extends ParentLinkedNode>(
   };
 }
 
-function describeShape(value: unknown, depth: number): string {
+export type FingerprintShapeOptions = {
+  depth?: number;
+  dictionaryPaths?: readonly string[];
+  maxUniqueVariants?: number;
+  maxObjectKeys?: number;
+  maxShapeLength?: number;
+};
+
+type ResolvedFingerprintShapeOptions = {
+  depth: number;
+  dictionaryPaths: ReadonlySet<string>;
+  maxUniqueVariants: number;
+  maxObjectKeys: number;
+  maxShapeLength: number;
+};
+
+function integerAtLeast(
+  value: number | undefined,
+  fallback: number,
+  minimum: number,
+  name: string,
+): number {
+  const resolved = value ?? fallback;
+  if (!Number.isInteger(resolved) || resolved < minimum) {
+    throw new RangeError(`${name} must be an integer greater than or equal to ${minimum}.`);
+  }
+  return resolved;
+}
+
+function resolveFingerprintOptions(
+  depthOrOptions: number | FingerprintShapeOptions,
+): ResolvedFingerprintShapeOptions {
+  const options = typeof depthOrOptions === "number" ? { depth: depthOrOptions } : depthOrOptions;
+  const depth = options.depth ?? 3;
+  if (!Number.isInteger(depth) || depth < 0) {
+    throw new RangeError("depth must be a non-negative integer.");
+  }
+  const dictionaryPaths = new Set<string>();
+  for (const path of options.dictionaryPaths ?? []) {
+    if (typeof path !== "string" || !path.startsWith("$") || path.length < 2) {
+      throw new TypeError("dictionaryPaths must contain rooted paths such as $.mapping.");
+    }
+    dictionaryPaths.add(path);
+  }
+  return {
+    depth,
+    dictionaryPaths,
+    maxUniqueVariants: integerAtLeast(options.maxUniqueVariants, 32, 1, "maxUniqueVariants"),
+    maxObjectKeys: integerAtLeast(options.maxObjectKeys, 128, 1, "maxObjectKeys"),
+    maxShapeLength: integerAtLeast(options.maxShapeLength, 65_536, 32, "maxShapeLength"),
+  };
+}
+
+function addBoundedVariant(
+  variants: Set<string>,
+  candidate: string,
+  limit: number,
+): boolean {
+  if (variants.has(candidate)) return false;
+  if (variants.size < limit) {
+    variants.add(candidate);
+    return false;
+  }
+  let largest: string | null = null;
+  for (const current of variants) {
+    if (largest === null || current > largest) largest = current;
+  }
+  if (largest !== null && candidate < largest) {
+    variants.delete(largest);
+    variants.add(candidate);
+  }
+  return true;
+}
+
+function serializeVariants(variants: ReadonlySet<string>, overflow: boolean): string {
+  const sorted = [...variants].sort();
+  if (overflow) sorted.push("…");
+  return sorted.join("|");
+}
+
+function describeShape(
+  value: unknown,
+  path: string,
+  depth: number,
+  options: ResolvedFingerprintShapeOptions,
+  ancestors: WeakSet<object>,
+): string {
   if (value === null) return "null";
   if (Array.isArray(value)) {
-    if (depth <= 0 || value.length === 0) return "array";
-    return `array<${describeShape(value[0], depth - 1)}>`;
+    if (depth <= 0) return "array";
+    if (ancestors.has(value)) return "circular";
+    ancestors.add(value);
+    try {
+      const variants = new Set<string>();
+      let overflow = false;
+      for (const item of value) {
+        overflow =
+          addBoundedVariant(
+            variants,
+            describeShape(item, `${path}[]`, depth - 1, options, ancestors),
+            options.maxUniqueVariants,
+          ) || overflow;
+      }
+      return variants.size === 0
+        ? "array"
+        : `array<${serializeVariants(variants, overflow)}>`;
+    } finally {
+      ancestors.delete(value);
+    }
   }
   if (!isRecord(value)) return typeof value;
-  if (depth <= 0) return "object";
-  return `{${Object.keys(value)
-    .sort()
-    .map((key) => `${key}:${describeShape(value[key], depth - 1)}`)
-    .join(",")}}`;
+  if (depth <= 0) return options.dictionaryPaths.has(path) ? "dict" : "object";
+  if (ancestors.has(value)) return "circular";
+  ancestors.add(value);
+  try {
+    if (options.dictionaryPaths.has(path)) {
+      const variants = new Set<string>();
+      let overflow = false;
+      for (const child of Object.values(value)) {
+        overflow =
+          addBoundedVariant(
+            variants,
+            describeShape(child, `${path}.*`, depth - 1, options, ancestors),
+            options.maxUniqueVariants,
+          ) || overflow;
+      }
+      return variants.size === 0
+        ? "dict"
+        : `dict<${serializeVariants(variants, overflow)}>`;
+    }
+
+    const keys = Object.keys(value).sort();
+    const retainedKeys = keys.slice(0, options.maxObjectKeys);
+    const fields = retainedKeys.map(
+      (key) => `${key}:${describeShape(value[key], `${path}.${key}`, depth - 1, options, ancestors)}`,
+    );
+    if (keys.length > retainedKeys.length) fields.push("…");
+    return `{${fields.join(",")}}`;
+  } finally {
+    ancestors.delete(value);
+  }
 }
 
 function fnv1a(input: string): string {
@@ -295,12 +424,25 @@ function fnv1a(input: string): string {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
+function boundedShape(canonical: string, maxShapeLength: number): string {
+  if (canonical.length <= maxShapeLength) return canonical;
+  const marker = `<truncated:${fnv1a(canonical)}>`;
+  const prefixLength = Math.max(0, maxShapeLength - marker.length);
+  return `${canonical.slice(0, prefixLength)}${marker}`;
+}
+
 export function fingerprintShape(
   adapter: string,
   adapterVersion: string,
   input: unknown,
-  depth = 3,
+  depthOrOptions: number | FingerprintShapeOptions = 3,
 ): StructuralFingerprint {
-  const shape = describeShape(input, depth);
-  return { adapter, adapterVersion, shape, hash: fnv1a(shape) };
+  const options = resolveFingerprintOptions(depthOrOptions);
+  const canonical = describeShape(input, "$", options.depth, options, new WeakSet<object>());
+  return {
+    adapter,
+    adapterVersion,
+    shape: boundedShape(canonical, options.maxShapeLength),
+    hash: fnv1a(canonical),
+  };
 }
