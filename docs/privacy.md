@@ -19,18 +19,17 @@ Elatura operates near private authenticated application data. Privacy is an arch
 
 The extension is idle by default. It filters and records response measurements only after the user explicitly starts an observation run. Starting a run clears earlier measurements; clearing the run disables observation again.
 
-During an active run, the M0 extension stores a bounded local ring buffer containing:
+During an active run, the M0 extension stores run-scoped aggregates containing:
 
 - observation run identifier
-- HTTP method
-- WebRequest resource type
-- redacted URL path template
-- response byte count
-- elapsed time
-- stop or error outcome
-- page readiness marks such as DOM ready and composer-like input detection
+- request count, response byte total, elapsed-time total, and error count
+- per-redacted-path counts, bytes, durations, maximum duration, methods, and resource types
+- latest DOM-ready and composer-like-input readiness marks
+- capture-integrity metadata
 
-The JSON export aggregates these measurements by redacted path and omits individual request identifiers. The extension does not persist response bytes. Firefox extension storage is not encrypted, so even content-free diagnostics should be treated as local browser data and kept minimal.
+Individual request records are not retained. Aggregate totals do not have the former 200-request ring-buffer limit. Redacted path cardinality is capped; additional path classes enter an explicit overflow bucket so total counts and bytes remain represented while the report marks its path breakdown as incomplete.
+
+The JSON export omits individual request identifiers. It reports persistence failures and path overflow instead of silently claiming complete data. The extension does not persist response bytes. Firefox extension storage is not encrypted, so even content-free diagnostics should be treated as local browser data and kept minimal.
 
 ## Structural fingerprints
 
