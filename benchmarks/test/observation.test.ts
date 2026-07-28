@@ -83,6 +83,12 @@ describe("observation report analysis", () => {
     expect(() => parseObservationReport(unreconciled)).toThrow(/reconcile/);
   });
 
+  it("rejects duplicate run identifiers", () => {
+    expect(() => summarizeObservationReports([report("same", 1000), report("same", 2000)])).toThrow(
+      /Duplicate observation run id/,
+    );
+  });
+
   it("uses nearest-rank p95 and explicit worst-case maximum", () => {
     expect(summarizeDistribution([1, 2, 3, 4, 100])).toEqual({
       sampleCount: 5,
