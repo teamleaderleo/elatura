@@ -1,5 +1,5 @@
 :root { color-scheme: light dark; font: 13px/1.4 system-ui, sans-serif; }
-body { margin: 0; min-width: 320px; }
+body { margin: 0; min-width: 340px; }
 main { padding: 16px; }
 header { display: flex; align-items: center; justify-content: space-between; font-size: 16px; }
 .mode { border: 1px solid currentColor; border-radius: 999px; padding: 2px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
@@ -7,6 +7,8 @@ p { opacity: .78; }
 dl { display: grid; gap: 8px; }
 dl div { display: flex; justify-content: space-between; gap: 16px; }
 dt { opacity: .72; }
-dd { margin: 0; font-variant-numeric: tabular-nums; }
+dd { margin: 0; max-width: 190px; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.actions { display: grid; gap: 8px; margin-top: 14px; }
 button { width: 100%; padding: 8px 10px; }
+button:disabled { opacity: .5; }
 output { display: block; min-height: 1.4em; margin-top: 8px; opacity: .72; }
