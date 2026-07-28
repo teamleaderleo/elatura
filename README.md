@@ -10,11 +10,12 @@ Elatura is in **M0: evidence and observation**. The current code does not modify
 
 - an observe-only Firefox extension that passes response bytes through unchanged
 - explicit benchmark runs with content-free JSON export
-- local, bounded request and readiness measurements
+- lossless run totals, bounded redacted path aggregation, and report integrity flags
 - generic adapter and validation contracts
 - a conservative ChatGPT graph-shape inspector
 - deterministic oversized synthetic fixtures and malformed graph families
 - generic active-path selection planning without response materialization
+- identifier-free, bounded structural fingerprints
 - privacy-validating batch analysis for observation reports
 - property and compatibility tests
 
@@ -39,7 +40,7 @@ npm run run:firefox
 
 Open the extension popup and choose **Start new run** before loading the test conversation. Ordinary browsing is not observed while the extension is idle. After the run, use **Export JSON**, then **Clear and stop**. See `docs/running-observer.md` for the comparison protocol.
 
-The report contains aggregated redacted request paths, byte counts, durations, outcomes, browser/version information, and page-readiness timings. It does not contain response bodies, message text, cookies, authorization headers, query strings, or raw conversation identifiers.
+The report contains aggregated redacted request paths, byte counts, durations, outcomes, browser/version information, page-readiness timings, and explicit integrity metadata. It does not contain response bodies, message text, cookies, authorization headers, query strings, or raw conversation identifiers.
 
 Offline work does not need to stop while the private baseline is unavailable:
 
@@ -53,11 +54,11 @@ See `docs/offline-development.md` for the boundary between safe synthetic work a
 ## Repository map
 
 ```text
-extension/firefox/        observe-only Firefox transport
+extension/firefox/        observe-only Firefox transport and tested report export
 packages/core/            generic runtime contracts, fingerprints, and selection planning
 packages/adapter-chatgpt/ ChatGPT-specific graph inspection
 packages/fixtures/        deterministic synthetic and malformed graph workloads
-benchmarks/               report privacy validation, parsing, and batch analysis
+benchmarks/               report privacy validation, parsing, integrity, and batch analysis
 docs/                     architecture, privacy, measurement, and development decisions
 ```
 

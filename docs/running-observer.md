@@ -21,7 +21,16 @@ Use a dedicated Firefox profile for benchmark work. Sign in to ChatGPT normally 
 5. Open the popup and choose **Export JSON**.
 6. Choose **Clear and stop** before ordinary browsing.
 
-The report contains aggregated redacted path templates, counts, observed bytes, request durations, errors, browser and extension versions, and page readiness marks. It does not contain response bodies, message text, query strings, cookies, authorization headers, or raw conversation identifiers.
+The report contains aggregated redacted path templates, counts, observed bytes, request durations, errors, browser and extension versions, page readiness marks, and an `integrity` section. It does not contain response bodies, message text, query strings, cookies, authorization headers, or raw conversation identifiers.
+
+### Integrity fields
+
+- `totalsComplete` is false if local persistence failed during the run.
+- `pathBreakdownComplete` is false when totals are incomplete or the redacted path-class limit was exceeded.
+- `overflowRequestCount` reports how many requests entered the explicit `/:elatura-overflow` path bucket.
+- Aggregate request totals are no longer limited to the most recent 200 requests.
+
+Do not compare or publish a report without checking its integrity section. A report with complete totals but an incomplete path breakdown is still useful for total byte and timing comparisons, but not for claiming an exact per-path distribution.
 
 ## Baseline matrix
 
