@@ -19,7 +19,7 @@ Elatura operates near private authenticated application data. Privacy is an arch
 
 The M0 extension stores a bounded local ring buffer containing:
 
-- a random per-browser-session request identifier
+- a random per-request identifier
 - HTTP method
 - WebRequest resource type
 - redacted URL path template
