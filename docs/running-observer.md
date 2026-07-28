@@ -25,12 +25,16 @@ The report contains aggregated redacted path templates, counts, observed bytes, 
 
 ### Integrity fields
 
-- `totalsComplete` is false if local persistence failed during the run.
+- `totalsComplete` is false if local persistence failed or capture continuity was interrupted during the run.
 - `pathBreakdownComplete` is false when totals are incomplete or the redacted path-class limit was exceeded.
 - `overflowRequestCount` reports how many requests entered the explicit `/:elatura-overflow` path bucket.
+- `persistenceErrorCount` reports failed local state writes observed by the active background session.
+- `captureInterruptionCount` increments when Firefox recreates the extension background context while a run remains active.
 - Aggregate request totals are no longer limited to the most recent 200 requests.
 
-Do not compare or publish a report without checking its integrity section. A report with complete totals but an incomplete path breakdown is still useful for total byte and timing comparisons, but not for claiming an exact per-path distribution.
+Do not compare or publish a report without checking its integrity section. A report with complete totals but an incomplete path breakdown is still useful for total byte and timing comparisons, but not for claiming an exact per-path distribution. A report with any capture interruption can describe the aggregates that survived, yet it cannot support a complete-run total.
+
+For benchmark runs, export and clear before quitting Firefox or reloading the extension. Start a fresh run after any browser or extension restart.
 
 ## Baseline matrix
 
@@ -40,7 +44,7 @@ Use the same private conversation and comparable clean profiles:
 - Firefox stable without Elatura
 - Firefox with Elatura observe mode
 
-Record at least five cold opens and ten hard reloads per mode. Keep individual runs and compare medians plus worst cases. A cold open should begin after a full browser quit and relaunch. A hard reload should use the same signed-in profile without clearing application data between every run.
+Record at least five cold opens and ten hard reloads per mode. Keep individual runs and compare medians plus worst cases. A cold open should begin after a full browser quit and relaunch. Start the Elatura observation run only after Firefox relaunches, so the deliberate cold-start boundary does not interrupt an active run. A hard reload should use the same signed-in profile without clearing application data between every run.
 
 ## Memory
 

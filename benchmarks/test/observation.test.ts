@@ -16,7 +16,7 @@ function report(id: string, bytes: number, composerReadyMs: number | null = 1000
       startedAt: "2026-07-29T00:00:00.000Z",
       exportedAt: "2026-07-29T00:00:02.000Z",
     },
-    extension: { version: "0.0.1" },
+    extension: { version: "0.0.4" },
     browser: { name: "Firefox", vendor: "Mozilla", version: "140.0", buildID: "build" },
     privacy: {
       responseBodiesCaptured: false,
@@ -32,6 +32,7 @@ function report(id: string, bytes: number, composerReadyMs: number | null = 1000
       pathClassOverflowed: false,
       overflowRequestCount: 0,
       persistenceErrorCount: 0,
+      captureInterruptionCount: 0,
     },
     summary: {
       requestCount: 2,
@@ -77,6 +78,12 @@ describe("observation report analysis", () => {
     expect(input).toEqual(before);
   });
 
+  it("migrates additive report v2 integrity metadata", () => {
+    const legacy = report("legacy", 1000);
+    delete (legacy.integrity as Record<string, unknown>).captureInterruptionCount;
+    expect(parseObservationReport(legacy).integrity.captureInterruptionCount).toBe(0);
+  });
+
   it("rejects privacy-invalid, raw-URL, and unreconciled reports", () => {
     const privacyInvalid = report("run-1", 1000);
     (privacyInvalid.privacy as Record<string, unknown>).responseBodiesCaptured = true;
@@ -96,6 +103,10 @@ describe("observation report analysis", () => {
     const persistenceFailure = report("run-1", 1000);
     (persistenceFailure.integrity as Record<string, unknown>).persistenceErrorCount = 1;
     expect(() => parseObservationReport(persistenceFailure)).toThrow(/cannot claim complete totals/);
+
+    const interruption = report("run-interrupted", 1000);
+    (interruption.integrity as Record<string, unknown>).captureInterruptionCount = 1;
+    expect(() => parseObservationReport(interruption)).toThrow(/cannot claim complete totals/);
 
     const overflow = report("run-2", 1000);
     Object.assign(overflow.integrity as object, {
@@ -124,10 +135,16 @@ describe("observation report analysis", () => {
   });
 
   it("summarizes repeated runs, integrity, and paths", () => {
+    const interrupted = report("run-3", 3000, null);
+    Object.assign(interrupted.integrity as object, {
+      totalsComplete: false,
+      pathBreakdownComplete: false,
+      captureInterruptionCount: 1,
+    });
     const summary = summarizeObservationReports([
       report("run-1", 1000, 900),
       report("run-2", 2000, 1100),
-      report("run-3", 3000, null),
+      interrupted,
     ]);
     expect(summary.schemaVersion).toBe(2);
     expect(summary.reportCount).toBe(3);
@@ -135,7 +152,8 @@ describe("observation report analysis", () => {
     const group = summary.groups[0]!;
     expect(group.metrics.totalBytesObserved.median).toBe(2000);
     expect(group.metrics.composerReadyMs?.sampleCount).toBe(2);
-    expect(group.integrity.totalsCompleteReportCount).toBe(3);
+    expect(group.integrity.totalsCompleteReportCount).toBe(2);
+    expect(group.integrity.captureInterruptionCount).toBe(1);
     expect(group.requestPaths[0]?.pathTemplate).toBe("/backend-api/conversation/:id");
     expect(group.requestPaths[0]?.totalBytes).toBe(5700);
   });

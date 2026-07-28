@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Elatura Observer",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Observe content-free performance characteristics of oversized ChatGPT application state.",
   "permissions": [
     "downloads",
@@ -14,7 +14,8 @@
     "https://chatgpt.com/*"
   ],
   "background": {
-    "scripts": ["background.js"]
+    "scripts": ["background.js"],
+    "type": "module"
   },
   "content_scripts": [
     {

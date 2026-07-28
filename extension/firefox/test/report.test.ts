@@ -3,13 +3,14 @@ import { describe, expect, it } from "vitest";
 import { parseObservationReport } from "../../../benchmarks/src/observation.js";
 import {
   buildObservationReport,
+  migrateStoredObservationState,
   OVERFLOW_PATH_TEMPLATE,
   type StoredObservationState,
 } from "../src/report.js";
 
 function state(): StoredObservationState {
   return {
-    storageSchemaVersion: 2,
+    storageSchemaVersion: 3,
     activeRun: { id: "run-250", startedAt: "2026-07-29T00:00:00.000Z" },
     summary: {
       requestCount: 250,
@@ -35,12 +36,13 @@ function state(): StoredObservationState {
       pathClassOverflowed: false,
       overflowRequestCount: 0,
       persistenceErrorCount: 0,
+      captureInterruptionCount: 0,
     },
   };
 }
 
 const metadata = {
-  extensionVersion: "0.0.1",
+  extensionVersion: "0.0.4",
   browser: { name: "Firefox", vendor: "Mozilla", version: "140.0", buildID: "build" },
 };
 
@@ -49,7 +51,26 @@ describe("popup observation report builder", () => {
     const report = buildObservationReport(state(), metadata, "2026-07-29T00:00:02.000Z");
     expect(report.summary.requestCount).toBe(250);
     expect(report.integrity.totalsComplete).toBe(true);
-    expect(parseObservationReport(report).summary.totalBytesObserved).toBe(250_000);
+    expect(parseObservationReport(report)).toEqual(report);
+  });
+
+  it("migrates stored schema v2 without inventing an interruption", () => {
+    const legacy = state() as unknown as Record<string, unknown>;
+    legacy.storageSchemaVersion = 2;
+    delete (legacy.integrity as Record<string, unknown>).captureInterruptionCount;
+    const migration = migrateStoredObservationState(legacy);
+    expect(migration?.migratedFrom).toBe(2);
+    expect(migration?.state.storageSchemaVersion).toBe(3);
+    expect(migration?.state.integrity.captureInterruptionCount).toBe(0);
+  });
+
+  it("marks resumed capture totals incomplete", () => {
+    const input = state();
+    input.integrity.captureInterruptionCount = 1;
+    const report = buildObservationReport(input, metadata);
+    expect(report.integrity.totalsComplete).toBe(false);
+    expect(report.integrity.pathBreakdownComplete).toBe(false);
+    expect(parseObservationReport(report).integrity.captureInterruptionCount).toBe(1);
   });
 
   it("surfaces overflow without losing total completeness", () => {
