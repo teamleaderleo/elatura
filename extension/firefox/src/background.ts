@@ -70,9 +70,8 @@ let storageWriteQueue: Promise<void> = browser.storage.local
       await persistCurrentState();
     }
   })
-  .catch((error: unknown) => {
+  .catch(() => {
     if (observationState.activeRun) observationState.integrity.persistenceErrorCount += 1;
-    console.warn("Elatura could not initialize observation storage.", error);
   });
 
 function redactPath(rawUrl: string): string {
@@ -96,9 +95,8 @@ function enqueueStorage(operation: () => Promise<void>): Promise<void> {
   storageWriteQueue = storageWriteQueue
     .catch(() => undefined)
     .then(operation)
-    .catch((error: unknown) => {
+    .catch(() => {
       if (observationState.activeRun) observationState.integrity.persistenceErrorCount += 1;
-      console.warn("Elatura could not persist observation state.", error);
     });
   return storageWriteQueue;
 }
