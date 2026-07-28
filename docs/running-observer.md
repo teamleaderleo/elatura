@@ -1,11 +1,11 @@
 # Running the M0 observer
 
-The observer is intentionally inactive until a benchmark run is started from the extension popup.
+The observer is intentionally inactive until a benchmark run is started from the extension popup. Use Elatura Observer 0.0.5 or later for schema-3 reports with content-independent path classes.
 
 ## Install and launch
 
 ```bash
-npm install
+npm ci --ignore-scripts
 npm run check
 npm run run:firefox
 ```
@@ -21,7 +21,9 @@ Use a dedicated Firefox profile for benchmark work. Sign in to ChatGPT normally 
 5. Open the popup and choose **Export JSON**.
 6. Choose **Clear and stop** before ordinary browsing.
 
-The report contains aggregated redacted path templates, counts, observed bytes, request durations, errors, browser and extension versions, page readiness marks, and an `integrity` section. It does not contain response bodies, message text, query strings, cookies, authorization headers, or raw conversation identifiers.
+The schema-3 report contains aggregated content-independent path classes, counts, observed bytes, request durations, errors, browser and extension versions, page readiness marks, and an `integrity` section. It does not contain response bodies, message text, query strings, cookies, authorization headers, raw conversation identifiers, filenames, slugs, or literal URL path segments.
+
+The analyzer reads historical schema-2 exports. Analyze schema-2 and schema-3 reports separately because their path-template keys use different redaction semantics.
 
 ### Integrity fields
 

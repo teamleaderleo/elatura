@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MPL-2.0
+import { isRedactedPathTemplate } from "./path-redaction.js";
 
-export const OBSERVATION_STATE_SCHEMA_VERSION = 3 as const;
-export const OBSERVATION_REPORT_SCHEMA_VERSION = 2 as const;
+export const OBSERVATION_STATE_SCHEMA_VERSION = 4 as const;
+export const OBSERVATION_REPORT_SCHEMA_VERSION = 3 as const;
 export const OVERFLOW_PATH_TEMPLATE = "/:elatura-overflow";
 
 const MAX_PATH_TEMPLATE_LENGTH = 4_096;
@@ -54,7 +55,7 @@ export type StoredObservationState = {
 
 export type ObservationStateMigration = {
   state: StoredObservationState;
-  migratedFrom: 2 | null;
+  migratedFrom: 2 | 3 | null;
 };
 
 export type ObservationReportMetadata = {
@@ -147,7 +148,9 @@ function close(left: number, right: number): boolean {
 
 function parseStoredObservationState(value: Record<string, unknown>): StoredObservationState | null {
   const sourceVersion = value.storageSchemaVersion;
-  if (sourceVersion !== 2 && sourceVersion !== OBSERVATION_STATE_SCHEMA_VERSION) return null;
+  if (sourceVersion !== 2 && sourceVersion !== 3 && sourceVersion !== OBSERVATION_STATE_SCHEMA_VERSION) {
+    return null;
+  }
   if (!isRecord(value.summary) || !isRecord(value.requestPaths) || !isRecord(value.pageMarks) || !isRecord(value.integrity)) {
     return null;
   }
@@ -209,9 +212,7 @@ function parseStoredObservationState(value: Record<string, unknown>): StoredObse
     if (
       key.length === 0 ||
       key.length > MAX_PATH_TEMPLATE_LENGTH ||
-      !key.startsWith("/") ||
-      key.includes("?") ||
-      key.includes("#")
+      !isRedactedPathTemplate(key)
     ) {
       return null;
     }
@@ -297,7 +298,9 @@ function parseStoredObservationState(value: Record<string, unknown>): StoredObse
 
 export function migrateStoredObservationState(value: unknown): ObservationStateMigration | null {
   if (!isRecord(value)) return null;
-  const migratedFrom = value.storageSchemaVersion === 2 ? 2 : null;
+  const sourceVersion = value.storageSchemaVersion;
+  const migratedFrom = sourceVersion === OBSERVATION_STATE_SCHEMA_VERSION ? null : sourceVersion;
+  if (migratedFrom !== null && migratedFrom !== 2 && migratedFrom !== 3) return null;
   const state = parseStoredObservationState(value);
   return state ? { state, migratedFrom } : null;
 }

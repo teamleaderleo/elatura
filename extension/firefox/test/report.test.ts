@@ -8,9 +8,11 @@ import {
   type StoredObservationState,
 } from "../src/report.js";
 
+const CONVERSATION_PATH_TEMPLATE = "/:compound-l/:word-l/:uuid";
+
 function state(): StoredObservationState {
   return {
-    storageSchemaVersion: 3,
+    storageSchemaVersion: 4,
     activeRun: { id: "run-250", startedAt: "2026-07-29T00:00:00.000Z" },
     summary: {
       requestCount: 250,
@@ -19,8 +21,8 @@ function state(): StoredObservationState {
       requestErrorCount: 2,
     },
     requestPaths: {
-      "/backend-api/conversation/:id": {
-        pathTemplate: "/backend-api/conversation/:id",
+      [CONVERSATION_PATH_TEMPLATE]: {
+        pathTemplate: CONVERSATION_PATH_TEMPLATE,
         count: 250,
         bytes: 250_000,
         durationMs: 5000,
@@ -42,26 +44,41 @@ function state(): StoredObservationState {
 }
 
 const metadata = {
-  extensionVersion: "0.0.4",
+  extensionVersion: "0.0.5",
   browser: { name: "Firefox", vendor: "Mozilla", version: "140.0", buildID: "build" },
 };
 
 describe("popup observation report builder", () => {
-  it("exports and parses exact totals beyond the former 200-request ring limit", () => {
+  it("exports schema v3 and round-trips exact totals beyond the former 200-request ring limit", () => {
     const report = buildObservationReport(state(), metadata, "2026-07-29T00:00:02.000Z");
+    expect(report.schemaVersion).toBe(3);
     expect(report.summary.requestCount).toBe(250);
     expect(report.integrity.totalsComplete).toBe(true);
     expect(parseObservationReport(report)).toEqual(report);
   });
 
-  it("migrates a completely valid stored schema v2 without inventing an interruption", () => {
-    const legacy = structuredClone(state()) as unknown as Record<string, unknown>;
-    legacy.storageSchemaVersion = 2;
-    delete (legacy.integrity as Record<string, unknown>).captureInterruptionCount;
-    const migration = migrateStoredObservationState(legacy);
-    expect(migration?.migratedFrom).toBe(2);
-    expect(migration?.state.storageSchemaVersion).toBe(3);
-    expect(migration?.state.integrity.captureInterruptionCount).toBe(0);
+  it("migrates only legacy states whose paths already satisfy the private grammar", () => {
+    const legacyV2 = structuredClone(state()) as unknown as Record<string, unknown>;
+    legacyV2.storageSchemaVersion = 2;
+    delete (legacyV2.integrity as Record<string, unknown>).captureInterruptionCount;
+    const v2Migration = migrateStoredObservationState(legacyV2);
+    expect(v2Migration?.migratedFrom).toBe(2);
+    expect(v2Migration?.state.storageSchemaVersion).toBe(4);
+    expect(v2Migration?.state.integrity.captureInterruptionCount).toBe(0);
+
+    const legacyV3 = structuredClone(state()) as unknown as Record<string, unknown>;
+    legacyV3.storageSchemaVersion = 3;
+    expect(migrateStoredObservationState(legacyV3)?.migratedFrom).toBe(3);
+
+    const literalLegacy = structuredClone(legacyV3);
+    const aggregate = (literalLegacy.requestPaths as Record<string, unknown>)[CONVERSATION_PATH_TEMPLATE];
+    literalLegacy.requestPaths = {
+      "/private-project/:uuid": {
+        ...(aggregate as Record<string, unknown>),
+        pathTemplate: "/private-project/:uuid",
+      },
+    };
+    expect(migrateStoredObservationState(literalLegacy)).toBeNull();
   });
 
   it("rejects corrupt stored state before the background runtime can use it", () => {
@@ -80,14 +97,21 @@ describe("popup observation report builder", () => {
       },
       (input) => {
         const paths = input.requestPaths as Record<string, Record<string, unknown>>;
-        paths["/backend-api/conversation/:id"]!.pathTemplate = "/different";
+        paths[CONVERSATION_PATH_TEMPLATE]!.pathTemplate = "/:word-m";
       },
       (input) => {
         const paths = input.requestPaths as Record<string, Record<string, unknown>>;
-        paths["/backend-api/conversation/:id"]!.methods = ["GET", "GET"];
+        paths[CONVERSATION_PATH_TEMPLATE]!.methods = ["GET", "GET"];
       },
       (input) => {
         (input.summary as Record<string, unknown>).totalBytesObserved = 1;
+      },
+      (input) => {
+        const paths = input.requestPaths as Record<string, Record<string, unknown>>;
+        paths[CONVERSATION_PATH_TEMPLATE]!.pathTemplate = "/private-project/:uuid";
+        input.requestPaths = {
+          "/private-project/:uuid": paths[CONVERSATION_PATH_TEMPLATE],
+        };
       },
     ];
 
@@ -116,8 +140,8 @@ describe("popup observation report builder", () => {
   it("surfaces overflow without losing total completeness", () => {
     const input = state();
     input.requestPaths = {
-      "/known": {
-        pathTemplate: "/known",
+      "/:word-m": {
+        pathTemplate: "/:word-m",
         count: 200,
         bytes: 200_000,
         durationMs: 4000,
@@ -148,6 +172,18 @@ describe("popup observation report builder", () => {
   it("refuses inconsistent state instead of exporting a misleading report", () => {
     const input = state();
     input.summary.requestCount = 249;
+    expect(() => buildObservationReport(input, metadata)).toThrow(/Invalid observation state/);
+  });
+
+  it("refuses literal path content in schema-v4 state", () => {
+    const input = state();
+    const aggregate = input.requestPaths[CONVERSATION_PATH_TEMPLATE]!;
+    input.requestPaths = {
+      "/private-project/:uuid": {
+        ...aggregate,
+        pathTemplate: "/private-project/:uuid",
+      },
+    };
     expect(() => buildObservationReport(input, metadata)).toThrow(/Invalid observation state/);
   });
 });
