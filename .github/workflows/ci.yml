@@ -22,3 +22,11 @@ jobs:
       - name: Install frozen dependencies
         run: npm ci --ignore-scripts
       - run: npm run check
+      - name: Run synthetic materialization benchmark smoke
+        run: >-
+          node --expose-gc scripts/benchmark-synthetic-materialization.mjs
+          --turns 100
+          --branches-every 5
+          --payload-bytes 64
+          --max-groups 4
+          --iterations 1
