@@ -89,8 +89,33 @@ function validateState(state: StoredObservationState): ObservationPathAggregate[
   finiteNonNegative(state.summary.totalBytesObserved, "totalBytesObserved");
   finiteNonNegative(state.summary.totalRequestDurationMs, "totalRequestDurationMs");
   finiteNonNegative(state.summary.requestErrorCount, "requestErrorCount");
+  if (
+    !Number.isInteger(state.summary.requestCount) ||
+    !Number.isInteger(state.summary.totalBytesObserved) ||
+    !Number.isInteger(state.summary.requestErrorCount)
+  ) {
+    throw new TypeError("Request counts, bytes, and errors must be integers.");
+  }
+  finiteNonNegative(state.integrity.pathClassLimit, "pathClassLimit");
+  finiteNonNegative(state.integrity.overflowRequestCount, "overflowRequestCount");
+  finiteNonNegative(state.integrity.persistenceErrorCount, "persistenceErrorCount");
+  if (
+    !Number.isInteger(state.integrity.pathClassLimit) ||
+    state.integrity.pathClassLimit < 1 ||
+    !Number.isInteger(state.integrity.overflowRequestCount) ||
+    !Number.isInteger(state.integrity.persistenceErrorCount)
+  ) {
+    throw new TypeError("Observation integrity counters must be valid integers.");
+  }
+  for (const [name, mark] of Object.entries(state.pageMarks)) {
+    if (mark !== null) finiteNonNegative(mark, name);
+  }
 
-  const paths = Object.values(state.requestPaths);
+  const entries = Object.entries(state.requestPaths);
+  const paths = entries.map(([key, path]) => {
+    if (key !== path.pathTemplate) throw new TypeError("Observation path map key does not match its aggregate.");
+    return path;
+  });
   const totals = paths.reduce(
     (sum, path) => {
       if (path.pathTemplate.includes("?") || !path.pathTemplate.startsWith("/")) {
