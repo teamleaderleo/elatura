@@ -38,6 +38,10 @@ export type ParentLinkedNode = {
   children: readonly string[];
 };
 
+export type ActivePathTraversalOptions = {
+  maxActivePathDepth?: number;
+};
+
 export type SelectionReason = "active-window" | "root-anchor" | "branch-sibling";
 
 export type ActivePathGroup = {
@@ -57,27 +61,67 @@ export type ActivePathSelectionPlan = {
   reasons: Record<string, SelectionReason[]>;
 };
 
-export type ActivePathWindowOptions<TNode extends ParentLinkedNode> = {
+export type ActivePathWindowOptions<TNode extends ParentLinkedNode> = ActivePathTraversalOptions & {
   maxGroups: number;
+  maxSiblingReferences?: number;
   groupKey: (node: TNode, index: number, activePath: readonly TNode[]) => string;
   includeRoot?: boolean;
   includeSiblingRoots?: boolean;
 };
 
+const DEFAULT_MAX_ACTIVE_PATH_DEPTH = 100_000;
+const DEFAULT_MAX_SIBLING_REFERENCES = 500_000;
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function positiveIntegerIssue(
+  value: number | undefined,
+  fallback: number,
+  path: string,
+  code: string,
+  name: string,
+): { ok: true; value: number } | { ok: false; issues: ValidationIssue[] } {
+  const resolved = value ?? fallback;
+  if (!Number.isInteger(resolved) || resolved < 1) {
+    return {
+      ok: false,
+      issues: [{ path, code, message: `${name} must be a positive integer.` }],
+    };
+  }
+  return { ok: true, value: resolved };
 }
 
 export function traceActivePath<TNode extends ParentLinkedNode>(
   nodes: Readonly<Record<string, TNode>>,
   currentNode: string,
+  options: ActivePathTraversalOptions = {},
 ): ValidationResult<readonly TNode[]> {
+  const depthLimit = positiveIntegerIssue(
+    options.maxActivePathDepth,
+    DEFAULT_MAX_ACTIVE_PATH_DEPTH,
+    "$.options.maxActivePathDepth",
+    "invalid-max-active-path-depth",
+    "maxActivePathDepth",
+  );
+  if (!depthLimit.ok) return depthLimit;
+
   const issues: ValidationIssue[] = [];
   const reversed: TNode[] = [];
   const seen = new Set<string>();
   let cursor: string | null = currentNode;
 
   while (cursor !== null) {
+    if (reversed.length >= depthLimit.value) {
+      issues.push({
+        path: "$.currentNode",
+        code: "active-path-depth-budget-exceeded",
+        message: `The active path exceeds the ${depthLimit.value} node traversal budget.`,
+      });
+      break;
+    }
+
     const node: TNode | undefined = nodes[cursor];
     if (!node) {
       issues.push({
@@ -153,7 +197,18 @@ export function planActivePathWindow<TNode extends ParentLinkedNode>(
     };
   }
 
-  const traced = traceActivePath(nodes, currentNode);
+  const siblingLimit = positiveIntegerIssue(
+    options.maxSiblingReferences,
+    DEFAULT_MAX_SIBLING_REFERENCES,
+    "$.options.maxSiblingReferences",
+    "invalid-max-sibling-references",
+    "maxSiblingReferences",
+  );
+  if (!siblingLimit.ok) return siblingLimit;
+
+  const traced = traceActivePath(nodes, currentNode, {
+    maxActivePathDepth: options.maxActivePathDepth,
+  });
   if (!traced.ok) return traced;
   const activePath = [...traced.value];
   if (activePath.length === 0) {
@@ -207,12 +262,26 @@ export function planActivePathWindow<TNode extends ParentLinkedNode>(
   if (options.includeRoot && root) addReason(reasons, root.id, "root-anchor");
 
   const issues: ValidationIssue[] = [];
+  let siblingReferences = 0;
   if (options.includeSiblingRoots) {
     for (const node of retainedActivePath) {
       if (node.parent === null) continue;
       const parent = nodes[node.parent];
       if (!parent) continue;
       for (const childId of [...parent.children].sort()) {
+        if (siblingReferences >= siblingLimit.value) {
+          return {
+            ok: false,
+            issues: [
+              {
+                path: `$.nodes.${parent.id}.children`,
+                code: "sibling-reference-budget-exceeded",
+                message: `Selection inspected more than ${siblingLimit.value} sibling references.`,
+              },
+            ],
+          };
+        }
+        siblingReferences += 1;
         if (childId === node.id) continue;
         const sibling = nodes[childId];
         if (!sibling) {
@@ -278,6 +347,7 @@ export type FingerprintShapeOptions = {
   maxUniqueVariants?: number;
   maxObjectKeys?: number;
   maxShapeLength?: number;
+  maxVisitedValues?: number;
 };
 
 type ResolvedFingerprintShapeOptions = {
@@ -286,6 +356,11 @@ type ResolvedFingerprintShapeOptions = {
   maxUniqueVariants: number;
   maxObjectKeys: number;
   maxShapeLength: number;
+  maxVisitedValues: number;
+};
+
+type FingerprintTraversalState = {
+  visitedValues: number;
 };
 
 function integerAtLeast(
@@ -322,6 +397,7 @@ function resolveFingerprintOptions(
     maxUniqueVariants: integerAtLeast(options.maxUniqueVariants, 32, 1, "maxUniqueVariants"),
     maxObjectKeys: integerAtLeast(options.maxObjectKeys, 128, 1, "maxObjectKeys"),
     maxShapeLength: integerAtLeast(options.maxShapeLength, 65_536, 32, "maxShapeLength"),
+    maxVisitedValues: integerAtLeast(options.maxVisitedValues, 1_000_000, 1, "maxVisitedValues"),
   };
 }
 
@@ -352,13 +428,27 @@ function serializeVariants(variants: ReadonlySet<string>, overflow: boolean): st
   return sorted.join("|");
 }
 
+function visitFingerprintValue(
+  state: FingerprintTraversalState,
+  options: ResolvedFingerprintShapeOptions,
+): void {
+  state.visitedValues += 1;
+  if (state.visitedValues > options.maxVisitedValues) {
+    throw new RangeError(
+      `Fingerprint traversal exceeded the ${options.maxVisitedValues} value budget.`,
+    );
+  }
+}
+
 function describeShape(
   value: unknown,
   path: string,
   depth: number,
   options: ResolvedFingerprintShapeOptions,
   ancestors: WeakSet<object>,
+  state: FingerprintTraversalState,
 ): string {
+  visitFingerprintValue(state, options);
   if (value === null) return "null";
   if (Array.isArray(value)) {
     if (depth <= 0) return "array";
@@ -371,7 +461,7 @@ function describeShape(
         overflow =
           addBoundedVariant(
             variants,
-            describeShape(item, `${path}[]`, depth - 1, options, ancestors),
+            describeShape(item, `${path}[]`, depth - 1, options, ancestors, state),
             options.maxUniqueVariants,
           ) || overflow;
       }
@@ -390,11 +480,12 @@ function describeShape(
     if (options.dictionaryPaths.has(path)) {
       const variants = new Set<string>();
       let overflow = false;
-      for (const child of Object.values(value)) {
+      for (const key in value) {
+        if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
         overflow =
           addBoundedVariant(
             variants,
-            describeShape(child, `${path}.*`, depth - 1, options, ancestors),
+            describeShape(value[key], `${path}.*`, depth - 1, options, ancestors, state),
             options.maxUniqueVariants,
           ) || overflow;
       }
@@ -403,12 +494,19 @@ function describeShape(
         : `dict<${serializeVariants(variants, overflow)}>`;
     }
 
-    const keys = Object.keys(value).sort();
-    const retainedKeys = keys.slice(0, options.maxObjectKeys);
-    const fields = retainedKeys.map(
-      (key) => `${key}:${describeShape(value[key], `${path}.${key}`, depth - 1, options, ancestors)}`,
-    );
-    if (keys.length > retainedKeys.length) fields.push("…");
+    const retainedKeys = new Set<string>();
+    let overflow = false;
+    for (const key in value) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+      overflow = addBoundedVariant(retainedKeys, key, options.maxObjectKeys) || overflow;
+    }
+    const fields = [...retainedKeys]
+      .sort()
+      .map(
+        (key) =>
+          `${key}:${describeShape(value[key], `${path}.${key}`, depth - 1, options, ancestors, state)}`,
+      );
+    if (overflow) fields.push("…");
     return `{${fields.join(",")}}`;
   } finally {
     ancestors.delete(value);
@@ -438,7 +536,14 @@ export function fingerprintShape(
   depthOrOptions: number | FingerprintShapeOptions = 3,
 ): StructuralFingerprint {
   const options = resolveFingerprintOptions(depthOrOptions);
-  const canonical = describeShape(input, "$", options.depth, options, new WeakSet<object>());
+  const canonical = describeShape(
+    input,
+    "$",
+    options.depth,
+    options,
+    new WeakSet<object>(),
+    { visitedValues: 0 },
+  );
   return {
     adapter,
     adapterVersion,
