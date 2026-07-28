@@ -3,7 +3,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { planActivePathWindow, traceActivePath, type ParentLinkedNode } from "../src/index.js";
 
-type TestNode = ParentLinkedNode & { group: string };
+type TestNode = Omit<ParentLinkedNode, "children"> & { children: string[]; group: string };
 
 function branchedGraph(): Record<string, TestNode> {
   return {
