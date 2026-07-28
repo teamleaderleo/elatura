@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Elatura Observer",
+  "version": "0.0.1",
+  "description": "Observe content-free performance characteristics of oversized ChatGPT application state.",
+  "permissions": [
+    "storage",
+    "webRequest",
+    "webRequestBlocking",
+    "webRequestFilterResponse"
+  ],
+  "host_permissions": [
+    "https://chatgpt.com/*"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "Elatura Observer",
+    "default_popup": "popup.html"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "observer@elatura.com",
+      "strict_min_version": "110.0"
+    }
+  }
+}
