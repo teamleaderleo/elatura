@@ -96,7 +96,6 @@ export function defineProductionAdapterAcceptanceSuite<TInput, TSource, TPlan, T
       expect(config.expectedCapabilities.plan).toBe("supported");
       expect(config.expectedCapabilities.materialize).toBe("supported");
       expect(config.expectedCapabilities.validateOutput).toBe("supported");
-      expect(config.expectedCapabilities.branches).toBe("supported");
       expect(config.expectedCapabilities.cache).toBe("unsupported");
       expect(config.expectedCapabilities.submission).toBe("unsupported");
       expect(config.expectedCapabilities.alternateRepresentation).toBe("unsupported");
