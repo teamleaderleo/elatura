@@ -15,6 +15,32 @@ For each mode:
 
 `client-navigation` remains optional for issue #3. When recorded, it needs at least five runs per compared mode before the tool emits deltas. Smaller client-navigation cohorts remain visible as descriptive distributions with a `small-sample` warning and null comparison metrics.
 
+## Session plan and readiness
+
+Generate a content-free, version-locked run order before collecting data:
+
+```bash
+npm run baseline:plan -- \
+  --edge-version 126.0 \
+  --firefox-version 140.0 \
+  --memory-method activity-monitor
+```
+
+The default plan contains 45 round-robin slots. Add `--client-navigation` for a 60-slot plan.
+
+After collecting the final manifests and observe reports, verify them against the plan:
+
+```bash
+npm run baseline:check -- \
+  artifacts/live-baseline/session-plan.json \
+  artifacts/live-baseline/final \
+  --out artifacts/live-baseline/readiness.json
+```
+
+The readiness report blocks conclusions when a slot is missing or unexpected, identities drift, an observe report is missing or mismatched, the matrix emits any warning, or a planned cohort is not comparison-eligible. It contains only the session UUID, counts, slot/cohort keys, and fixed issue codes.
+
+Follow [`live-baseline-runbook.md`](live-baseline-runbook.md) for the exact cold-open, hard-reload, client-navigation, retry, archive, and privacy protocol.
+
 ## Example
 
 ```json

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://elatura.local/schemas/benchmark-session-readiness-v1.schema.json",
+  "title": "Elatura content-free benchmark session readiness",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "sessionId",
+    "plannedRunCount",
+    "manifestCount",
+    "observationReportCount",
+    "presentPlannedRunCount",
+    "missingRunCount",
+    "unexpectedRunCount",
+    "ready",
+    "issues"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "sessionId": { "type": "string", "format": "uuid" },
+    "plannedRunCount": { "type": "integer", "enum": [45, 60] },
+    "manifestCount": { "type": "integer", "minimum": 0 },
+    "observationReportCount": { "type": "integer", "minimum": 0 },
+    "presentPlannedRunCount": { "type": "integer", "minimum": 0, "maximum": 60 },
+    "missingRunCount": { "type": "integer", "minimum": 0, "maximum": 60 },
+    "unexpectedRunCount": { "type": "integer", "minimum": 0 },
+    "ready": { "type": "boolean" },
+    "issues": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/issue" }
+    }
+  },
+  "$defs": {
+    "nullableKey": {
+      "type": ["string", "null"],
+      "maxLength": 128,
+      "pattern": "^[0-9A-Za-z|._-]+$"
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "slotKey", "cohortKey", "warningCode"],
+      "properties": {
+        "code": {
+          "enum": [
+            "missing-run",
+            "unexpected-run",
+            "browser-version-mismatch",
+            "memory-method-mismatch",
+            "observer-report-missing",
+            "observer-extension-version-mismatch",
+            "observer-report-schema-mismatch",
+            "matrix-warning",
+            "comparison-ineligible"
+          ]
+        },
+        "slotKey": { "$ref": "#/$defs/nullableKey" },
+        "cohortKey": { "$ref": "#/$defs/nullableKey" },
+        "warningCode": { "$ref": "#/$defs/nullableKey" }
+      }
+    }
+  }
+}
