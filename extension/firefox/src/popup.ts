@@ -4,6 +4,7 @@ import {
   hasObservationData,
   type StoredObservationState,
 } from "./report.js";
+import type { TransformSafetyState } from "./transform-safety.js";
 
 function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`;
@@ -27,8 +28,17 @@ async function getState(): Promise<StoredObservationState> {
   return (await browser.runtime.sendMessage({ type: "elatura:get-state" })) as StoredObservationState;
 }
 
-async function render(state?: StoredObservationState): Promise<void> {
-  const resolvedState = state ?? (await getState());
+async function getTransformSafety(): Promise<TransformSafetyState> {
+  return (await browser.runtime.sendMessage({
+    type: "elatura:get-transform-safety",
+  })) as TransformSafetyState;
+}
+
+async function render(state?: StoredObservationState, safety?: TransformSafetyState): Promise<void> {
+  const [resolvedState, resolvedSafety] = await Promise.all([
+    state ?? getState(),
+    safety ?? getTransformSafety(),
+  ]);
   const run = resolvedState.activeRun ?? null;
   document.querySelector("#mode")!.textContent = run ? "recording" : "idle";
   document.querySelector("#run")!.textContent = run ? run.id.slice(0, 8) : "none";
@@ -38,7 +48,11 @@ async function render(state?: StoredObservationState): Promise<void> {
     resolvedState.pageMarks.composerReadyMs === null
       ? "not observed"
       : `${resolvedState.pageMarks.composerReadyMs.toFixed(0)} ms`;
-  document.querySelector<HTMLButtonElement>("#export")!.disabled = !run || !hasObservationData(resolvedState);
+  document.querySelector("#transform-safety")!.textContent = resolvedSafety.emergencyDisabled
+    ? "locked"
+    : "unknown";
+  document.querySelector<HTMLButtonElement>("#export")!.disabled =
+    !run || !hasObservationData(resolvedState);
 }
 
 function setStatus(message: string): void {
@@ -75,6 +89,14 @@ document.querySelector("#clear")!.addEventListener("click", async () => {
   await browser.runtime.sendMessage({ type: "elatura:clear-run" });
   setStatus("Observation stopped and local measurements cleared.");
   await render();
+});
+
+document.querySelector("#emergency-disable")!.addEventListener("click", async () => {
+  const safety = (await browser.runtime.sendMessage({
+    type: "elatura:emergency-disable-transforms",
+  })) as TransformSafetyState;
+  setStatus("Transforms are locally locked. Observation and ordinary browsing remain available.");
+  await render(undefined, safety);
 });
 
 void render();
