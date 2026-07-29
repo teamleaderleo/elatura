@@ -1,26 +1,23 @@
 // SPDX-License-Identifier: MPL-2.0
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import {
-  copyFile,
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-  utimes,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = join(ROOT, "extension/firefox/dist");
 const OUTPUT = join(ROOT, "artifacts/firefox-release");
-const FIXED_TIME = new Date("2000-01-01T00:00:00.000Z");
 const CHANNELS = new Set(["listed", "unlisted"]);
 const LEGACY_CREDENTIAL_NAMES = ["AMO_JWT_ISSUER", "AMO_JWT_SECRET"];
+const FIXED_GIT_IDENTITY = {
+  GIT_AUTHOR_NAME: "Elatura Release Builder",
+  GIT_AUTHOR_EMAIL: "release-builder@elatura.invalid",
+  GIT_AUTHOR_DATE: "2000-01-01T00:00:00Z",
+  GIT_COMMITTER_NAME: "Elatura Release Builder",
+  GIT_COMMITTER_EMAIL: "release-builder@elatura.invalid",
+  GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z",
+};
 
 function sha256(content) {
   return createHash("sha256").update(content).digest("hex");
@@ -58,6 +55,8 @@ function git(args, options = {}) {
     cwd: ROOT,
     encoding: options.encoding ?? "utf8",
     stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
+    env: { ...process.env, ...(options.env ?? {}) },
+    ...(options.input === undefined ? {} : { input: options.input }),
   });
 }
 
@@ -85,32 +84,18 @@ async function walk(directory) {
     left.name.localeCompare(right.name),
   );
   const files = [];
-  const directories = [directory];
   for (const entry of entries) {
     const path = join(directory, entry.name);
-    if (entry.isDirectory()) {
-      const nested = await walk(path);
-      files.push(...nested.files);
-      directories.push(...nested.directories);
-    } else if (entry.isFile()) {
-      files.push(path);
-    }
+    if (entry.isDirectory()) files.push(...(await walk(path)));
+    else if (entry.isFile()) files.push(path);
   }
-  return { files, directories };
-}
-
-async function normalizeDistTimestamps() {
-  const tree = await walk(DIST);
-  for (const file of tree.files) await utimes(file, FIXED_TIME, FIXED_TIME);
-  for (const directory of [...tree.directories].reverse()) {
-    await utimes(directory, FIXED_TIME, FIXED_TIME);
-  }
+  return files;
 }
 
 async function digestDirectory(directory) {
-  const tree = await walk(directory);
+  const files = await walk(directory);
   const entries = [];
-  for (const absolutePath of tree.files) {
+  for (const absolutePath of files) {
     const content = await readFile(absolutePath);
     entries.push({
       path: relative(directory, absolutePath).replaceAll("\\", "/"),
@@ -122,62 +107,60 @@ async function digestDirectory(directory) {
   return { digest: sha256(canonical), entries };
 }
 
-function runWebExtBuild(artifactsDirectory, filename) {
-  const webExt = join(ROOT, "node_modules/web-ext/bin/web-ext.js");
-  execFileSync(
-    process.execPath,
-    [
-      webExt,
-      "build",
-      "--source-dir",
-      DIST,
-      "--artifacts-dir",
-      artifactsDirectory,
-      "--filename",
-      filename,
-      "--overwrite-dest",
-    ],
-    { cwd: ROOT, stdio: "inherit" },
-  );
+async function createDeterministicExtensionArchive(outputPath, indexName) {
+  const indexPath = join(OUTPUT, indexName);
+  await Promise.all([
+    rm(indexPath, { force: true }),
+    rm(`${indexPath}.lock`, { force: true }),
+    rm(outputPath, { force: true }),
+  ]);
+  const indexEnvironment = { GIT_INDEX_FILE: indexPath };
+  git(["read-tree", "--empty"], { env: indexEnvironment });
+
+  for (const absolutePath of await walk(DIST)) {
+    const archivePath = relative(DIST, absolutePath).replaceAll("\\", "/");
+    const blob = git(["hash-object", "-w", absolutePath]).trim();
+    git(["update-index", "--add", "--cacheinfo", `100644,${blob},${archivePath}`], {
+      env: indexEnvironment,
+    });
+  }
+
+  const tree = git(["write-tree"], { env: indexEnvironment }).trim();
+  const commit = git(["commit-tree", tree], {
+    env: { ...indexEnvironment, ...FIXED_GIT_IDENTITY },
+    input: "Elatura deterministic unsigned extension candidate\n",
+  }).trim();
+  git(["archive", "--format=zip", `--output=${outputPath}`, commit]);
+  await Promise.all([
+    rm(indexPath, { force: true }),
+    rm(`${indexPath}.lock`, { force: true }),
+  ]);
 }
 
 async function buildUnsignedTwice(filename) {
-  const firstDirectory = join(OUTPUT, ".unsigned-a");
-  const secondDirectory = join(OUTPUT, ".unsigned-b");
-  await Promise.all([
-    rm(firstDirectory, { recursive: true, force: true }),
-    rm(secondDirectory, { recursive: true, force: true }),
-  ]);
-  await Promise.all([
-    mkdir(firstDirectory, { recursive: true }),
-    mkdir(secondDirectory, { recursive: true }),
-  ]);
+  const firstPath = join(OUTPUT, `.first-${filename}`);
+  const secondPath = join(OUTPUT, `.second-${filename}`);
+  await createDeterministicExtensionArchive(firstPath, ".candidate-index-a");
+  await createDeterministicExtensionArchive(secondPath, ".candidate-index-b");
 
-  runWebExtBuild(firstDirectory, filename);
-  runWebExtBuild(secondDirectory, filename);
-
-  const firstPath = join(firstDirectory, filename);
-  const secondPath = join(secondDirectory, filename);
   const [first, second] = await Promise.all([readFile(firstPath), readFile(secondPath)]);
   const firstHash = sha256(first);
   const secondHash = sha256(second);
   if (firstHash !== secondHash || !first.equals(second)) {
-    throw new Error("Unsigned Firefox package is not reproducible across two normalized builds.");
+    throw new Error("Unsigned Firefox package is not reproducible across two deterministic builds.");
   }
 
   const finalPath = join(OUTPUT, filename);
   await rm(finalPath, { force: true });
   await rename(firstPath, finalPath);
-  await Promise.all([
-    rm(firstDirectory, { recursive: true, force: true }),
-    rm(secondDirectory, { recursive: true, force: true }),
-  ]);
+  await rm(secondPath, { force: true });
   return finalPath;
 }
 
-function createSourceArchive(revision, shortRevision) {
+async function createSourceArchive(revision, shortRevision) {
   const filename = `elatura-source-${shortRevision}.zip`;
   const output = join(OUTPUT, filename);
+  await rm(output, { force: true });
   git([
     "archive",
     "--format=zip",
@@ -203,6 +186,15 @@ const policy = JSON.parse(policyBytes.toString("utf8"));
 const buildManifest = JSON.parse(buildManifestBytes.toString("utf8"));
 rejectSigningCredentials(policy);
 
+const futureChannelPolicy =
+  channel === "unlisted" ? policy.channels?.unlistedAlpha : policy.channels?.listedProduction;
+if (
+  futureChannelPolicy?.mozillaSigningRequired !== true ||
+  futureChannelPolicy.webExtChannel !== channel
+) {
+  throw new Error("Requested future AMO channel is not a Mozilla-signed release-policy channel.");
+}
+
 const revision = buildManifest.revision;
 if (typeof revision !== "string" || !/^[0-9a-f]{40}$/u.test(revision)) {
   throw new Error("Build manifest revision must be a full Git commit SHA.");
@@ -224,7 +216,6 @@ if (typeof extensionManifest.version !== "string" || extensionManifest.version.l
 }
 
 await mkdir(OUTPUT, { recursive: true });
-await normalizeDistTimestamps();
 const dist = await digestDirectory(DIST);
 if (dist.digest !== buildManifest.extensionSha256) {
   throw new Error("Built extension digest does not match artifacts/build-manifest.json.");
@@ -233,7 +224,7 @@ if (dist.digest !== buildManifest.extensionSha256) {
 const shortRevision = revision.slice(0, 12);
 const unsignedFilename = `elatura-observer-${extensionManifest.version}-${shortRevision}-unsigned.zip`;
 const unsignedPath = await buildUnsignedTwice(unsignedFilename);
-const sourcePath = createSourceArchive(revision, shortRevision);
+const sourcePath = await createSourceArchive(revision, shortRevision);
 
 const [unsigned, source, build, releasePolicy, amoMetadata] = await Promise.all([
   fileMetadata(unsignedPath),
