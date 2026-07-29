@@ -51,6 +51,8 @@ artifacts/live-baseline/
 
 The `final` directory must contain exactly one manifest for each planned slot and exactly one linked observation report for each `firefox-observe` slot. Preserve failed and superseded attempts in `attempts-archive`, which must not be passed to the readiness checker.
 
+The checker treats every supplied input directory as a strict bounded bundle. It rejects symbolic links, special filesystem entries, every non-JSON file, nesting deeper than four directory levels, more than 16 directories, more than 128 entries in one directory, more than 96 JSON files, any JSON file larger than 1 MiB, or more than 16 MiB of JSON in total. The required 45-slot plan uses 60 final JSON files; the optional 60-slot plan uses 80. Remove incidental files such as `.DS_Store` before preflight.
+
 Use content-free filenames based on the slot key, for example:
 
 ```text
@@ -159,6 +161,8 @@ npm run baseline:check -- \
   artifacts/live-baseline/final \
   --out artifacts/live-baseline/readiness.json
 ```
+
+Keep `--out` outside every scanned input directory. The checker rejects an output path inside `final`, so a completed readiness file cannot become an input on the next run. Input rejection messages use fixed codes and entry numbers rather than arbitrary filenames or JSON values.
 
 Exit code `0` and `ready: true` mean:
 
