@@ -28,6 +28,10 @@
     "./representation": {
       "types": "./dist/representation.d.ts",
       "default": "./dist/representation.js"
+    },
+    "./response-binding": {
+      "types": "./dist/response-binding.d.ts",
+      "default": "./dist/response-binding.js"
     }
   },
   "types": "./dist/index.d.ts"
