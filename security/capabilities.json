@@ -33,7 +33,11 @@
       "adapterDenylist": "bundled-exact-id-version",
       "localOptIn": "session-intent-only",
       "optInPersistence": "none",
-      "optInAuthorizesTransform": false
+      "optInAuthorizesTransform": false,
+      "liveAuthorization": "required-disconnected",
+      "liveAuthorizationPersistence": "none",
+      "reviewedLiveApproval": "absent",
+      "liveGrantIssuer": "absent"
     },
     "cache": {
       "enabled": false,

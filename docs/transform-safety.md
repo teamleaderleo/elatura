@@ -12,7 +12,7 @@ Every background start creates a fresh transform-safety controller with the emer
 - volatile-clear attempt and failure counters
 - bundled denylist entry count
 
-The safety controller is not persisted. A browser or extension-background restart therefore returns to the locked build default rather than restoring a possibly active transform state.
+The safety controller is not persisted. A browser or extension-background restart therefore returns to the locked build default instead of restoring a possibly active transform state.
 
 ## Session-local opt-in intent
 
@@ -49,11 +49,17 @@ Repeated activation runs the clearers again. A throwing clearer cannot unlock tr
 
 There is no popup unlock, enable, or arm action. A future transform authorization path requires a separate reviewed milestone and must still consult the emergency lock, explicit intent, build/live gate, and denylist before every transform decision.
 
+## Deny-by-default live authorization
+
+[`live-authorization.md`](live-authorization.md) defines the pure decision required before any future private response capture or transform. Eligibility requires both an immutable reviewed approval and a volatile session grant, with exact bindings for build provenance, origin, response class, adapter identity/version, capability set, validity, session id, emergency generation, and opt-in generation.
+
+The decision module is deliberately disconnected from `background.ts`. The repository contains no reviewed live approval, grant issuer, unlock message, or positive runtime binding. Missing, malformed, stale, revoked, widened, downgraded, or mismatched input returns a fixed content-free denial code and leaves byte-for-byte pass-through in control.
+
 ## Volatile state registry
 
 Future transform modules must register cleanup callbacks through `registerVolatileTransformStateClearer`. The registry is local to the extension process. The emergency control invokes all registered callbacks and reports failure through a fixed content-free code.
 
-The current observe-only build registers only the session-local opt-in controller. No transform payload, plan, output, cache, or application content is linked to the registry.
+The current observe-only build registers only the session-local opt-in controller. No transform payload, plan, output, cache, authorization grant, or application content is linked to the registry.
 
 ## Adapter denylist
 
@@ -69,15 +75,17 @@ The bundled list is currently empty because no production transform adapter is e
 
 ## Permission decision
 
-A future transform is allowed only when all of these are true:
+A future transform is eligible only when all of these are true:
 
-- emergency lock is not engaged;
+- emergency lock is clear;
 - explicit reviewed local opt-in intent exists;
-- a separately reviewed build/live authorization gate is enabled;
+- the exact capability is enabled in the bundled local policy;
+- an unrevoked reviewed approval matches the build, origin, response class, adapter, evidence, and full capability set;
+- an unexpired volatile grant matches the current session and safety/opt-in generations;
 - the exact adapter id/version is not denylisted;
 - the adapter, input, plan, materialized output, and release gates all pass their independent checks.
 
-The current controller starts locked, opt-in intent explicitly reports `authorizesTransform: false`, the capability policy keeps transforms disabled, and no unlock path exists.
+The current controller starts locked, opt-in intent explicitly reports `authorizesTransform: false`, the capability policy keeps transforms disabled, no approval or grant issuer exists, and the authorization module remains disconnected.
 
 ## Static enforcement
 
@@ -89,5 +97,7 @@ The current controller starts locked, opt-in intent explicitly reports `authoriz
 - the emergency control remains local and disabled by default;
 - opt-in intent is session-local, fixed-field, and non-authorizing;
 - the bundled denylist remains local source data;
+- live authorization is required, volatile, and disconnected;
+- no live approval or grant issuer is present;
 - the popup contains record, revoke, and emergency actions;
 - no popup/background transform unlock message exists.
