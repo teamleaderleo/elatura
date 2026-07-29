@@ -218,7 +218,7 @@ describe("synthetic memory snapshot cache", () => {
       },
     });
     const accessorResult = cache.put(accessor);
-    expect(resultCodes(accessorResult)).toContain("cache-envelope-inspection-failed");
+    expect(resultCodes(accessorResult)).toContain("payload-validator-threw");
     expect(JSON.stringify(accessorResult)).not.toContain("private accessor detail");
 
     const proxy = new Proxy(envelope(), {
