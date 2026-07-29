@@ -45,7 +45,7 @@ function withPrototypeValue<T>(
     if (previous) {
       Object.defineProperty(Object.prototype, key, previous);
     } else {
-      delete (Object.prototype as Record<string, unknown>)[key];
+      Reflect.deleteProperty(Object.prototype, key);
     }
   }
 }
