@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
-import { isCompanionEntryId } from "./companion-protocol.js";
+import {
+  isCompanionEntryId,
+  type CompanionResponseEnvelope,
+} from "./companion-protocol.js";
 import {
   SyntheticCompanion as UncheckedSyntheticCompanion,
+  type SyntheticCompanionDispatchOptions,
   type SyntheticCompanionOptions,
 } from "./companion-runtime.js";
 import { validateAndMeasureReadOnlyRepresentation } from "./representation.js";
@@ -35,5 +39,15 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
       return input;
     });
     super({ ...options, conversations });
+  }
+
+  override async dispatch(
+    input: unknown,
+    options: SyntheticCompanionDispatchOptions = {},
+  ): Promise<CompanionResponseEnvelope> {
+    const response = await super.dispatch(input, options);
+    return response.errorCode === "request-cancelled"
+      ? { ...response, usage: this.usage }
+      : response;
   }
 }
