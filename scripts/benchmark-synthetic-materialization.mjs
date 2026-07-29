@@ -73,7 +73,7 @@ for (let iteration = 0; iteration < options.iterations; iteration += 1) {
   const result = runSyntheticChatGptPipeline(
     fixture,
     { maxGroups: options.maxGroups },
-    { budgets },
+    { budgets, synthetic: true },
   );
   const elapsed = performance.now() - startedAt;
   const heapAfter = process.memoryUsage().heapUsed;

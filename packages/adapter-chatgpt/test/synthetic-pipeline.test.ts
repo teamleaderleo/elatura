@@ -9,6 +9,8 @@ import {
   runSyntheticChatGptPipeline,
 } from "../src/synthetic.js";
 
+const syntheticOptions = { clock: () => 0, synthetic: true } as const;
+
 function freezeDeep<T>(value: T): T {
   if (value && typeof value === "object") {
     Object.freeze(value);
@@ -24,7 +26,7 @@ describe("synthetic ChatGPT transformation laboratory", () => {
     const result = runSyntheticChatGptPipeline(
       fixture,
       { maxGroups: 2 },
-      { clock: () => 0 },
+      syntheticOptions,
     );
 
     expect(result.kind).toBe("transformed");
@@ -61,8 +63,8 @@ describe("synthetic ChatGPT transformation laboratory", () => {
 
   it("is deterministic for the same fixture, policy, budgets, and clock", () => {
     const fixture = generateSyntheticConversation({ turnGroups: 8, branchEvery: 1, seed: 7 });
-    const first = runSyntheticChatGptPipeline(fixture, { maxGroups: 3 }, { clock: () => 0 });
-    const second = runSyntheticChatGptPipeline(fixture, { maxGroups: 3 }, { clock: () => 0 });
+    const first = runSyntheticChatGptPipeline(fixture, { maxGroups: 3 }, syntheticOptions);
+    const second = runSyntheticChatGptPipeline(fixture, { maxGroups: 3 }, syntheticOptions);
     expect(first).toEqual(second);
   });
 
@@ -70,14 +72,14 @@ describe("synthetic ChatGPT transformation laboratory", () => {
     const fixture = generateSyntheticConversation({ turnGroups: 3 });
     const ordinary = structuredClone(fixture) as Record<string, unknown>;
     delete ordinary.elatura_fixture;
-    const missed = runSyntheticChatGptPipeline(ordinary, undefined, { clock: () => 0 });
+    const missed = runSyntheticChatGptPipeline(ordinary, undefined, syntheticOptions);
     expect(missed.kind).toBe("pass-through");
     expect(missed.outcome.reasonCode).toBe("detect-no-match");
     expect("output" in missed).toBe(false);
 
     const malformed = structuredClone(fixture) as Record<string, unknown>;
     malformed.elatura_fixture = "malformed";
-    const ambiguous = runSyntheticChatGptPipeline(malformed, undefined, { clock: () => 0 });
+    const ambiguous = runSyntheticChatGptPipeline(malformed, undefined, syntheticOptions);
     expect(ambiguous.kind).toBe("pass-through");
     expect(ambiguous.outcome.reasonCode).toBe("detect-ambiguous");
     expect("output" in ambiguous).toBe(false);
@@ -86,7 +88,7 @@ describe("synthetic ChatGPT transformation laboratory", () => {
   it("fails open when the reserved snapshot field is already occupied", () => {
     const fixture = generateSyntheticConversation({ turnGroups: 4 }) as Record<string, unknown>;
     fixture.elatura_snapshot = { applicationOwned: true };
-    const result = runSyntheticChatGptPipeline(fixture, { maxGroups: 1 }, { clock: () => 0 });
+    const result = runSyntheticChatGptPipeline(fixture, { maxGroups: 1 }, syntheticOptions);
     expect(result.kind).toBe("pass-through");
     expect(result.outcome.reasonCode).toBe("materialize-exception");
     expect("output" in result).toBe(false);
@@ -97,7 +99,7 @@ describe("synthetic ChatGPT transformation laboratory", () => {
     const result = runSyntheticChatGptPipeline(
       fixture,
       { maxGroups: 1 },
-      { clock: () => 0, budgets: { maxAllocatedBytes: 32 } },
+      { ...syntheticOptions, budgets: { maxAllocatedBytes: 32 } },
     );
     expect(result.kind).toBe("pass-through");
     expect(result.outcome.reasonCode).toBe("budget-allocation-exceeded");
@@ -118,7 +120,7 @@ describe("synthetic ChatGPT transformation laboratory", () => {
         return candidate;
       },
     };
-    const result = runFailOpenPipeline(fixture, tamperingAdapter, { clock: () => 0 });
+    const result = runFailOpenPipeline(fixture, tamperingAdapter, syntheticOptions);
     expect(result.kind).toBe("pass-through");
     expect(result.outcome.reasonCode).toBe("output-invalid");
     expect("output" in result).toBe(false);

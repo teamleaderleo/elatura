@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 import { describe, expect, it } from "vitest";
+import { defineAdapterCapabilities } from "../src/adapter-contract.js";
 import { fingerprintShape, isRecord, type ValidationResult } from "../src/index.js";
 import {
   PIPELINE_STAGES,
@@ -13,12 +14,25 @@ type Source = Readonly<{ value: number; secret?: string }>;
 type Plan = Readonly<{ increment: number }>;
 type Output = Readonly<{ value: number }>;
 
+const SUPPORTED_PIPELINE_CAPABILITIES = defineAdapterCapabilities({
+  plan: "supported",
+  materialize: "supported",
+  validateOutput: "supported",
+});
+
+const SYNTHETIC_PIPELINE_CAPABILITIES = defineAdapterCapabilities({
+  plan: "synthetic-only",
+  materialize: "synthetic-only",
+  validateOutput: "synthetic-only",
+});
+
 function adapter(
   overrides: Partial<FailOpenPipelineAdapter<Source, Plan, Output>> = {},
 ): FailOpenPipelineAdapter<Source, Plan, Output> {
   return {
     id: "test-adapter",
     version: "1.0.0",
+    capabilities: SUPPORTED_PIPELINE_CAPABILITIES,
     detect: () => ({ kind: "match" }),
     validateInput: (input): ValidationResult<Source> =>
       isRecord(input) && typeof input.value === "number"
@@ -62,6 +76,90 @@ describe("fail-open orchestration", () => {
       expect(result.diagnostic.completedStages).toEqual(PIPELINE_STAGES);
       expect(result.diagnostic.reasonCode).toBe("transformed");
     }
+  });
+
+  it("rejects unsupported pipeline stage declarations before detection", () => {
+    let planExecuted = false;
+    const result = runFailOpenPipeline(
+      { value: 4 },
+      adapter({
+        capabilities: defineAdapterCapabilities({
+          plan: "unsupported",
+          materialize: "supported",
+          validateOutput: "supported",
+        }),
+        plan: () => {
+          planExecuted = true;
+          return { ok: true, value: { increment: 1 }, warnings: [] };
+        },
+      }),
+      { clock: () => 0 },
+    );
+    expectPassThroughWithoutOutput(result);
+    expect(result.outcome.stage).toBe("detect");
+    expect(result.outcome.reasonCode).toBe("adapter-capability-rejected");
+    expect(result.diagnostic.completedStages).toEqual([]);
+    expect(planExecuted).toBe(false);
+  });
+
+  it("requires explicit synthetic context for synthetic-only stages", () => {
+    const syntheticAdapter = adapter({ capabilities: SYNTHETIC_PIPELINE_CAPABILITIES });
+    const denied = runFailOpenPipeline({ value: 4 }, syntheticAdapter, { clock: () => 0 });
+    expectPassThroughWithoutOutput(denied);
+    expect(denied.outcome.reasonCode).toBe("adapter-capability-rejected");
+
+    const allowed = runFailOpenPipeline(
+      { value: 4 },
+      syntheticAdapter,
+      { clock: () => 0, synthetic: true },
+    );
+    expect(allowed.kind).toBe("transformed");
+  });
+
+  it("rejects missing, malformed, and invalid synthetic context declarations deterministically", () => {
+    const missing = adapter() as unknown as Record<string, unknown>;
+    delete missing.capabilities;
+    const missingResult = runFailOpenPipeline(
+      { value: 1 },
+      missing as unknown as FailOpenPipelineAdapter<Source, Plan, Output>,
+      { clock: () => 0 },
+    );
+    expectPassThroughWithoutOutput(missingResult);
+    expect(missingResult.outcome.reasonCode).toBe("configuration-invalid");
+
+    const malformed = adapter({ capabilities: { plan: "supported" } as never });
+    const malformedResult = runFailOpenPipeline({ value: 1 }, malformed, { clock: () => 0 });
+    expectPassThroughWithoutOutput(malformedResult);
+    expect(malformedResult.outcome.reasonCode).toBe("configuration-invalid");
+
+    const invalidContext = runFailOpenPipeline(
+      { value: 1 },
+      adapter(),
+      { clock: () => 0, synthetic: "yes" } as never,
+    );
+    expectPassThroughWithoutOutput(invalidContext);
+    expect(invalidContext.outcome.reasonCode).toBe("configuration-invalid");
+  });
+
+  it("rejects accessor-backed capability declarations without invoking getters", () => {
+    let getterInvoked = false;
+    const candidate = adapter() as unknown as Record<string, unknown>;
+    Object.defineProperty(candidate, "capabilities", {
+      enumerable: true,
+      configurable: true,
+      get: () => {
+        getterInvoked = true;
+        return SUPPORTED_PIPELINE_CAPABILITIES;
+      },
+    });
+    const result = runFailOpenPipeline(
+      { value: 1 },
+      candidate as unknown as FailOpenPipelineAdapter<Source, Plan, Output>,
+      { clock: () => 0 },
+    );
+    expectPassThroughWithoutOutput(result);
+    expect(result.outcome.reasonCode).toBe("configuration-invalid");
+    expect(getterInvoked).toBe(false);
   });
 
   it.each(PIPELINE_STAGES)("fails open when %s throws through fault injection", (stage) => {
