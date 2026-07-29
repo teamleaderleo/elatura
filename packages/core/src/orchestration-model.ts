@@ -2,7 +2,7 @@
 import type { AdapterCapabilities, AdapterIdentity } from "./adapter-contract.js";
 import type { StructuralFingerprint, ValidationResult } from "./index.js";
 
-export const FAIL_OPEN_PIPELINE_VERSION = "0.1.0" as const;
+export const FAIL_OPEN_PIPELINE_VERSION = "0.2.0" as const;
 export const PIPELINE_STAGES = [
   "detect",
   "validate-input",
@@ -16,6 +16,7 @@ export type PipelineStage = (typeof PIPELINE_STAGES)[number];
 export const PIPELINE_REASON_CODES = [
   "transformed",
   "configuration-invalid",
+  "adapter-capability-rejected",
   "detect-no-match",
   "detect-ambiguous",
   "detect-exception",
@@ -85,7 +86,7 @@ export interface PipelineStageContext {
 }
 
 export interface FailOpenPipelineAdapter<TSource, TPlan, TOutput> extends AdapterIdentity {
-  readonly capabilities?: AdapterCapabilities;
+  readonly capabilities: AdapterCapabilities;
   detect(input: unknown, context: PipelineStageContext): DetectionResult;
   validateInput(input: unknown, context: PipelineStageContext): ValidationResult<TSource>;
   fingerprint(source: TSource, context: PipelineStageContext): StructuralFingerprint;
@@ -141,4 +142,5 @@ export type RunFailOpenPipelineOptions = Readonly<{
   cancellation?: CancellationSignal;
   faults?: PipelineFaults;
   clock?: () => number;
+  synthetic?: boolean;
 }>;
