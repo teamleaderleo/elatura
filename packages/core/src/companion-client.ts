@@ -62,6 +62,7 @@ type PendingRequest = {
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
 const ADAPTER_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const FRESHNESS = new Set(["fresh", "stale", "expired", "corrupt", "drifted"]);
+const MAX_CLIENT_REFERENCE_CODE_UNITS = 4_096;
 
 function issue(path: string, code: string, message: string): ValidationIssue {
   return { path, code, message };
@@ -442,6 +443,11 @@ function resolvePolicy(input: Partial<CompanionClientPolicy> | undefined): Compa
       throw new RangeError(`${name} must be a positive safe integer.`);
     }
   }
+  if (resolved.maxCodeTextCodeUnits < MAX_CLIENT_REFERENCE_CODE_UNITS) {
+    throw new RangeError(
+      `maxCodeTextCodeUnits must be at least ${MAX_CLIENT_REFERENCE_CODE_UNITS} for serializable companion state.`,
+    );
+  }
   return Object.freeze(resolved);
 }
 
@@ -539,6 +545,7 @@ export class BoundedCompanionClientState {
     const parsed = parseCompanionResponse(
       input,
       this.#policy.maxResponseSerializedBytes,
+      this.#policy.maxCodeTextCodeUnits,
     );
     if (!parsed.ok) return parsed;
     const response = parsed.value;
