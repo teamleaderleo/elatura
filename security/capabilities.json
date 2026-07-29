@@ -26,7 +26,11 @@
       "outboundNetwork": false,
       "nativeMessaging": false,
       "permissions": [],
-      "hostPermissions": []
+      "hostPermissions": [],
+      "emergencyControl": "local-disabled-by-default",
+      "popupUnlock": false,
+      "remotePolicy": false,
+      "adapterDenylist": "bundled-exact-id-version"
     },
     "cache": {
       "enabled": false,
