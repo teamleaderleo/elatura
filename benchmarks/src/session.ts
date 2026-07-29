@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 import {
-  parseBenchmarkRunManifest,
   summarizeBenchmarkMatrix,
   type BenchmarkMemoryMethod,
   type BenchmarkMode,
@@ -11,6 +10,10 @@ import {
   parseObservationReport,
   type ObservationReportSchemaVersion,
 } from "./observation.js";
+import {
+  parseSessionBoundBenchmarkRunManifest,
+  type ParsedSessionBoundBenchmarkRunManifest,
+} from "./session-manifest.js";
 
 export const BENCHMARK_SESSION_PLAN_SCHEMA_VERSION = 1 as const;
 export const BENCHMARK_SESSION_READINESS_SCHEMA_VERSION = 1 as const;
@@ -68,6 +71,13 @@ export type BenchmarkSessionPlanOptions = {
 export type BenchmarkSessionIssueCode =
   | "missing-run"
   | "unexpected-run"
+  | "session-id-mismatch"
+  | "plan-schema-version-mismatch"
+  | "plan-generated-at-mismatch"
+  | "slot-ordinal-mismatch"
+  | "duplicate-slot-ordinal"
+  | "execution-before-plan"
+  | "execution-order-violation"
   | "browser-version-mismatch"
   | "memory-method-mismatch"
   | "observer-report-missing"
@@ -342,19 +352,92 @@ function manifestSlotKey(manifest: BenchmarkRunManifest): string {
   return slotKey(manifest.mode, manifest.navigation, manifest.sequence);
 }
 
+function pushBindingIssue(
+  issues: BenchmarkSessionIssue[],
+  code: BenchmarkSessionIssueCode,
+  manifest: BenchmarkRunManifest,
+): void {
+  issues.push({
+    code,
+    slotKey: manifestSlotKey(manifest),
+    cohortKey: cohortKey(manifest.mode, manifest.navigation),
+    warningCode: null,
+  });
+}
+
+function bindingMatchesPlan(
+  plan: BenchmarkSessionPlan,
+  parsed: ParsedSessionBoundBenchmarkRunManifest,
+  expected: BenchmarkSessionSlot | undefined,
+): boolean {
+  return (
+    expected !== undefined &&
+    parsed.binding.planSchemaVersion === plan.schemaVersion &&
+    parsed.binding.sessionId === plan.sessionId &&
+    parsed.binding.planGeneratedAt === plan.generatedAt &&
+    parsed.binding.slotOrdinal === expected.ordinal
+  );
+}
+
 export function checkBenchmarkSession(
   planInput: unknown,
   manifestInputs: readonly unknown[],
   observationInputs: readonly unknown[],
 ): BenchmarkSessionReadiness {
   const plan = parseBenchmarkSessionPlan(planInput);
-  const manifests = manifestInputs.map(parseBenchmarkRunManifest);
+  const parsedManifests = manifestInputs.map(parseSessionBoundBenchmarkRunManifest);
+  const manifests = parsedManifests.map((parsed) => parsed.manifest);
   const observations = observationInputs.map(parseObservationReport);
   const summary = summarizeBenchmarkMatrix(manifestInputs, observationInputs, "firefox-stock");
   const issues: BenchmarkSessionIssue[] = [];
   const expectedByKey = new Map(plan.slots.map((slot) => [slot.key, slot]));
   const manifestByKey = new Map(manifests.map((manifest) => [manifestSlotKey(manifest), manifest]));
   const observationByRunId = new Map(observations.map((report) => [report.run.id, report]));
+  const manifestsByOrdinal = new Map<number, ParsedSessionBoundBenchmarkRunManifest[]>();
+  const planGeneratedAtMs = Date.parse(plan.generatedAt);
+
+  for (const parsed of parsedManifests) {
+    const { manifest, binding } = parsed;
+    const key = manifestSlotKey(manifest);
+    const expected = expectedByKey.get(key);
+    if (binding.sessionId !== plan.sessionId) pushBindingIssue(issues, "session-id-mismatch", manifest);
+    if (binding.planSchemaVersion !== plan.schemaVersion) {
+      pushBindingIssue(issues, "plan-schema-version-mismatch", manifest);
+    }
+    if (binding.planGeneratedAt !== plan.generatedAt) {
+      pushBindingIssue(issues, "plan-generated-at-mismatch", manifest);
+    }
+    if (expected && binding.slotOrdinal !== expected.ordinal) {
+      pushBindingIssue(issues, "slot-ordinal-mismatch", manifest);
+    }
+    if (Date.parse(manifest.recordedAt) < planGeneratedAtMs) {
+      pushBindingIssue(issues, "execution-before-plan", manifest);
+    }
+    const sameOrdinal = manifestsByOrdinal.get(binding.slotOrdinal) ?? [];
+    sameOrdinal.push(parsed);
+    manifestsByOrdinal.set(binding.slotOrdinal, sameOrdinal);
+  }
+
+  for (const duplicates of manifestsByOrdinal.values()) {
+    if (duplicates.length < 2) continue;
+    for (const parsed of duplicates) {
+      pushBindingIssue(issues, "duplicate-slot-ordinal", parsed.manifest);
+    }
+  }
+
+  const ordered = parsedManifests
+    .filter((parsed) =>
+      bindingMatchesPlan(plan, parsed, expectedByKey.get(manifestSlotKey(parsed.manifest))),
+    )
+    .sort((left, right) => left.binding.slotOrdinal - right.binding.slotOrdinal);
+  let previousRecordedAt = -1;
+  for (const parsed of ordered) {
+    const recordedAt = Date.parse(parsed.manifest.recordedAt);
+    if (recordedAt <= previousRecordedAt) {
+      pushBindingIssue(issues, "execution-order-violation", parsed.manifest);
+    }
+    previousRecordedAt = Math.max(previousRecordedAt, recordedAt);
+  }
 
   for (const slot of plan.slots) {
     const manifest = manifestByKey.get(slot.key);
