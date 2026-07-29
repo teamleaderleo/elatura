@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 import type { StructuralFingerprint } from "./index.js";
+import { capturePipelineCapabilities } from "./orchestration-capabilities.js";
 import { cloneJsonLike, freezeJsonLike } from "./orchestration-json.js";
 import {
   type FailOpenPipelineAdapter,
@@ -12,6 +13,7 @@ import {
   BudgetLedger,
   NEVER_CANCELLED,
   capturePipelineAdapter,
+  type CapturedPipelineAdapter,
   fallbackRuntime,
   injectFault,
   readDetectionResult,
@@ -58,13 +60,26 @@ export function runFailOpenPipeline<TInput, TSource, TPlan, TOutput>(
   adapter: FailOpenPipelineAdapter<TSource, TPlan, TOutput>,
   options: RunFailOpenPipelineOptions = {},
 ): PipelineDecision<TInput, TOutput> {
-  let capturedAdapter: Readonly<FailOpenPipelineAdapter<TSource, TPlan, TOutput>>;
+  let capturedAdapter: CapturedPipelineAdapter<TSource, TPlan, TOutput>;
   let identity: Readonly<{ id: string; version: string }>;
   try {
     const captured = capturePipelineAdapter<TSource, TPlan, TOutput>(adapter);
     if (!captured) throw new TypeError("Invalid adapter configuration.");
     capturedAdapter = captured;
     identity = Object.freeze({ id: captured.id, version: captured.version });
+
+    const capabilityCapture = capturePipelineCapabilities(adapter, options.synthetic);
+    if (!capabilityCapture.ok) {
+      const fallback = fallbackRuntime(identity);
+      return passThrough(
+        authoritativeInput,
+        fallback.adapter,
+        fallback.ledger,
+        "detect",
+        capabilityCapture.reasonCode,
+        [],
+      );
+    }
   } catch {
     const fallback = fallbackRuntime();
     return passThrough(
