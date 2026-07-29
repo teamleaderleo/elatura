@@ -87,6 +87,8 @@ The generic read-only representation supports deterministic timeline order, sear
 
 Capability declaration and runtime enablement remain separate. A build must grant a capability explicitly after the applicable security, privacy, live-evidence, and release checks.
 
+The Firefox background starts with transforms locally locked, has a one-click emergency-disable action, and exposes no popup unlock path. Future transform modules must register volatile-state cleanup and consult the bundled exact adapter/version denylist. See [`transform-safety.md`](transform-safety.md).
+
 ## Second workload
 
 ChatGPT is the first workload and should not dictate the generic interfaces. A second production adapter waits for M1 evidence. Selection should reward pathological value, structured state, reproducibility, contract diversity, direct provenance, manageable privacy/legal risk, and sustainable maintenance cost.
