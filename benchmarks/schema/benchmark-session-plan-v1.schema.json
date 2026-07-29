@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://elatura.local/schemas/benchmark-session-plan-v1.schema.json",
+  "title": "Elatura content-free benchmark session plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "sessionId",
+    "generatedAt",
+    "browserVersions",
+    "observer",
+    "memoryMethod",
+    "sampleCounts",
+    "privacy",
+    "slots"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "sessionId": { "type": "string", "format": "uuid" },
+    "generatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "browserVersions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["edge", "firefox"],
+      "properties": {
+        "edge": { "$ref": "#/$defs/version" },
+        "firefox": { "$ref": "#/$defs/version" }
+      }
+    },
+    "observer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["extensionVersion", "reportSchemaVersion"],
+      "properties": {
+        "extensionVersion": { "$ref": "#/$defs/version" },
+        "reportSchemaVersion": { "enum": [2, 3] }
+      }
+    },
+    "memoryMethod": { "enum": ["activity-monitor", "task-manager", "ps"] },
+    "sampleCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cold-open", "hard-reload", "client-navigation"],
+      "properties": {
+        "cold-open": { "const": 5 },
+        "hard-reload": { "const": 10 },
+        "client-navigation": { "enum": [0, 5] }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contentCaptured", "urlsCaptured", "notesCaptured", "processCommandLinesCaptured"],
+      "properties": {
+        "contentCaptured": { "const": false },
+        "urlsCaptured": { "const": false },
+        "notesCaptured": { "const": false },
+        "processCommandLinesCaptured": { "const": false }
+      }
+    },
+    "slots": {
+      "type": "array",
+      "minItems": 45,
+      "maxItems": 60,
+      "items": { "$ref": "#/$defs/slot" }
+    }
+  },
+  "$defs": {
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$"
+    },
+    "slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ordinal",
+        "key",
+        "mode",
+        "navigation",
+        "sequence",
+        "browserName",
+        "browserVersion",
+        "timingSource",
+        "observerReportRequired"
+      ],
+      "properties": {
+        "ordinal": { "type": "integer", "minimum": 1, "maximum": 60 },
+        "key": {
+          "type": "string",
+          "pattern": "^(edge-stock|firefox-stock|firefox-observe)\\|(cold-open|hard-reload|client-navigation)\\|(?:[1-9]|10)$"
+        },
+        "mode": { "enum": ["edge-stock", "firefox-stock", "firefox-observe"] },
+        "navigation": { "enum": ["cold-open", "hard-reload", "client-navigation"] },
+        "sequence": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "browserName": { "enum": ["Edge", "Firefox"] },
+        "browserVersion": { "$ref": "#/$defs/version" },
+        "timingSource": { "enum": ["manual", "observer-report"] },
+        "observerReportRequired": { "type": "boolean" }
+      }
+    }
+  }
+}
