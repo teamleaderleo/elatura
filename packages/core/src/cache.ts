@@ -364,12 +364,6 @@ function retentionPolicy(input: Partial<CacheRetentionPolicy> | undefined): Cach
   if (!Number.isFinite(resolved.maxAgeMs) || resolved.maxAgeMs < 0) {
     throw new RangeError("maxAgeMs must be a non-negative finite number.");
   }
-  if (resolved.maxEntrySerializedBytes > resolved.maxTotalSerializedBytes) {
-    throw new RangeError("maxEntrySerializedBytes must not exceed maxTotalSerializedBytes.");
-  }
-  if (resolved.maxEntryAccountedBytes > resolved.maxTotalAccountedBytes) {
-    throw new RangeError("maxEntryAccountedBytes must not exceed maxTotalAccountedBytes.");
-  }
   return Object.freeze(resolved);
 }
 
@@ -536,12 +530,8 @@ export class SyntheticMemorySnapshotCache<T> {
     let futureAccounted = this.#accountedBytes - (previous?.accountedBytes ?? 0) + accountedBytes;
     const evictionKeys: string[] = [];
 
-    for (const candidate of this.#orderedEntries(serializedKey)) {
-      if (
-        futureCount <= this.#retention.maxEntries &&
-        futureSerialized <= this.#retention.maxTotalSerializedBytes &&
-        futureAccounted <= this.#retention.maxTotalAccountedBytes
-      ) break;
+    const requiredCountEvictions = Math.max(0, futureCount - this.#retention.maxEntries);
+    for (const candidate of this.#orderedEntries(serializedKey).slice(0, requiredCountEvictions)) {
       evictionKeys.push(candidate.key);
       futureCount -= 1;
       futureSerialized -= candidate.value.serializedBytes;
