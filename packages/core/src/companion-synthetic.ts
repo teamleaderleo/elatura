@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 import {
   isCompanionEntryId,
+  resolveCompanionWorkingSetPolicy,
   type CompanionResponseEnvelope,
 } from "./companion-protocol.js";
 import {
@@ -9,6 +10,8 @@ import {
   type SyntheticCompanionOptions,
 } from "./companion-runtime.js";
 import { validateAndMeasureReadOnlyRepresentation } from "./representation.js";
+
+const MAX_COMPANION_REFERENCE_CODE_UNITS = 4_096;
 
 /**
  * Public synthetic companion entrypoint.
@@ -20,6 +23,18 @@ import { validateAndMeasureReadOnlyRepresentation } from "./representation.js";
  */
 export class SyntheticCompanion extends UncheckedSyntheticCompanion {
   constructor(options: SyntheticCompanionOptions) {
+    const policy = resolveCompanionWorkingSetPolicy(options.policy);
+    const minimumResponseStringCodeUnits = Math.max(
+      MAX_COMPANION_REFERENCE_CODE_UNITS,
+      policy.maxPageEntryTextCodeUnits,
+      policy.maxSnippetCodeUnits,
+    );
+    if (policy.maxCodeResponseCodeUnits < minimumResponseStringCodeUnits) {
+      throw new RangeError(
+        `maxCodeResponseCodeUnits must be at least ${minimumResponseStringCodeUnits} for serializable companion responses.`,
+      );
+    }
+
     const conversations = options.conversations.map((input) => {
       const validated = validateAndMeasureReadOnlyRepresentation(input.representation);
       if (validated.ok) {
@@ -38,7 +53,7 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
       }
       return input;
     });
-    super({ ...options, conversations });
+    super({ ...options, policy, conversations });
   }
 
   override async dispatch(
