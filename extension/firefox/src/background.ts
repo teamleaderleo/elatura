@@ -11,11 +11,15 @@ import {
   type StoredObservationState,
 } from "./report.js";
 import { redactPath } from "./path-redaction.js";
+import { createTransformOptInController } from "./transform-opt-in.js";
 import {
   BUNDLED_ADAPTER_DENYLIST,
   createTransformSafetyController,
 } from "./transform-safety.js";
-import { clearAllVolatileTransformState } from "./volatile-transform-state.js";
+import {
+  clearAllVolatileTransformState,
+  registerVolatileTransformStateClearer,
+} from "./volatile-transform-state.js";
 
 const MAX_PATH_CLASSES = 256;
 
@@ -35,6 +39,10 @@ type BackgroundPageMetric = {
   recordedAt: string;
 };
 
+const transformOptIn = createTransformOptInController();
+registerVolatileTransformStateClearer(() => {
+  transformOptIn.revoke("emergency-disable");
+});
 const transformSafety = createTransformSafetyController({
   denylist: BUNDLED_ADAPTER_DENYLIST,
   clearVolatileTransformState: clearAllVolatileTransformState,
@@ -274,11 +282,18 @@ browser.webRequest.onBeforeRequest.addListener(
 
 browser.runtime.onMessage.addListener((message) => {
   if (!message || typeof message !== "object") return undefined;
-  const candidate = message as { type?: string; metric?: unknown };
+  const candidate = message as { type?: string; metric?: unknown; acknowledgements?: unknown };
   if (candidate.type === "elatura:start-run") return startObservationRun();
   if (candidate.type === "elatura:clear-run") return clearObservationRun();
   if (candidate.type === "elatura:get-state") return getObservationState();
   if (candidate.type === "elatura:get-transform-safety") return transformSafety.getState();
+  if (candidate.type === "elatura:get-transform-opt-in") return transformOptIn.getState();
+  if (candidate.type === "elatura:record-transform-opt-in") {
+    return transformOptIn.record(candidate.acknowledgements);
+  }
+  if (candidate.type === "elatura:revoke-transform-opt-in") {
+    return transformOptIn.revoke("user-revoked");
+  }
   if (candidate.type === "elatura:emergency-disable-transforms") {
     return transformSafety.emergencyDisable();
   }
