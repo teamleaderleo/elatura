@@ -58,6 +58,10 @@ function validAdapterIdentities(value: unknown): value is readonly AdapterIdenti
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /**
  * Public synthetic companion entrypoint.
  *
@@ -119,8 +123,19 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
     options: SyntheticCompanionDispatchOptions = {},
   ): Promise<CompanionResponseEnvelope> {
     const response = await super.dispatch(input, options);
-    return response.errorCode === "request-cancelled"
+    const settled = response.errorCode === "request-cancelled"
       ? { ...response, usage: this.usage }
       : response;
+    if (
+      settled.ok &&
+      settled.operation === "status" &&
+      isRecord(settled.payload)
+    ) {
+      return {
+        ...settled,
+        payload: { ...settled.payload, usage: settled.usage },
+      };
+    }
+    return settled;
   }
 }
