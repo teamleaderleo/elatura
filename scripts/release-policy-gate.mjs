@@ -76,8 +76,8 @@ assert.equal(policy.candidate.deterministicBuildCheckRequired, true);
 
 assert.equal(amoMetadata.version?.license, "MPL-2.0");
 assert.equal(typeof amoMetadata.summary?.["en-US"], "string");
-assert.match(amoMetadata.version?.approval_notes ?? "", /observe-only/u);
-assert.match(amoMetadata.version?.approval_notes ?? "", /build instructions/u);
+assert.match(amoMetadata.version?.approval_notes ?? "", /observe-only/iu);
+assert.match(amoMetadata.version?.approval_notes ?? "", /build instructions/iu);
 
 const scripts = Object.entries(packageJson.scripts ?? {});
 const ordinaryAutomation = `${scripts.map(([name, value]) => `${name}: ${value}`).join("\n")}\n${workflows}`;
