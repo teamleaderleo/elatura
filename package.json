@@ -19,7 +19,7 @@
     "lint:extension": "npm run build && web-ext lint --source-dir extension/firefox/dist",
     "run:firefox": "npm run build && web-ext run --source-dir extension/firefox/dist",
     "build:extension": "npm run release:candidate:unsigned -- --channel=unlisted",
-    "release:candidate:unsigned": "npm run build && npm run security:gate && npm run build:manifest && node scripts/create-firefox-release-candidate.mjs",
+    "release:candidate:unsigned": "npm run build && npm run security:gate && web-ext lint --source-dir extension/firefox/dist && npm run build:manifest && node scripts/create-firefox-release-candidate.mjs",
     "release:candidate:smoke": "node scripts/create-firefox-release-candidate.mjs --channel=unlisted --smoke",
     "generate:fixture": "npm run build && node scripts/generate-fixture.mjs",
     "analyze:reports": "npm run build && node scripts/analyze-reports.mjs",
