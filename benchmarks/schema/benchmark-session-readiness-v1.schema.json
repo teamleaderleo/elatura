@@ -46,6 +46,13 @@
           "enum": [
             "missing-run",
             "unexpected-run",
+            "session-id-mismatch",
+            "plan-schema-version-mismatch",
+            "plan-generated-at-mismatch",
+            "slot-ordinal-mismatch",
+            "duplicate-slot-ordinal",
+            "execution-before-plan",
+            "execution-order-violation",
             "browser-version-mismatch",
             "memory-method-mismatch",
             "observer-report-missing",
