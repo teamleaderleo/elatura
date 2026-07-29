@@ -2,7 +2,9 @@
 
 Issue #3 compares Edge stock, Firefox stock, and Firefox with Elatura observe mode. Each individual cold open or hard reload receives one benchmark-run manifest. Observe-mode runs also retain the extension's content-free observation report with the same run UUID.
 
-The manifest schema deliberately contains no workload label, conversation name, URL, note, screenshot reference, process command line, or free-form failure text. It accepts only bounded enums, a UUID, timestamps, browser versions, and numeric measurements.
+The manifest schema deliberately contains no workload label, conversation name, URL, note, screenshot reference, process command line, or free-form failure text. It accepts only bounded enums, a UUID, canonical UTC timestamps, browser versions, and numeric measurements.
+
+`recordedAt` must use canonical ISO-8601 UTC form with millisecond precision, such as `2026-07-29T20:00:00.000Z`. Localized dates, timezone offsets, and timestamps without milliseconds are rejected so manifests cannot silently normalize to different strings.
 
 ## Required sample matrix
 
@@ -11,7 +13,7 @@ For each mode:
 - five `cold-open` runs
 - ten `hard-reload` runs
 
-The comparison tool emits `small-sample` warnings for missing runs. `client-navigation` manifests are accepted without a minimum count.
+`client-navigation` remains optional for issue #3. When recorded, it needs at least five runs per compared mode before the tool emits deltas. Smaller client-navigation cohorts remain visible as descriptive distributions with a `small-sample` warning and null comparison metrics.
 
 ## Example
 
@@ -58,6 +60,8 @@ The comparison tool emits `small-sample` warnings for missing runs. `client-navi
 
 For `firefox-observe`, copy the observer report's run UUID into both `runId` and `observerReportRunId`, set `timings.source` to `observer-report`, and copy the report's DOM/composer timings exactly. The analyzer checks the linkage, browser version, timing values, and integrity flags.
 
+An observe cohort also reports the distinct observer extension versions and observation report schema versions it contains. More than one extension version emits `mixed-observer-extension-versions`; more than one report schema emits `mixed-observer-report-schemas`. Both are critical errors and prevent cohort deltas. Re-run the cohort with one observer implementation rather than comparing across instrumentation changes.
+
 ## Memory classes
 
 Use bounded process classes instead of raw process names:
@@ -89,4 +93,4 @@ npm run compare:benchmarks -- benchmark-runs --out artifacts/benchmark-summary.j
 
 Inputs may mix manifests and exported observer reports. The default baseline is `firefox-stock`; select another with `--baseline edge-stock` or `--baseline firefox-observe`.
 
-The output groups by mode and navigation, reports distributions, and emits machine-readable warnings. Percentage deltas remain null until both cohorts meet the required sample count and have usable, internally consistent measurements. An interrupted or persistence-incomplete observer report remains visible in the output and is excluded from complete cohort comparisons.
+The output groups by mode and navigation, reports distributions, observer extension/schema identities, and machine-readable warnings. Percentage deltas remain null until both cohorts meet the required sample count and have usable, internally consistent measurements from comparable observer implementations. An interrupted or persistence-incomplete observer report remains visible in the output and is excluded from complete cohort comparisons.

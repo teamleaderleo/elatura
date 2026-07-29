@@ -56,11 +56,16 @@ function manifest(
   };
 }
 
-function observation(input: Record<string, unknown>, bytes = 1_000_000): Record<string, unknown> {
+function observation(
+  input: Record<string, unknown>,
+  bytes = 1_000_000,
+  extensionVersion = "0.0.4",
+  schemaVersion: 2 | 3 = 2,
+): Record<string, unknown> {
   const timings = input.timings as Record<string, unknown>;
   const browser = input.browser as Record<string, unknown>;
   return {
-    schemaVersion: 2,
+    schemaVersion,
     generatedAt: "2026-07-29T00:01:00.000Z",
     mode: "observe",
     run: {
@@ -68,7 +73,7 @@ function observation(input: Record<string, unknown>, bytes = 1_000_000): Record<
       startedAt: "2026-07-29T00:00:00.000Z",
       exportedAt: "2026-07-29T00:01:00.000Z",
     },
-    extension: { version: "0.0.4" },
+    extension: { version: extensionVersion },
     browser: { name: browser.name, vendor: "Mozilla", version: browser.version, buildID: "build" },
     privacy: {
       responseBodiesCaptured: false,
@@ -96,7 +101,10 @@ function observation(input: Record<string, unknown>, bytes = 1_000_000): Record<
     },
     requestPaths: [
       {
-        pathTemplate: "/backend-api/conversation/:id",
+        pathTemplate:
+          schemaVersion === 3
+            ? "/:compound-l/:word-l/:token-s"
+            : "/backend-api/conversation/:id",
         count: 1,
         bytes,
         durationMs: 10,
@@ -121,6 +129,20 @@ describe("content-free benchmark manifests", () => {
     const privacy = structuredClone(input);
     (privacy.privacy as Record<string, unknown>).urlsCaptured = true;
     expect(() => parseBenchmarkRunManifest(privacy)).toThrow(/urlsCaptured/);
+  });
+
+  it("requires canonical millisecond-precision UTC timestamps", () => {
+    const loose = manifest("firefox-stock", "cold-open", 1, 1000, 1_000_000_000);
+    loose.recordedAt = "July 29, 2026";
+    expect(() => parseBenchmarkRunManifest(loose)).toThrow(/canonical ISO-8601 UTC/);
+
+    const offset = manifest("firefox-stock", "cold-open", 2, 1000, 1_000_000_000);
+    offset.recordedAt = "2026-07-29T00:00:00+00:00";
+    expect(() => parseBenchmarkRunManifest(offset)).toThrow(/canonical ISO-8601 UTC/);
+
+    const missingMilliseconds = manifest("firefox-stock", "cold-open", 3, 1000, 1_000_000_000);
+    missingMilliseconds.recordedAt = "2026-07-29T00:00:00Z";
+    expect(() => parseBenchmarkRunManifest(missingMilliseconds)).toThrow(/canonical ISO-8601 UTC/);
   });
 
   it("summarizes a complete matrix and computes cohort deltas", () => {
@@ -155,6 +177,75 @@ describe("content-free benchmark manifests", () => {
       (comparison) => comparison.targetKey === "firefox-observe|cold-open",
     );
     expect(observeCold?.metrics.browserTotalPeakBytes?.percentDelta).toBe(10);
+    expect(
+      summary.cohorts.find((cohort) => cohort.key === "firefox-observe|cold-open"),
+    ).toMatchObject({
+      observerExtensionVersions: ["0.0.4"],
+      observerReportSchemaVersions: [2],
+    });
+  });
+
+  it("keeps one-sample client navigation cohorts descriptive-only", () => {
+    const baseline = manifest("firefox-stock", "client-navigation", 1, 1000, 1_000_000_000);
+    const target = manifest("edge-stock", "client-navigation", 1, 900, 900_000_000);
+    const summary = summarizeBenchmarkMatrix([baseline, target], []);
+
+    for (const key of ["firefox-stock|client-navigation", "edge-stock|client-navigation"]) {
+      const cohort = summary.cohorts.find((candidate) => candidate.key === key);
+      expect(cohort).toMatchObject({ expectedRunCount: 5, runCount: 1, comparisonEligible: false });
+      expect(cohort?.warningCodes).toContain("small-sample");
+    }
+    const comparison = summary.comparisons.find(
+      (candidate) => candidate.targetKey === "edge-stock|client-navigation",
+    );
+    expect(comparison?.metrics).toEqual({
+      domContentLoadedMs: null,
+      composerReadyMs: null,
+      browserTotalPeakBytes: null,
+      totalBytesObserved: null,
+    });
+  });
+
+  it("blocks mixed observer extension and report schema cohorts", () => {
+    const manifests: Record<string, unknown>[] = [];
+    const reports: Record<string, unknown>[] = [];
+    for (let sequence = 1; sequence <= 5; sequence += 1) {
+      manifests.push(manifest("firefox-stock", "cold-open", sequence, 1000, 1_000_000_000));
+      const observe = manifest("firefox-observe", "cold-open", sequence, 1100, 1_100_000_000);
+      manifests.push(observe);
+      reports.push(
+        observation(
+          observe,
+          1_000_000,
+          sequence === 5 ? "0.0.5" : "0.0.4",
+          sequence === 4 ? 3 : 2,
+        ),
+      );
+    }
+
+    const summary = summarizeBenchmarkMatrix(manifests, reports);
+    const observeCohort = summary.cohorts.find(
+      (cohort) => cohort.key === "firefox-observe|cold-open",
+    );
+    expect(observeCohort).toMatchObject({
+      observerExtensionVersions: ["0.0.4", "0.0.5"],
+      observerReportSchemaVersions: [2, 3],
+      comparisonEligible: false,
+    });
+    expect(observeCohort?.warningCodes).toEqual(
+      expect.arrayContaining([
+        "mixed-observer-extension-versions",
+        "mixed-observer-report-schemas",
+      ]),
+    );
+    const mixedWarnings = summary.warnings.filter((item) => item.code.startsWith("mixed-observer-"));
+    expect(mixedWarnings).toHaveLength(2);
+    expect(mixedWarnings.every((item) => item.severity === "error")).toBe(true);
+    expect(
+      summary.comparisons.find(
+        (comparison) => comparison.targetKey === "firefox-observe|cold-open",
+      )?.metrics.composerReadyMs,
+    ).toBeNull();
   });
 
   it("surfaces small samples, missing measurements, and incomplete observation", () => {

@@ -21,7 +21,11 @@
   "properties": {
     "schemaVersion": { "const": 2 },
     "runId": { "type": "string", "format": "uuid" },
-    "recordedAt": { "type": "string", "format": "date-time" },
+    "recordedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}Z$"
+    },
     "mode": { "enum": ["edge-stock", "firefox-stock", "firefox-observe"] },
     "navigation": { "enum": ["cold-open", "hard-reload", "client-navigation"] },
     "sequence": { "type": "integer", "minimum": 1 },
@@ -150,7 +154,7 @@
     {
       "if": { "properties": { "outcome": { "properties": { "status": { "const": "usable" } } } } },
       "then": { "properties": { "outcome": { "properties": { "failureCode": { "type": "null" } } } } },
-      "else": { "properties": { "outcome": { "properties": { "failureCode": { "type": "string" } } } } }
+      "else": { "properties": { "outcome": { "properties": { "failureCode": { "type": "string" } } } }
     }
   ]
 }
