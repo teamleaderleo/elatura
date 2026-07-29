@@ -38,6 +38,21 @@ function hasSyntheticMarker(source: ChatGptConversation): boolean {
   return isRecord(source.raw.elatura_fixture) && source.raw.elatura_fixture.synthetic === true;
 }
 
+function validateChatGptAdapterInput(
+  input: unknown,
+): ReturnType<typeof validateChatGptConversation> {
+  const validated = validateChatGptConversation(input);
+  if (!validated.ok) return validated;
+
+  // The inspection validator creates a fresh normalized graph. Keep optional
+  // properties genuinely absent instead of retaining own properties whose value
+  // is undefined. The authoritative raw input remains untouched.
+  for (const node of Object.values(validated.value.mapping)) {
+    if (node.message === undefined) delete node.message;
+  }
+  return validated;
+}
+
 function messageText(message: unknown): string | undefined {
   if (!isRecord(message) || !isRecord(message.content) || !Array.isArray(message.content.parts)) {
     return undefined;
@@ -203,7 +218,7 @@ export const chatGptAdapter: ApplicationAdapter<
     alternateRepresentation: "synthetic-only",
   }),
   detect: detectChatGptConversation,
-  validate: validateChatGptConversation,
+  validate: validateChatGptAdapterInput,
   fingerprint: fingerprintChatGptConversation,
   alternateRepresentation: toSyntheticChatGptRepresentation,
 };
