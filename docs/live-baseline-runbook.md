@@ -32,7 +32,15 @@ npm run baseline:plan -- \
 
 Add `--client-navigation` only when committing to five client-navigation runs per mode. That produces a 60-slot plan.
 
-The generated plan records only a UUID, canonical timestamp, bounded version tokens, memory method, fixed privacy flags, and ordered slot keys.
+The generated plan records only a UUID, canonical timestamp, bounded version tokens, memory method, fixed privacy flags, and ordered slot keys. Keep this exact plan for the whole matrix. Regenerating it creates a different session and invalidates manifests from the earlier plan.
+
+Every final manifest must use schema 3 and copy the current plan and slot binding exactly:
+
+- `session.planSchemaVersion = plan.schemaVersion`
+- `session.sessionId = plan.sessionId`
+- `session.planGeneratedAt = plan.generatedAt`
+- `session.slotOrdinal = slot.ordinal`
+- `session.slotKey = slot.key`
 
 ## 2. Directory layout
 
@@ -63,11 +71,13 @@ firefox-observe__hard-reload__07.observation.json
 
 Do not put the conversation title, URL, account name, project name, or free-form notes in a filename.
 
-## 3. Follow the plan order
+## 3. Follow and record the plan order
 
 Run slots in the exact order listed in `session-plan.json`. The order rotates the three modes to reduce systematic drift from temperature, memory pressure, network conditions, and operator fatigue.
 
-Do not regroup all Edge runs, then all Firefox runs, unless the entire plan is regenerated under a documented later protocol revision.
+Create each manifest immediately after its slot completes. Set `recordedAt` to that completion time in canonical millisecond-precision UTC. Each later slot must have a strictly later `recordedAt` value. The readiness checker rejects timestamps before `plan.generatedAt`, duplicate or mismatched ordinals, mixed session identities, and non-monotonic execution order.
+
+Do not regroup all Edge runs, then all Firefox runs. Regenerate the entire plan only under a documented later protocol revision, and do not reuse manifests from the previous session.
 
 ## 4. Navigation definitions
 
@@ -111,10 +121,12 @@ For each `firefox-observe` slot:
 3. Perform exactly one planned action.
 4. Wait until the composer is usable and request activity has settled.
 5. Export the content-free observation JSON.
-6. Create the matching benchmark manifest.
-7. Copy the observation report's run UUID into both `runId` and `observerReportRunId`.
-8. Set `timings.source` to `observer-report`.
-9. Copy `domContentLoadedMs` and `composerReadyMs` exactly from the observation report.
+6. Create the matching schema-3 benchmark manifest immediately.
+7. Copy the five plan/slot binding fields from the current plan entry.
+8. Copy the observation report's run UUID into both `runId` and `observerReportRunId`.
+9. Set `timings.source` to `observer-report`.
+10. Copy `domContentLoadedMs` and `composerReadyMs` exactly from the observation report.
+11. Set `recordedAt` to a canonical completion time later than the preceding slot.
 
 Do not edit the observation report. An incomplete integrity result occupies no final slot; repeat that slot and keep the incomplete attempt only in `attempts-archive`.
 
@@ -122,10 +134,13 @@ Do not edit the observation report. An incomplete integrity result occupies no f
 
 For Edge stock and Firefox stock:
 
+- create a schema-3 manifest immediately after the slot;
+- copy the five plan/slot binding fields exactly;
 - use `timings.source: manual`;
 - use `observerReportRunId: null`;
 - record the same readiness definitions used by observe mode;
 - record numeric memory peaks with the session's single declared memory method;
+- set canonical `recordedAt` in strict plan order;
 - include no notes or free-form failure text.
 
 A failed attempt may be recorded with a fixed failure code for audit, but the final readiness directory must contain one usable replacement for the slot. Move the failed attempt outside `final` before checking the session.
@@ -149,6 +164,8 @@ Repeat only the affected slot when:
 - the memory measurement is missing;
 - unrelated browsing occurs during the run.
 
+A replacement for one slot must retain that slot's original session binding and receive a new completion timestamp that still preserves total plan order. When that is impossible without contradicting later completed slots, restart the whole session rather than fabricating chronology.
+
 Keep superseded attempts outside the final checker directory.
 
 ## 8. Preflight the completed matrix
@@ -167,6 +184,8 @@ Keep `--out` outside every scanned input directory. The checker rejects an outpu
 Exit code `0` and `ready: true` mean:
 
 - every planned slot is present exactly once;
+- every manifest belongs to this exact plan and expected ordinal;
+- completion timestamps begin after plan generation and increase in canonical slot order;
 - no unexpected slot is present;
 - browser, memory, extension, and report-schema identities match the plan;
 - observe reports are linked and internally consistent;
@@ -185,6 +204,8 @@ npm run compare:benchmarks -- \
   --baseline firefox-stock \
   --out artifacts/live-baseline/benchmark-summary.json
 ```
+
+The generic comparison tool accepts both historical schema-2 manifests and current session-bound schema-3 manifests. Only schema 3 can satisfy this runbook's strict readiness gate.
 
 Use medians, p95/worst cases, failure counts, observer integrity, and peak browser-total memory. Do not claim statistical significance from this matrix.
 
