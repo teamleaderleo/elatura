@@ -36,7 +36,7 @@ The explicit candidate command rebuilds the extension and produces:
 - a human-readable source ZIP created from the exact Git revision
 - `release-candidate.json`, which records content-free SHA-256 digests and identifies the requested future AMO channel
 
-The candidate command builds the unsigned extension ZIP twice after normalizing generated-file modification times and refuses the candidate if the two hashes differ.
+The candidate command writes the built extension files into temporary Git tree and commit objects with a fixed author, committer, timestamp, and message. It archives that deterministic commit twice and refuses the candidate unless both ZIP byte streams and SHA-256 hashes match. Firefox format validation remains the responsibility of `web-ext lint`, which runs before candidate creation.
 
 ## Source-to-output mapping
 
