@@ -39,6 +39,8 @@ npm run baseline:check -- \
 
 The readiness report blocks conclusions when a slot is missing or unexpected, identities drift, an observe report is missing or mismatched, the matrix emits any warning, or a planned cohort is not comparison-eligible. It contains only the session UUID, counts, slot/cohort keys, and fixed issue codes.
 
+The supplied final directory is also checked as a strict bounded bundle. Symbolic links, special entries, non-JSON files, more than four nested directory levels, more than 16 directories, more than 128 entries in one directory, more than 96 JSON files, JSON files above 1 MiB, and bundles above 16 MiB are rejected. `--out` must remain outside every scanned directory. Rejection messages contain fixed codes and entry numbers rather than arbitrary filenames or document values.
+
 Follow [`live-baseline-runbook.md`](live-baseline-runbook.md) for the exact cold-open, hard-reload, client-navigation, retry, archive, and privacy protocol.
 
 ## Example
