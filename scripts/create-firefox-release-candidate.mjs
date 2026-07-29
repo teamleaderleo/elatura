@@ -246,6 +246,7 @@ const candidate = {
   },
   distribution: {
     mozillaSigned: false,
+    signedClaimAllowed: false,
     installableClaimAllowed: false,
     publicDistributionAllowed: false,
     label: "unsigned-review-only",
@@ -283,6 +284,7 @@ if (
   candidate.schemaVersion !== 1 ||
   candidate.kind !== "unsigned-firefox-release-candidate" ||
   candidate.distribution.mozillaSigned !== false ||
+  candidate.distribution.signedClaimAllowed !== false ||
   candidate.distribution.installableClaimAllowed !== false
 ) {
   throw new Error("Release policy does not permit an unsigned review candidate.");
