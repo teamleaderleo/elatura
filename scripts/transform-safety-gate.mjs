@@ -6,11 +6,12 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const [capabilities, background, safety, optIn, popup, popupScript] = await Promise.all([
+const [capabilities, background, safety, optIn, liveAuthorization, popup, popupScript] = await Promise.all([
   readFile(join(ROOT, "security/capabilities.json"), "utf8").then(JSON.parse),
   readFile(join(ROOT, "extension/firefox/src/background.ts"), "utf8"),
   readFile(join(ROOT, "extension/firefox/src/transform-safety.ts"), "utf8"),
   readFile(join(ROOT, "extension/firefox/src/transform-opt-in.ts"), "utf8"),
+  readFile(join(ROOT, "extension/firefox/src/live-authorization.ts"), "utf8"),
   readFile(join(ROOT, "extension/firefox/static/popup.html"), "utf8"),
   readFile(join(ROOT, "extension/firefox/src/popup.ts"), "utf8"),
 ]);
@@ -30,6 +31,10 @@ assert.equal(transform?.adapterDenylist, "bundled-exact-id-version");
 assert.equal(transform?.localOptIn, "session-intent-only");
 assert.equal(transform?.optInPersistence, "none");
 assert.equal(transform?.optInAuthorizesTransform, false);
+assert.equal(transform?.liveAuthorization, "required-disconnected");
+assert.equal(transform?.liveAuthorizationPersistence, "none");
+assert.equal(transform?.reviewedLiveApproval, "absent");
+assert.equal(transform?.liveGrantIssuer, "absent");
 
 assert.match(safety, /emergencyDisabled:\s*true/u, "Safety controller must start disabled.");
 assert.match(
@@ -46,6 +51,19 @@ assert.match(optIn, /TRANSFORM_OPT_IN_ACKNOWLEDGEMENTS/u);
 assert.doesNotMatch(optIn, /\bbrowser\.storage\b/u, "Opt-in intent must remain session-local.");
 assert.doesNotMatch(optIn, /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b/u);
 assert.doesNotMatch(optIn, /https?:\/\//u);
+
+assert.match(liveAuthorization, /evaluateLiveAuthorization/u);
+assert.match(liveAuthorization, /emergency-disabled/u);
+assert.match(liveAuthorization, /approval-missing/u);
+assert.match(liveAuthorization, /grant-missing/u);
+assert.doesNotMatch(liveAuthorization, /\bbrowser\.(?:storage|runtime|webRequest|downloads)\b/u);
+assert.doesNotMatch(liveAuthorization, /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b/u);
+assert.doesNotMatch(liveAuthorization, /\b(?:create|issue)VolatileLiveAuthorizationGrant\b/u);
+assert.doesNotMatch(
+  background,
+  /live-authorization/u,
+  "The live authorization design must remain disconnected from response handling.",
+);
 
 assert.match(background, /elatura:get-transform-safety/u);
 assert.match(background, /elatura:emergency-disable-transforms/u);
@@ -77,5 +95,5 @@ assert.doesNotMatch(
 );
 
 process.stdout.write(
-  "Transform safety gate passed: locked default, non-authorizing session opt-in intent, local emergency control, bundled denylist, and no popup unlock path.\n",
+  "Transform safety gate passed: locked default, non-authorizing session opt-in intent, disconnected deny-by-default live authorization, local emergency control, bundled denylist, and no popup unlock path.\n",
 );
