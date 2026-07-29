@@ -83,14 +83,61 @@ describe("fingerprintShape", () => {
     expect(fingerprint.shape).toContain("<truncated:");
   });
 
-  it("stops traversing when the visited-value budget is exhausted", () => {
+  it("stops traversing when the traversal-unit budget is exhausted", () => {
     const input = Array.from({ length: 20 }, (_, index) => ({ value: index }));
     expect(() =>
       fingerprintShape("example", "2", input, {
         depth: 4,
         maxVisitedValues: 10,
       }),
-    ).toThrow(/value budget/);
+    ).toThrow(/traversal-unit budget/);
+  });
+
+  it("charges ordinary object-key inspection before retaining or sorting keys", () => {
+    const wide = Object.fromEntries(
+      Array.from({ length: 10_000 }, (_, index) => [`field-${index.toString().padStart(5, "0")}`, null]),
+    );
+    expect(() =>
+      fingerprintShape("example", "2", wide, {
+        depth: 2,
+        maxObjectKeys: 4,
+        maxVisitedValues: 32,
+      }),
+    ).toThrow(/traversal-unit budget/);
+  });
+
+  it("charges dictionary keys without exposing them in the resource-limit error", () => {
+    const privateKey = "private-conversation-node-999999";
+    const mapping = Object.fromEntries(
+      Array.from({ length: 100 }, (_, index) => [index === 99 ? privateKey : `private-${index}`, null]),
+    );
+    let thrown: unknown;
+    try {
+      fingerprintShape("example", "2", { mapping }, {
+        depth: 3,
+        dictionaryPaths: ["$.mapping"],
+        maxVisitedValues: 16,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(RangeError);
+    expect(String(thrown)).toContain("traversal-unit budget");
+    expect(String(thrown)).not.toContain(privateKey);
+  });
+
+  it("bounds inherited enumerable-key inspection", () => {
+    const inherited = Object.fromEntries(
+      Array.from({ length: 100 }, (_, index) => [`inherited-${index}`, null]),
+    );
+    const input = Object.create(inherited) as Record<string, unknown>;
+    input.own = null;
+    expect(() =>
+      fingerprintShape("example", "2", input, {
+        depth: 2,
+        maxVisitedValues: 12,
+      }),
+    ).toThrow(/traversal-unit budget/);
   });
 
   it("rejects unsafe limits", () => {
