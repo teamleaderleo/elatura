@@ -134,7 +134,7 @@ describe("coordinator companion boundary review", () => {
     expect(paged.ok).toBe(true);
   });
 
-  it("round-trips representation entry ids beyond ordinary token length", async () => {
+  it("round-trips companion entry ids beyond ordinary token length", async () => {
     const longEntryId = `e${"y".repeat(128)}`;
     const companion = new SyntheticCompanion({
       sessionId: SESSION,
@@ -177,6 +177,22 @@ describe("coordinator companion boundary review", () => {
       ),
     );
     expect(entry.ok).toBe(true);
+  });
+
+  it("rejects a valid representation whose ids exceed protocol-v1 syntax", () => {
+    expect(
+      () =>
+        new SyntheticCompanion({
+          sessionId: SESSION,
+          now: () => 150,
+          conversations: [
+            {
+              id: "incompatible-entry-source",
+              representation: representation(["entry id with spaces"]),
+            },
+          ],
+        }),
+    ).toThrow(/version-1-compatible entry identifiers/u);
   });
 
   it("rejects valid private provenance at the public synthetic entrypoint", () => {
