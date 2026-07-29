@@ -106,9 +106,9 @@ defineProductionAdapterAcceptanceSuite({
       reasonCode: "budget-node-count-exceeded",
     },
     {
-      name: "materialization allocation ceiling",
+      name: "input-clone allocation ceiling",
       budgets: { maxAllocatedBytes: 32 },
-      stage: "materialize",
+      stage: "detect",
       reasonCode: "budget-allocation-exceeded",
     },
   ],
