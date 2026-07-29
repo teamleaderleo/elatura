@@ -39,6 +39,7 @@ function envelope(
     fingerprintHash?: string;
     contentValue?: string;
     synthetic?: boolean;
+    items?: string[];
   } = {},
 ): SnapshotCacheEnvelope<{ items: string[] }> {
   const capturedAt = options.capturedAt ?? 100;
@@ -61,7 +62,7 @@ function envelope(
       freshness: { capturedAt, staleAt, expiresAt },
       synthetic: options.synthetic ?? true,
     },
-    payload: { items: ["one", "two"] },
+    payload: { items: options.items ?? ["one", "two"] },
   };
 }
 
@@ -71,6 +72,10 @@ const lookup = {
   expectedContent: { scheme: "synthetic-fixture", value: "content-a", revision: "1" },
 };
 
+function resultCodes(result: ReturnType<SyntheticMemorySnapshotCache<{ items: string[] }>["put"]>): string[] {
+  return result.ok ? [] : result.issues.map((issue) => issue.code);
+}
+
 describe("synthetic memory snapshot cache", () => {
   it("keeps freshness independent from adapter and schema compatibility", () => {
     const cache = new SyntheticMemorySnapshotCache({ validatePayload, now: () => 100 });
@@ -79,6 +84,7 @@ describe("synthetic memory snapshot cache", () => {
     expect(cache.get(baseKey, { ...lookup, now: 250 })).toMatchObject({ status: "hit", freshness: "stale" });
     expect(cache.get(baseKey, { ...lookup, now: 300 })).toEqual({ status: "miss", reason: "expired" });
     expect(cache.size).toBe(0);
+    expect(cache.usage).toEqual({ entryCount: 0, serializedBytes: 0, accountedBytes: 0 });
   });
 
   it("accepts only exact or explicitly readable adapter versions", () => {
@@ -124,6 +130,7 @@ describe("synthetic memory snapshot cache", () => {
     expect(cache.size).toBe(2);
     expect(cache.delete(profileB)).toBe(true);
     expect(cache.size).toBe(1);
+    expect(cache.usage.entryCount).toBe(1);
   });
 
   it("deletes corrupt restored entries and returns a recoverable miss", () => {
@@ -131,11 +138,12 @@ describe("synthetic memory snapshot cache", () => {
       validatePayload,
       seedEntries: [[serializeCacheIsolationKey(baseKey), "{broken-json"]],
     });
+    expect(cache.size).toBe(1);
     expect(cache.get(baseKey, { ...lookup, now: 150 })).toEqual({ status: "miss", reason: "corrupt" });
-    expect(cache.size).toBe(0);
+    expect(cache.usage).toEqual({ entryCount: 0, serializedBytes: 0, accountedBytes: 0 });
   });
 
-  it("rejects non-synthetic payloads and enforces retention", () => {
+  it("rejects non-synthetic payloads and enforces deterministic count retention", () => {
     const cache = new SyntheticMemorySnapshotCache({
       validatePayload,
       retention: { maxEntries: 2, maxAgeMs: 1_000 },
@@ -147,6 +155,10 @@ describe("synthetic memory snapshot cache", () => {
       expect(cache.put(envelope(key, { capturedAt: 80 + index, staleAt: 200, expiresAt: 300 })).ok).toBe(true);
     }
     expect(cache.size).toBe(2);
+    expect(cache.get({ ...baseKey, resource: "fixture-0" }, { ...lookup, expectedContent: undefined, now: 150 })).toEqual({
+      status: "miss",
+      reason: "missing",
+    });
   });
 
   it("stores the payload validator's normalized value instead of raw extra fields", () => {
@@ -182,7 +194,7 @@ describe("synthetic memory snapshot cache", () => {
     }
   });
 
-  it("rejects unknown envelope fields and payload-validator exceptions", () => {
+  it("rejects unknown fields, validators that throw, accessors, and proxies safely", () => {
     const extra = envelope() as SnapshotCacheEnvelope<{ items: string[] }> & { hidden?: string };
     extra.hidden = "not part of envelope v1";
     const cache = new SyntheticMemorySnapshotCache({ validatePayload, now: () => 100 });
@@ -194,11 +206,113 @@ describe("synthetic memory snapshot cache", () => {
       },
       now: () => 100,
     });
-    const result = throwing.put(envelope());
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.issues.some((issue) => issue.code === "payload-validator-threw")).toBe(true);
-      expect(JSON.stringify(result)).not.toContain("private payload detail");
+    const thrownResult = throwing.put(envelope());
+    expect(resultCodes(thrownResult)).toContain("payload-validator-threw");
+    expect(JSON.stringify(thrownResult)).not.toContain("private payload detail");
+
+    const accessor = envelope() as unknown as Record<string, unknown>;
+    Object.defineProperty(accessor, "payload", {
+      enumerable: true,
+      get() {
+        throw new Error("private accessor detail");
+      },
+    });
+    const accessorResult = cache.put(accessor);
+    expect(resultCodes(accessorResult)).toContain("payload-validator-threw");
+    expect(JSON.stringify(accessorResult)).not.toContain("private accessor detail");
+
+    const proxy = new Proxy(envelope(), {
+      ownKeys() {
+        throw new Error("private proxy detail");
+      },
+    });
+    const proxyResult = cache.put(proxy);
+    expect(resultCodes(proxyResult)).toContain("cache-envelope-inspection-failed");
+    expect(JSON.stringify(proxyResult)).not.toContain("private proxy detail");
+    expect(cache.size).toBe(0);
+  });
+
+  it("distinguishes per-entry serialized, accounted, and JSON unit limits", () => {
+    const serialized = new SyntheticMemorySnapshotCache({
+      validatePayload,
+      retention: {
+        maxEntrySerializedBytes: 512,
+        maxTotalSerializedBytes: 8_192,
+      },
+      now: () => 100,
+    });
+    expect(resultCodes(serialized.put(envelope(baseKey, { items: ["x".repeat(2_000)] })))).toContain(
+      "cache-entry-byte-limit",
+    );
+    expect(serialized.size).toBe(0);
+
+    const accounted = new SyntheticMemorySnapshotCache({
+      validatePayload,
+      retention: {
+        maxEntryAccountedBytes: 1_000,
+        maxTotalAccountedBytes: 20_000,
+      },
+      now: () => 100,
+    });
+    expect(resultCodes(accounted.put(envelope(baseKey, { items: ["x".repeat(500)] })))).toContain(
+      "cache-entry-accounted-byte-limit",
+    );
+
+    const units = new SyntheticMemorySnapshotCache({
+      validatePayload,
+      retention: { maxJsonStringCodeUnits: 16 },
+      now: () => 100,
+    });
+    expect(resultCodes(units.put(envelope()))).toContain("cache-entry-unit-limit");
+  });
+
+  it("admits replacements atomically and never exposes partial aggregate usage", () => {
+    const cache = new SyntheticMemorySnapshotCache({
+      validatePayload,
+      retention: {
+        maxEntries: 2,
+        maxEntrySerializedBytes: 4_096,
+        maxEntryAccountedBytes: 20_000,
+        maxTotalSerializedBytes: 5_000,
+        maxTotalAccountedBytes: 25_000,
+      },
+      now: () => 100,
+    });
+    expect(cache.put(envelope()).ok).toBe(true);
+    const before = cache.usage;
+    const rejected = cache.put(envelope(baseKey, { items: ["x".repeat(10_000)] }));
+    expect(rejected.ok).toBe(false);
+    expect(cache.usage).toEqual(before);
+    expect(cache.get(baseKey, { ...lookup, now: 150 }).status).toBe("hit");
+  });
+
+  it("returns to a stable accounting plateau across repeated put/get/delete cycles", () => {
+    const cache = new SyntheticMemorySnapshotCache({ validatePayload, now: () => 100 });
+    let plateau: typeof cache.usage | null = null;
+    for (let index = 0; index < 25; index += 1) {
+      expect(cache.put(envelope()).ok).toBe(true);
+      const current = cache.usage;
+      expect(current.entryCount).toBe(1);
+      expect(current.serializedBytes).toBeGreaterThan(0);
+      expect(current.accountedBytes).toBeGreaterThan(current.serializedBytes);
+      plateau ??= current;
+      expect(current).toEqual(plateau);
+      expect(cache.get(baseKey, { ...lookup, now: 150 }).status).toBe("hit");
+      expect(cache.usage).toEqual(plateau);
+      expect(cache.delete(baseKey)).toBe(true);
+      expect(cache.usage).toEqual({ entryCount: 0, serializedBytes: 0, accountedBytes: 0 });
     }
+  });
+
+  it("returns caller-owned clones without retaining callbacks or payload references", () => {
+    const cache = new SyntheticMemorySnapshotCache({ validatePayload, now: () => 100 });
+    expect(cache.put(envelope()).ok).toBe(true);
+    const hit = cache.get(baseKey, { ...lookup, now: 150 });
+    expect(hit.status).toBe("hit");
+    if (hit.status !== "hit") return;
+    expect(cache.delete(baseKey)).toBe(true);
+    expect(cache.usage.entryCount).toBe(0);
+    hit.envelope.payload.items.push("caller-owned");
+    expect(cache.get(baseKey, { ...lookup, now: 150 })).toEqual({ status: "miss", reason: "missing" });
   });
 });

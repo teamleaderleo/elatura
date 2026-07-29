@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   READ_ONLY_REPRESENTATION_VERSION,
   extractReadOnlyCode,
+  measureReadOnlyRepresentation,
   navigateReadOnlyRepresentation,
   resolveJumpBackReference,
   searchReadOnlyRepresentation,
+  validateAndMeasureReadOnlyRepresentation,
   validateReadOnlyRepresentation,
   type ReadOnlyRepresentation,
 } from "../src/representation.js";
@@ -72,8 +74,8 @@ function representation(): ReadOnlyRepresentation {
   };
 }
 
-function issueCodes(input: unknown): string[] {
-  const result = validateReadOnlyRepresentation(input);
+function issueCodes(input: unknown, policy?: Parameters<typeof validateReadOnlyRepresentation>[1]): string[] {
+  const result = validateReadOnlyRepresentation(input, policy);
   return result.ok ? [] : result.issues.map((issue) => issue.code);
 }
 
@@ -85,15 +87,20 @@ describe("read-only representation", () => {
     expect(issueCodes(broken)).toContain("parent-child-mismatch");
   });
 
-  it("supports search, code extraction, branch navigation, and jump-back", () => {
+  it("supports bounded search, code extraction, branch navigation, and jump-back", () => {
     const value = representation();
     expect(searchReadOnlyRepresentation(value, "parser").map((entry) => entry.id)).toEqual([
       "user",
       "assistant-a",
     ]);
+    expect(searchReadOnlyRepresentation(value, "answer", { maxResults: 1 }).map((entry) => entry.id)).toEqual([
+      "assistant-b",
+    ]);
+    expect(searchReadOnlyRepresentation(value, "x".repeat(4_097))).toEqual([]);
     expect(extractReadOnlyCode(value)).toEqual([
       { entryId: "assistant-a", language: "ts", text: "const parse = () => true;" },
     ]);
+    expect(extractReadOnlyCode(value, { maxResults: 1 })).toHaveLength(1);
     expect(navigateReadOnlyRepresentation(value, "assistant-a")).toMatchObject({
       parent: { id: "user" },
       siblings: [{ id: "assistant-b" }],
@@ -105,6 +112,84 @@ describe("read-only representation", () => {
     expect(resolveJumpBackReference(value, "root")).toBe(
       "https://synthetic.elatura.invalid/timeline",
     );
+  });
+
+  it("returns deterministic usage and charges duplicated code text", () => {
+    const value = representation();
+    const measured = validateAndMeasureReadOnlyRepresentation(value);
+    expect(measured.ok).toBe(true);
+    if (!measured.ok) return;
+    expect(measured.value.usage).toMatchObject({
+      entryCount: 4,
+      codeBlockCount: 1,
+    });
+    expect(measured.value.usage.serializedBytes).toBeGreaterThan(0);
+
+    const withoutCodeCopy = representation();
+    withoutCodeCopy.entries[2]!.codeBlocks = [];
+    const smaller = measureReadOnlyRepresentation(withoutCodeCopy);
+    expect(smaller.ok).toBe(true);
+    if (smaller.ok) {
+      expect(measured.value.usage.serializedBytes).toBeGreaterThan(smaller.value.serializedBytes);
+      expect(measured.value.usage.stringCodeUnits).toBeGreaterThan(smaller.value.stringCodeUnits);
+    }
+  });
+
+  it("distinguishes entry, string, code-block, and total representation limits", () => {
+    const entryCount = representation();
+    expect(issueCodes(entryCount, { maxEntries: 3 })).toContain("representation-entry-count-limit");
+
+    const longText = representation();
+    longText.entries[1]!.text = "x".repeat(33);
+    expect(issueCodes(longText, { maxTextCodeUnits: 32 })).toContain("representation-string-limit");
+
+    const blocks = representation();
+    blocks.entries[2]!.codeBlocks = [
+      { text: "a" },
+      { text: "b" },
+    ];
+    expect(issueCodes(blocks, { maxCodeBlocksPerEntry: 1 })).toContain("representation-code-block-limit");
+
+    const blockText = representation();
+    blockText.entries[2]!.codeBlocks = [{ text: "x".repeat(17) }];
+    expect(issueCodes(blockText, { maxCodeBlockTextCodeUnits: 16 })).toContain(
+      "representation-code-block-text-limit",
+    );
+
+    const entryBytes = representation();
+    expect(issueCodes(entryBytes, { maxEntrySerializedBytes: 64 })).toContain(
+      "representation-entry-byte-limit",
+    );
+
+    const totalBytes = representation();
+    expect(issueCodes(totalBytes, { maxRepresentationSerializedBytes: 256 })).toContain(
+      "representation-total-byte-limit",
+    );
+  });
+
+  it("contains accessors and proxy failures without executing private data paths", () => {
+    const accessor = representation() as unknown as Record<string, unknown>;
+    Object.defineProperty(accessor, "entries", {
+      enumerable: true,
+      get() {
+        throw new Error("private accessor detail");
+      },
+    });
+    const accessorResult = validateReadOnlyRepresentation(accessor);
+    expect(accessorResult.ok).toBe(false);
+    expect(JSON.stringify(accessorResult)).not.toContain("private accessor detail");
+    if (!accessorResult.ok) {
+      expect(accessorResult.issues.map((issue) => issue.code)).toContain("representation-inspection-failed");
+    }
+
+    const hostile = new Proxy(representation(), {
+      ownKeys() {
+        throw new Error("private proxy detail");
+      },
+    });
+    const proxyResult = validateReadOnlyRepresentation(hostile);
+    expect(proxyResult.ok).toBe(false);
+    expect(JSON.stringify(proxyResult)).not.toContain("private proxy detail");
   });
 
   it("rejects mismatched or incomplete provenance", () => {

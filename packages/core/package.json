@@ -29,6 +29,10 @@
       "types": "./dist/representation.d.ts",
       "default": "./dist/representation.js"
     },
+    "./resource-accounting": {
+      "types": "./dist/resource-accounting.d.ts",
+      "default": "./dist/resource-accounting.js"
+    },
     "./response-binding": {
       "types": "./dist/response-binding.d.ts",
       "default": "./dist/response-binding.js"

@@ -4,7 +4,7 @@ Elatura treats cached data as a derived copy. The authenticated application rema
 
 ## Current implementation boundary
 
-The repository contains a synthetic-only in-memory snapshot cache. It accepts JSON-serializable payloads whose provenance carries `synthetic: true`.
+The repository contains a synthetic-only in-memory snapshot cache. It accepts bounded JSON payloads whose provenance carries `synthetic: true`.
 
 It does not persist browser content, survive process exit, connect to the extension, or bridge captured transcripts into another interface. Private-content persistence and private alternate surfaces remain gated by issue #4.
 
@@ -20,7 +20,7 @@ Cache envelopes currently use version `1` and contain independent metadata for:
 - provenance
 - payload
 
-Envelope-version compatibility, adapter compatibility, schema compatibility, content identity, and freshness are separate checks. Passing one check grants no conclusion about the others.
+Envelope-version compatibility, adapter compatibility, schema compatibility, content identity, freshness, and resource admission are separate checks. Passing one check grants no conclusion about the others.
 
 ### Normalization boundary
 
@@ -32,9 +32,71 @@ In particular:
 - unknown envelope and provenance fields are rejected for the current schema version
 - the payload stored by the cache is the payload validator's returned `value`, not the original raw input
 - payload-validator exceptions become content-free validation failures
+- descriptor-safe resource preflight runs before serialization
 - serialization produces the final detached JSON value returned by `put`
 
 A future envelope version may add fields deliberately. Version 1 cannot silently carry hidden metadata alongside validated fields.
+
+## Descriptor-safe JSON accounting
+
+`@elatura/core/resource-accounting` measures JSON-compatible values before whole-document serialization. The traversal:
+
+- inspects own property descriptors without invoking getters
+- accepts plain objects, null-prototype objects, dense arrays, strings, finite numbers, booleans, and null
+- rejects accessors, symbols, cycles, sparse arrays, extra array properties, non-plain objects, unsupported values, and inspection failures
+- bounds traversal depth, visited nodes, individual string code units, and exact serialized UTF-8 bytes
+- verifies that final `JSON.stringify` output matches the preflight byte count
+
+Failures use fixed codes and do not include property values, thrown messages, application paths, or private content.
+
+## Synthetic cache resource policy
+
+The default in-memory cache policy is:
+
+- 128 entries
+- 24-hour maximum age
+- 4 MiB serialized bytes per entry
+- 20 MiB accounted resident bytes per entry
+- 32 MiB serialized bytes in aggregate
+- 160 MiB accounted resident bytes in aggregate
+- one million JSON nodes per entry
+- one Mi code units per JSON string
+
+The caller may supply lower or alternate limits through `retention`. Every numeric limit must be a positive safe integer, except `maxAgeMs`, which may be zero.
+
+### Accounted resident bytes
+
+The cache retains a JavaScript JSON string. A read also creates decoded and normalized objects and returns a caller-owned clone. The default accounting estimate charges:
+
+```text
+UTF-16 retained string bytes + 3 × serialized UTF-8 bytes
+```
+
+This is a conservative local policy estimate, not a browser heap profiler. `cache.usage` reports exact admitted entry count and serialized bytes plus the policy-derived accounted bytes.
+
+### Admission behavior
+
+`put` validates and serializes the candidate into one bounded local value before touching the map. It then:
+
+1. prunes expired and over-age entries;
+2. calculates count-based deterministic evictions without applying them;
+3. checks future serialized and accounted aggregate totals;
+4. applies planned count evictions and replacement only after every limit passes.
+
+A rejected candidate is never retained. An oversized replacement leaves the prior valid entry available. Aggregate byte pressure returns an explicit failure rather than deleting unrelated entries to make room.
+
+Stable resource result codes include:
+
+- `cache-entry-byte-limit`
+- `cache-entry-accounted-byte-limit`
+- `cache-entry-unit-limit`
+- `cache-aggregate-serialized-byte-limit`
+- `cache-aggregate-accounted-byte-limit`
+- `cache-entry-count-limit`
+- `cache-envelope-inspection-failed`
+- `cache-serialization-failed`
+
+Restored synthetic seed entries are measured before admission. Corrupt entries within policy remain recoverable through the existing read-time validation and deletion path.
 
 ## Isolation keys
 
@@ -52,7 +114,7 @@ Profile and resource values are opaque local identifiers. They should avoid raw 
 
 ## Structural compatibility
 
-`structural.fingerprintHash` records the adapter's structural fingerprint hash. It describes the schema shape used to create the entry.
+`structural.fingerprintHash` records the adapter's structural fingerprint hash. It describes the schema used to create the entry.
 
 A reader supplies the fingerprint it currently accepts. A mismatch produces `schema-drift`, removes the entry, and returns a recoverable cache miss.
 
@@ -96,7 +158,7 @@ An incompatible id or version removes the entry and returns a miss. This keeps o
 
 The in-memory cache stores a serialized copy even though it lives in memory. Reads parse and validate the envelope and payload again.
 
-Malformed JSON, invalid envelope metadata, invalid provenance, inconsistent freshness, or invalid payload causes deletion of the affected entry and a recoverable `corrupt` miss. Other entries remain available.
+Malformed JSON, invalid envelope metadata, invalid provenance, inconsistent freshness, invalid payload, or clone failure causes deletion of the affected entry and a recoverable `corrupt` miss. Other entries remain available.
 
 Unsupported envelope versions produce their own miss reason and are deleted.
 
@@ -110,7 +172,12 @@ The synthetic store supports:
 - maximum entry count
 - maximum age
 - expiry pruning
-- deterministic oldest-entry eviction
+- deterministic oldest-entry count eviction
+- per-entry and aggregate serialized-byte limits
+- per-entry and aggregate accounted-memory limits
+- exact post-operation usage reporting
+
+Repeated put/get/delete operations return to the same measured plateau and to zero after deletion. Cache reads return caller-owned clones; the cache stores no callbacks, promises, or late consumer references that can reinsert or retain a deleted payload.
 
 A persistent implementation must expose equivalent user-visible deletion and retention behaviour. Clearing private cached content must also remove indexes and derived representations that depend on it.
 
@@ -145,11 +212,35 @@ A jump-back reference is treated as untrusted navigation input even after TypeSc
 
 A jump-back reference points toward the authenticated source. It grants no authentication authority and should be opened through the ordinary browser.
 
+## Read-only representation resource policy
+
+Read-only representation schema version `1` remains unchanged. Admission now applies a separate policy with these defaults:
+
+- 10,000 entries
+- 10,000 child ids per entry
+- 256 code blocks per entry
+- one Mi code units of entry text
+- 256 Ki code units per code block
+- 2 MiB serialized bytes per entry
+- 32 MiB serialized bytes per representation
+- one million JSON nodes
+- 4,096 code units per search query
+- 1,000 search results
+- 4,096 extracted code blocks
+
+`validateAndMeasureReadOnlyRepresentation` returns the normalized representation together with entry count, code-block count, string code units, exact serialized bytes, and JSON node usage. `measureReadOnlyRepresentation` performs the admission preflight without returning the normalized graph.
+
+Every copy of text retained in the representation is charged. When fenced code remains in `entry.text` and is also copied into `codeBlocks`, both strings participate in per-entry and total accounting. A future span/reference model may reduce this duplication; no uncharged secondary copy exists today.
+
+Representation resource failures use separate fixed codes for entry count, entry bytes, total bytes, strings, code-block count, code-block text, and traversal units.
+
+`searchReadOnlyRepresentation` and `extractReadOnlyCode` stop after their bounded result counts. Callers may request a lower maximum. Oversized queries return no results.
+
 ## Read-only representation integrity
 
 A validated read-only representation is newly constructed from validated fields. Version 1 rejects unknown top-level, provenance, entry, and code-block fields.
 
-Its graph must have reciprocal parent/child links, every parent chain must terminate at a root, and a non-empty representation must declare a connected active path. This prevents alternate surfaces from receiving a cyclic or partially trusted navigation graph.
+Its graph must have reciprocal parent/child links, every parent chain must terminate at a root, and a non-empty representation must declare a connected active path. This prevents alternate interfaces from receiving a cyclic or partially trusted navigation graph.
 
 ## Encryption and OS protection hook
 
@@ -162,9 +253,9 @@ No encryption or operating-system key protection is implemented by this work. A 
 Every cache failure returns control to authoritative application behaviour:
 
 ```text
-missing / corrupt / incompatible / drifted / mismatched / expired
-                         ↓
-             authoritative fetch or display path
+missing / corrupt / incompatible / drifted / mismatched / expired / over-budget
+                                      ↓
+                          authoritative fetch or display path
 ```
 
-Cache errors never authorize a partial transform, cross-profile lookup, unsafe navigation reference, or silent reuse of stale private state.
+Cache errors never authorize a partial transform, cross-profile lookup, unsafe navigation reference, unbounded local retention, or silent reuse of stale private state.
