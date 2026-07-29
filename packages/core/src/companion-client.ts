@@ -625,9 +625,6 @@ export class BoundedCompanionClientState {
       case "navigate":
       case "status":
         break;
-      case "invalid":
-        issues.push(issue("$.operation", "invalid-success-operation", "Successful response operation is invalid."));
-        break;
     }
 
     if (issues.length > 0) {
