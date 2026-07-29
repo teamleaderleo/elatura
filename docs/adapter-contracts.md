@@ -51,18 +51,22 @@ Declarations are internally consistent:
 
 ## Reusable conformance checks
 
-`runAdapterConformance` exercises a supplied synthetic scenario and checks:
+`runAdapterConformance` exercises a supplied synthetic scenario rather than checking method names alone. It verifies that:
 
 - valid fixtures are detected and validated
 - invalid fixtures are rejected when provided
-- each stage is deterministic
-- detect, validate, plan, materialize, and validate-output preserve their inputs
+- detect, validate, fingerprint, plan, materialize, output validation, alternate representation, and alternate-output validation are deterministic
+- every stage preserves the exact source, plan, option, or detached validator input passed to it
 - fingerprint identity matches the adapter id and version
-- every declared pipeline method exists
+- every declared pipeline or alternate-representation method exists
 - every implemented optional method has a matching declaration
 - materialized output passes independent output validation
+- declared alternate representations execute and pass either a supplied validator or the generic read-only representation validator
+- `synthetic-only` capabilities execute only when the scenario explicitly declares synthetic context
 
-The conformance runner is a shared baseline. Adapter-specific suites still own graph invariants, unknown-field preservation, resource budgets, application semantics, and adversarial cases.
+Conformance snapshots are bounded. The runner charges array slots, object keys, inherited enumerable keys, and values before retaining or sorting them. Accessor-bearing, cyclic, unsupported, or over-budget fixtures fail with fixed content-free issue codes instead of invoking getters or allocating an unbounded canonical key array.
+
+The conformance runner is a shared baseline. Adapter-specific suites still own graph invariants, unknown-field preservation, application semantics, and workload-specific adversarial cases.
 
 ## Schema drift
 
@@ -94,7 +98,7 @@ The current ChatGPT adapter declares:
 - submission: `unsupported`
 - plan/materialize/validate-output: `unsupported` on this branch
 
-The synthetic representation path checks the fixture marker before copying any message-like content. It has no connection to the Firefox response path.
+The ChatGPT conformance scenario now executes its synthetic alternate representation and validates the resulting generic read-only representation. The path checks the fixture marker before copying any message-like content and has no connection to the Firefox response path.
 
 ## Integration guidance
 
