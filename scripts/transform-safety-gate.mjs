@@ -5,9 +5,12 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const TOKEN = /^[0-9A-Za-z][0-9A-Za-z._-]{0,127}$/u;
+const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}$/u;
 
-const [capabilities, background, safety, optIn, liveAuthorization, popup, popupScript] = await Promise.all([
+const [capabilities, registry, background, safety, optIn, liveAuthorization, popup, popupScript] = await Promise.all([
   readFile(join(ROOT, "security/capabilities.json"), "utf8").then(JSON.parse),
+  readFile(join(ROOT, "packages/adapter-chatgpt/src/compatibility-identities.json"), "utf8").then(JSON.parse),
   readFile(join(ROOT, "extension/firefox/src/background.ts"), "utf8"),
   readFile(join(ROOT, "extension/firefox/src/transform-safety.ts"), "utf8"),
   readFile(join(ROOT, "extension/firefox/src/transform-opt-in.ts"), "utf8"),
@@ -36,11 +39,44 @@ assert.equal(transform?.liveAuthorizationPersistence, "none");
 assert.equal(transform?.reviewedLiveApproval, "absent");
 assert.equal(transform?.liveGrantIssuer, "absent");
 
+assert.equal(registry.schemaVersion, 1, "Adapter compatibility registry schema must be 1.");
+assert.ok(Array.isArray(registry.identities), "Adapter compatibility registry identities must be an array.");
+const registeredPairs = new Set();
+for (const identity of registry.identities) {
+  assert.deepEqual(
+    Object.keys(identity).sort(),
+    ["id", "name", "version"],
+    "Adapter compatibility registry identity fields must be exact.",
+  );
+  assert.match(identity.id, TOKEN, "Adapter compatibility id must be a bounded local token.");
+  assert.match(identity.version, VERSION, "Adapter compatibility version must be a bounded local token.");
+  const pair = `${identity.id}\0${identity.version}`;
+  assert.equal(registeredPairs.has(pair), false, "Adapter compatibility registry pairs must be unique.");
+  registeredPairs.add(pair);
+}
+assert.ok(registeredPairs.size > 0, "Adapter compatibility registry must not be empty.");
+
 assert.match(safety, /emergencyDisabled:\s*true/u, "Safety controller must start disabled.");
+const denylistLiteral = /BUNDLED_ADAPTER_DENYLIST_ENTRIES[^=]*=\s*(\[[\s\S]*?\]);/u.exec(safety)?.[1];
+assert.ok(denylistLiteral, "Adapter denylist entries must be a bundled local JSON-compatible literal.");
+const denylistEntries = JSON.parse(denylistLiteral);
+assert.ok(Array.isArray(denylistEntries), "Bundled adapter denylist must be an array.");
+const denylistPairs = new Set();
+for (const identity of denylistEntries) {
+  assert.deepEqual(
+    Object.keys(identity).sort(),
+    ["id", "version"],
+    "Bundled denylist identity fields must be exact.",
+  );
+  const pair = `${identity.id}\0${identity.version}`;
+  assert.equal(registeredPairs.has(pair), true, "Bundled denylist identities must exist in the compatibility registry.");
+  assert.equal(denylistPairs.has(pair), false, "Bundled denylist identities must be unique.");
+  denylistPairs.add(pair);
+}
 assert.match(
   safety,
-  /BUNDLED_ADAPTER_DENYLIST[^=]*=\s*normalizeAdapterDenylist\(\[\]\)/u,
-  "Adapter denylist must be bundled local data.",
+  /BUNDLED_ADAPTER_DENYLIST[^=]*=\s*\n?\s*normalizeAdapterDenylist\(BUNDLED_ADAPTER_DENYLIST_ENTRIES\)/u,
+  "Adapter denylist must normalize the validated bundled entries.",
 );
 assert.doesNotMatch(safety, /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b/u);
 assert.doesNotMatch(safety, /https?:\/\//u);
@@ -95,5 +131,5 @@ assert.doesNotMatch(
 );
 
 process.stdout.write(
-  "Transform safety gate passed: locked default, non-authorizing session opt-in intent, disconnected deny-by-default live authorization, local emergency control, bundled denylist, and no popup unlock path.\n",
+  "Transform safety gate passed: locked default, non-authorizing session opt-in intent, disconnected deny-by-default live authorization, registry-validated local denylist, and no popup unlock path.\n",
 );
