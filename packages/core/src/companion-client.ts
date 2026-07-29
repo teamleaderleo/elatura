@@ -60,6 +60,7 @@ type PendingRequest = {
 };
 
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
+const ADAPTER_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const FRESHNESS = new Set(["fresh", "stale", "expired", "corrupt", "drifted"]);
 
 function issue(path: string, code: string, message: string): ValidationIssue {
@@ -95,6 +96,10 @@ function token(value: unknown): value is string {
   return typeof value === "string" && TOKEN.test(value);
 }
 
+function adapterToken(value: unknown): value is string {
+  return typeof value === "string" && ADAPTER_TOKEN.test(value);
+}
+
 function boundedClientString(value: unknown, maximum = 512): value is string {
   return (
     typeof value === "string" &&
@@ -114,7 +119,7 @@ function parseAdapter(input: unknown, path: string, issues: ValidationIssue[]): 
     return null;
   }
   exactKeys(input, ["id", "version"], path, issues);
-  if (!token(input.id) || !token(input.version)) {
+  if (!adapterToken(input.id) || !adapterToken(input.version)) {
     issues.push(issue(path, "invalid-adapter", "Expected bounded adapter identity tokens."));
     return null;
   }
