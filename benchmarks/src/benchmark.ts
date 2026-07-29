@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
 import {
-  parseBenchmarkRunManifest as parseLegacyBenchmarkRunManifest,
   summarizeBenchmarkMatrix as summarizeLegacyBenchmarkMatrix,
   type BenchmarkCohortComparison,
   type BenchmarkCohortSummary as LegacyBenchmarkCohortSummary,
@@ -12,8 +11,10 @@ import {
   type BenchmarkWarningCode as LegacyBenchmarkWarningCode,
 } from "./benchmark-legacy.js";
 import { parseObservationReport, type ObservationReport } from "./observation.js";
+import { parseAnyBenchmarkRunManifest } from "./session-manifest.js";
 
 export * from "./benchmark-legacy.js";
+export * from "./session-manifest.js";
 
 export type BenchmarkWarningCode =
   | LegacyBenchmarkWarningCode
@@ -44,15 +45,7 @@ export type BenchmarkMatrixSummary = Omit<
   warnings: BenchmarkWarning[];
 };
 
-const CANONICAL_UTC_TIMESTAMP =
-  /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d\.\d{3}Z$/u;
 const CLIENT_NAVIGATION_MINIMUM = 5;
-
-function canonicalUtcTimestamp(value: string): boolean {
-  if (!CANONICAL_UTC_TIMESTAMP.test(value)) return false;
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
-}
 
 function cohortKey(mode: BenchmarkMode, navigation: BenchmarkNavigation): string {
   return `${mode}|${navigation}`;
@@ -98,13 +91,7 @@ function uniqueWarnings(warnings: readonly BenchmarkWarning[]): BenchmarkWarning
 }
 
 export function parseBenchmarkRunManifest(input: unknown): BenchmarkRunManifest {
-  const parsed = parseLegacyBenchmarkRunManifest(input);
-  if (!canonicalUtcTimestamp(parsed.recordedAt)) {
-    throw new TypeError(
-      "$manifest.recordedAt must be a canonical ISO-8601 UTC timestamp with millisecond precision.",
-    );
-  }
-  return parsed;
+  return parseAnyBenchmarkRunManifest(input);
 }
 
 export function summarizeBenchmarkMatrix(
