@@ -100,55 +100,57 @@ const FINGERPRINT_HASH = /^[0-9a-f]{8,128}$/u;
 const MAX_DENYLIST_ENTRIES = 256;
 const MAX_REVOCATIONS = 256;
 
-const CAPABILITY_ORDER = new Map<LiveCapability, number>(
-  LIVE_CAPABILITIES.map((capability, index) => [capability, index]),
-);
+const CAPABILITY_ORDER: Readonly<Record<LiveCapability, number>> = Object.freeze({
+  transform: 0,
+  cache: 1,
+  "alternate-surface": 2,
+  "native-companion": 3,
+});
 
 function deny(reason: LiveAuthorizationDenialReason): LiveAuthorizationDecision {
   return Object.freeze({ eligible: false, reason });
 }
 
-function isPlainRecord(value: unknown): value is DataRecord {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+function exactRecord(value: unknown, expected: readonly string[]): DataRecord | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const prototype = Object.getPrototypeOf(value);
-  return prototype === Object.prototype || prototype === null;
-}
-
-function hasExactEnumerableKeys(record: DataRecord, expected: readonly string[]): boolean {
+  if (prototype !== Object.prototype && prototype !== null) return null;
+  const record = value as DataRecord;
   const expectedSet = new Set(expected);
   let count = 0;
   for (const key in record) {
-    if (!Object.prototype.hasOwnProperty.call(record, key) || !expectedSet.has(key)) return false;
+    if (!Object.prototype.hasOwnProperty.call(record, key) || !expectedSet.has(key)) return null;
     count += 1;
-    if (count > expected.length) return false;
+    if (count > expected.length) return null;
   }
-  if (count !== expected.length) return false;
-  return expected.every((key) => {
+  if (count !== expected.length) return null;
+  for (const key of expected) {
     const descriptor = Object.getOwnPropertyDescriptor(record, key);
-    return descriptor !== undefined && descriptor.enumerable && "value" in descriptor;
-  });
+    if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) return null;
+  }
+  return record;
+}
+
+function looseRecord(value: unknown): DataRecord | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null ? (value as DataRecord) : null;
 }
 
 function dataValue(record: DataRecord, key: string): unknown {
   const descriptor = Object.getOwnPropertyDescriptor(record, key);
-  return descriptor !== undefined && descriptor.enumerable && "value" in descriptor
-    ? descriptor.value
-    : undefined;
+  return descriptor && descriptor.enumerable && "value" in descriptor ? descriptor.value : undefined;
 }
 
-function finiteEpoch(value: unknown): number | null {
+function safeInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
-function generation(value: unknown): number | null {
-  return finiteEpoch(value);
-}
-
-function token(value: unknown): string | null {
+function boundedToken(value: unknown): string | null {
   return typeof value === "string" && TOKEN.test(value) ? value : null;
 }
 
-function version(value: unknown): string | null {
+function boundedVersion(value: unknown): string | null {
   return typeof value === "string" && VERSION.test(value) ? value : null;
 }
 
@@ -156,21 +158,17 @@ function sha256(value: unknown): string | null {
   return typeof value === "string" && SHA256.test(value) ? value : null;
 }
 
-function fingerprintHash(value: unknown): string | null {
+function structuralHash(value: unknown): string | null {
   return typeof value === "string" && FINGERPRINT_HASH.test(value) ? value : null;
 }
 
-function origin(value: unknown): string | null {
+function exactOrigin(value: unknown): string | null {
   if (typeof value !== "string" || value.length > 256) return null;
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === "https:" && parsed.origin === value ? value : null;
-  } catch {
-    return null;
-  }
+  const parsed = new URL(value);
+  return parsed.protocol === "https:" && parsed.origin === value ? value : null;
 }
 
-function capability(value: unknown): LiveCapability | null {
+function liveCapability(value: unknown): LiveCapability | null {
   return typeof value === "string" && (LIVE_CAPABILITIES as readonly string[]).includes(value)
     ? (value as LiveCapability)
     : null;
@@ -182,7 +180,7 @@ function buildChannel(value: unknown): LiveBuildChannel | null {
     : null;
 }
 
-function readArrayValues(value: unknown, maximumLength: number): unknown[] | null {
+function arrayValues(value: unknown, maximumLength: number): unknown[] | null {
   if (!Array.isArray(value) || value.length > maximumLength) return null;
   const values: unknown[] = [];
   for (let index = 0; index < value.length; index += 1) {
@@ -193,54 +191,50 @@ function readArrayValues(value: unknown, maximumLength: number): unknown[] | nul
   return values;
 }
 
-function readCapabilitySet(value: unknown): readonly LiveCapability[] | null {
-  const values = readArrayValues(value, LIVE_CAPABILITIES.length);
+function capabilitySet(value: unknown): readonly LiveCapability[] | null {
+  const values = arrayValues(value, LIVE_CAPABILITIES.length);
   if (!values) return null;
-  const parsed: LiveCapability[] = [];
-  let previousIndex = -1;
+  const result: LiveCapability[] = [];
+  let previous = -1;
   for (const item of values) {
-    const parsedCapability = capability(item);
-    if (!parsedCapability) return null;
-    const index = CAPABILITY_ORDER.get(parsedCapability);
-    if (index === undefined || index <= previousIndex) return null;
-    previousIndex = index;
-    parsed.push(parsedCapability);
+    const parsed = liveCapability(item);
+    if (!parsed || CAPABILITY_ORDER[parsed] <= previous) return null;
+    previous = CAPABILITY_ORDER[parsed];
+    result.push(parsed);
   }
-  return Object.freeze(parsed);
+  return Object.freeze(result);
 }
 
 function sameCapabilities(left: readonly LiveCapability[], right: readonly LiveCapability[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function readAdapter(value: unknown): AdapterIdentity | null {
-  if (!isPlainRecord(value) || !hasExactEnumerableKeys(value, ["id", "version"])) return null;
-  const id = token(dataValue(value, "id"));
-  const adapterVersion = version(dataValue(value, "version"));
-  return id && adapterVersion ? Object.freeze({ id, version: adapterVersion }) : null;
+function adapterIdentity(value: unknown): AdapterIdentity | null {
+  const record = exactRecord(value, ["id", "version"]);
+  if (!record) return null;
+  const id = boundedToken(dataValue(record, "id"));
+  const version = boundedVersion(dataValue(record, "version"));
+  return id && version ? Object.freeze({ id, version }) : null;
 }
 
 function sameAdapter(left: AdapterIdentity, right: AdapterIdentity): boolean {
   return left.id === right.id && left.version === right.version;
 }
 
-function readBuild(value: unknown): LiveBuildIdentity | null {
+function buildIdentity(value: unknown): LiveBuildIdentity | null {
+  const record = exactRecord(value, ["revision", "extensionVersion", "channel", "buildManifestSha256"]);
+  if (!record) return null;
+  const revision = dataValue(record, "revision");
+  const extensionVersion = boundedVersion(dataValue(record, "extensionVersion"));
+  const channel = buildChannel(dataValue(record, "channel"));
+  const buildManifestSha256 = sha256(dataValue(record, "buildManifestSha256"));
   if (
-    !isPlainRecord(value) ||
-    !hasExactEnumerableKeys(value, [
-      "revision",
-      "extensionVersion",
-      "channel",
-      "buildManifestSha256",
-    ])
+    typeof revision !== "string" ||
+    !REVISION.test(revision) ||
+    !extensionVersion ||
+    !channel ||
+    !buildManifestSha256
   ) {
-    return null;
-  }
-  const revision = dataValue(value, "revision");
-  const extensionVersion = version(dataValue(value, "extensionVersion"));
-  const channel = buildChannel(dataValue(value, "channel"));
-  const buildManifestSha256 = sha256(dataValue(value, "buildManifestSha256"));
-  if (typeof revision !== "string" || !REVISION.test(revision) || !extensionVersion || !channel || !buildManifestSha256) {
     return null;
   }
   return Object.freeze({ revision, extensionVersion, channel, buildManifestSha256 });
@@ -255,89 +249,86 @@ function sameBuild(left: LiveBuildIdentity, right: LiveBuildIdentity): boolean {
   );
 }
 
-function readSafety(value: unknown): Readonly<{ emergencyDisabled: boolean; generation: number }> | null {
-  if (!isPlainRecord(value)) return null;
-  const emergencyDisabled = dataValue(value, "emergencyDisabled");
-  const safetyGeneration = generation(dataValue(value, "generation"));
-  return typeof emergencyDisabled === "boolean" && safetyGeneration !== null
-    ? Object.freeze({ emergencyDisabled, generation: safetyGeneration })
+function safetySnapshot(value: unknown): Readonly<{ emergencyDisabled: boolean; generation: number }> | null {
+  const record = looseRecord(value);
+  if (!record) return null;
+  const emergencyDisabled = dataValue(record, "emergencyDisabled");
+  const generation = safeInteger(dataValue(record, "generation"));
+  return typeof emergencyDisabled === "boolean" && generation !== null
+    ? Object.freeze({ emergencyDisabled, generation })
     : null;
 }
 
-function readOptIn(value: unknown): Readonly<{ recorded: boolean; generation: number }> | null {
-  if (!isPlainRecord(value)) return null;
-  const recorded = dataValue(value, "recorded");
-  const optInGeneration = generation(dataValue(value, "generation"));
-  const authorizesTransform = dataValue(value, "authorizesTransform");
-  return typeof recorded === "boolean" && optInGeneration !== null && authorizesTransform === false
-    ? Object.freeze({ recorded, generation: optInGeneration })
+function optInSnapshot(value: unknown): Readonly<{ recorded: boolean; generation: number }> | null {
+  const record = looseRecord(value);
+  if (!record) return null;
+  const recorded = dataValue(record, "recorded");
+  const generation = safeInteger(dataValue(record, "generation"));
+  return typeof recorded === "boolean" && generation !== null && dataValue(record, "authorizesTransform") === false
+    ? Object.freeze({ recorded, generation })
     : null;
 }
 
-function readDenylist(value: unknown): readonly AdapterIdentity[] | null {
-  const values = readArrayValues(value, MAX_DENYLIST_ENTRIES);
+function adapterDenylist(value: unknown): readonly AdapterIdentity[] | null {
+  const values = arrayValues(value, MAX_DENYLIST_ENTRIES);
   if (!values) return null;
-  const parsed: AdapterIdentity[] = [];
+  const result: AdapterIdentity[] = [];
   const seen = new Set<string>();
   for (const item of values) {
-    const identity = readAdapter(item);
+    const identity = adapterIdentity(item);
     if (!identity) return null;
     const key = `${identity.id}\u0000${identity.version}`;
     if (seen.has(key)) return null;
     seen.add(key);
-    parsed.push(identity);
+    result.push(identity);
   }
-  return Object.freeze(parsed);
+  return Object.freeze(result);
 }
 
-function readRevocations(value: unknown): ReadonlySet<string> | null {
-  const values = readArrayValues(value, MAX_REVOCATIONS);
+function revokedApprovals(value: unknown): ReadonlySet<string> | null {
+  const values = arrayValues(value, MAX_REVOCATIONS);
   if (!values) return null;
-  const parsed = new Set<string>();
+  const result = new Set<string>();
   for (const item of values) {
-    const approvalId = token(item);
-    if (!approvalId || parsed.has(approvalId)) return null;
-    parsed.add(approvalId);
+    const approvalId = boundedToken(item);
+    if (!approvalId || result.has(approvalId)) return null;
+    result.add(approvalId);
   }
-  return parsed;
+  return result;
 }
 
-function readApproval(value: unknown): LiveAuthorizationApproval | null {
+function authorizationApproval(value: unknown): LiveAuthorizationApproval | null {
+  const record = exactRecord(value, [
+    "schemaVersion",
+    "approvalId",
+    "status",
+    "build",
+    "origin",
+    "responseClassId",
+    "adapter",
+    "capabilities",
+    "evidencePacketSha256",
+    "expectedFingerprintHash",
+    "validFromEpochMs",
+    "validUntilEpochMs",
+  ]);
+  if (!record) return null;
+  const approvalId = boundedToken(dataValue(record, "approvalId"));
+  const build = buildIdentity(dataValue(record, "build"));
+  const origin = exactOrigin(dataValue(record, "origin"));
+  const responseClassId = boundedToken(dataValue(record, "responseClassId"));
+  const adapter = adapterIdentity(dataValue(record, "adapter"));
+  const capabilities = capabilitySet(dataValue(record, "capabilities"));
+  const evidencePacketSha256 = sha256(dataValue(record, "evidencePacketSha256"));
+  const expectedFingerprintHash = structuralHash(dataValue(record, "expectedFingerprintHash"));
+  const validFromEpochMs = safeInteger(dataValue(record, "validFromEpochMs"));
+  const validUntilEpochMs = safeInteger(dataValue(record, "validUntilEpochMs"));
   if (
-    !isPlainRecord(value) ||
-    !hasExactEnumerableKeys(value, [
-      "schemaVersion",
-      "approvalId",
-      "status",
-      "build",
-      "origin",
-      "responseClassId",
-      "adapter",
-      "capabilities",
-      "evidencePacketSha256",
-      "expectedFingerprintHash",
-      "validFromEpochMs",
-      "validUntilEpochMs",
-    ])
-  ) {
-    return null;
-  }
-  const approvalId = token(dataValue(value, "approvalId"));
-  const build = readBuild(dataValue(value, "build"));
-  const authorityOrigin = origin(dataValue(value, "origin"));
-  const responseClassId = token(dataValue(value, "responseClassId"));
-  const adapter = readAdapter(dataValue(value, "adapter"));
-  const capabilities = readCapabilitySet(dataValue(value, "capabilities"));
-  const evidencePacketSha256 = sha256(dataValue(value, "evidencePacketSha256"));
-  const expectedFingerprintHash = fingerprintHash(dataValue(value, "expectedFingerprintHash"));
-  const validFromEpochMs = finiteEpoch(dataValue(value, "validFromEpochMs"));
-  const validUntilEpochMs = finiteEpoch(dataValue(value, "validUntilEpochMs"));
-  if (
-    dataValue(value, "schemaVersion") !== LIVE_AUTHORIZATION_SCHEMA_VERSION ||
-    dataValue(value, "status") !== "approved" ||
+    dataValue(record, "schemaVersion") !== LIVE_AUTHORIZATION_SCHEMA_VERSION ||
+    dataValue(record, "status") !== "approved" ||
     !approvalId ||
     !build ||
-    !authorityOrigin ||
+    !origin ||
     !responseClassId ||
     !adapter ||
     !capabilities ||
@@ -355,7 +346,7 @@ function readApproval(value: unknown): LiveAuthorizationApproval | null {
     approvalId,
     status: "approved",
     build,
-    origin: authorityOrigin,
+    origin,
     responseClassId,
     adapter,
     capabilities,
@@ -366,49 +357,45 @@ function readApproval(value: unknown): LiveAuthorizationApproval | null {
   });
 }
 
-function readGrant(value: unknown): VolatileLiveAuthorizationGrant | null {
+function volatileGrant(value: unknown): VolatileLiveAuthorizationGrant | null {
+  const record = exactRecord(value, [
+    "schemaVersion",
+    "grantId",
+    "approvalId",
+    "sessionId",
+    "capability",
+    "buildManifestSha256",
+    "origin",
+    "responseClassId",
+    "adapter",
+    "approvedCapabilities",
+    "issuedAtEpochMs",
+    "expiresAtEpochMs",
+    "safetyGeneration",
+    "optInGeneration",
+  ]);
+  if (!record) return null;
+  const grantId = boundedToken(dataValue(record, "grantId"));
+  const approvalId = boundedToken(dataValue(record, "approvalId"));
+  const sessionId = boundedToken(dataValue(record, "sessionId"));
+  const capability = liveCapability(dataValue(record, "capability"));
+  const buildManifestSha256 = sha256(dataValue(record, "buildManifestSha256"));
+  const origin = exactOrigin(dataValue(record, "origin"));
+  const responseClassId = boundedToken(dataValue(record, "responseClassId"));
+  const adapter = adapterIdentity(dataValue(record, "adapter"));
+  const approvedCapabilities = capabilitySet(dataValue(record, "approvedCapabilities"));
+  const issuedAtEpochMs = safeInteger(dataValue(record, "issuedAtEpochMs"));
+  const expiresAtEpochMs = safeInteger(dataValue(record, "expiresAtEpochMs"));
+  const safetyGeneration = safeInteger(dataValue(record, "safetyGeneration"));
+  const optInGeneration = safeInteger(dataValue(record, "optInGeneration"));
   if (
-    !isPlainRecord(value) ||
-    !hasExactEnumerableKeys(value, [
-      "schemaVersion",
-      "grantId",
-      "approvalId",
-      "sessionId",
-      "capability",
-      "buildManifestSha256",
-      "origin",
-      "responseClassId",
-      "adapter",
-      "approvedCapabilities",
-      "issuedAtEpochMs",
-      "expiresAtEpochMs",
-      "safetyGeneration",
-      "optInGeneration",
-    ])
-  ) {
-    return null;
-  }
-  const grantId = token(dataValue(value, "grantId"));
-  const approvalId = token(dataValue(value, "approvalId"));
-  const sessionId = token(dataValue(value, "sessionId"));
-  const requestedCapability = capability(dataValue(value, "capability"));
-  const buildManifestSha256 = sha256(dataValue(value, "buildManifestSha256"));
-  const authorityOrigin = origin(dataValue(value, "origin"));
-  const responseClassId = token(dataValue(value, "responseClassId"));
-  const adapter = readAdapter(dataValue(value, "adapter"));
-  const approvedCapabilities = readCapabilitySet(dataValue(value, "approvedCapabilities"));
-  const issuedAtEpochMs = finiteEpoch(dataValue(value, "issuedAtEpochMs"));
-  const expiresAtEpochMs = finiteEpoch(dataValue(value, "expiresAtEpochMs"));
-  const safetyGeneration = generation(dataValue(value, "safetyGeneration"));
-  const optInGeneration = generation(dataValue(value, "optInGeneration"));
-  if (
-    dataValue(value, "schemaVersion") !== LIVE_AUTHORIZATION_SCHEMA_VERSION ||
+    dataValue(record, "schemaVersion") !== LIVE_AUTHORIZATION_SCHEMA_VERSION ||
     !grantId ||
     !approvalId ||
     !sessionId ||
-    !requestedCapability ||
+    !capability ||
     !buildManifestSha256 ||
-    !authorityOrigin ||
+    !origin ||
     !responseClassId ||
     !adapter ||
     !approvedCapabilities ||
@@ -426,9 +413,9 @@ function readGrant(value: unknown): VolatileLiveAuthorizationGrant | null {
     grantId,
     approvalId,
     sessionId,
-    capability: requestedCapability,
+    capability,
     buildManifestSha256,
-    origin: authorityOrigin,
+    origin,
     responseClassId,
     adapter,
     approvedCapabilities,
@@ -439,50 +426,46 @@ function readGrant(value: unknown): VolatileLiveAuthorizationGrant | null {
   });
 }
 
-export function evaluateLiveAuthorization(input: unknown): LiveAuthorizationDecision {
-  if (
-    !isPlainRecord(input) ||
-    !hasExactEnumerableKeys(input, [
-      "capability",
-      "nowEpochMs",
-      "sessionId",
-      "build",
-      "origin",
-      "responseClassId",
-      "adapter",
-      "declaredCapabilities",
-      "safety",
-      "optIn",
-      "denylist",
-      "approval",
-      "grant",
-      "revokedApprovalIds",
-    ])
-  ) {
-    return deny("authorization-input-invalid");
-  }
+function evaluate(input: unknown): LiveAuthorizationDecision {
+  const record = exactRecord(input, [
+    "capability",
+    "nowEpochMs",
+    "sessionId",
+    "build",
+    "origin",
+    "responseClassId",
+    "adapter",
+    "declaredCapabilities",
+    "safety",
+    "optIn",
+    "denylist",
+    "approval",
+    "grant",
+    "revokedApprovalIds",
+  ]);
+  if (!record) return deny("authorization-input-invalid");
 
-  const safety = readSafety(dataValue(input, "safety"));
+  const safety = safetySnapshot(dataValue(record, "safety"));
   if (!safety) return deny("authorization-input-invalid");
   if (safety.emergencyDisabled) return deny("emergency-disabled");
 
-  const requestedCapability = capability(dataValue(input, "capability"));
-  const nowEpochMs = finiteEpoch(dataValue(input, "nowEpochMs"));
-  const sessionId = token(dataValue(input, "sessionId"));
-  const currentBuild = readBuild(dataValue(input, "build"));
-  const currentOrigin = origin(dataValue(input, "origin"));
-  const responseClassId = token(dataValue(input, "responseClassId"));
-  const adapter = readAdapter(dataValue(input, "adapter"));
-  const declaredCapabilities = readCapabilitySet(dataValue(input, "declaredCapabilities"));
-  const optIn = readOptIn(dataValue(input, "optIn"));
-  const denylist = readDenylist(dataValue(input, "denylist"));
-  const revocations = readRevocations(dataValue(input, "revokedApprovalIds"));
+  const capability = liveCapability(dataValue(record, "capability"));
+  const nowEpochMs = safeInteger(dataValue(record, "nowEpochMs"));
+  const sessionId = boundedToken(dataValue(record, "sessionId"));
+  const build = buildIdentity(dataValue(record, "build"));
+  const origin = exactOrigin(dataValue(record, "origin"));
+  const responseClassId = boundedToken(dataValue(record, "responseClassId"));
+  const adapter = adapterIdentity(dataValue(record, "adapter"));
+  const declaredCapabilities = capabilitySet(dataValue(record, "declaredCapabilities"));
+  const optIn = optInSnapshot(dataValue(record, "optIn"));
+  const denylist = adapterDenylist(dataValue(record, "denylist"));
+  const revocations = revokedApprovals(dataValue(record, "revokedApprovalIds"));
   if (
-    !requestedCapability ||
+    !capability ||
     nowEpochMs === null ||
     !sessionId ||
-    !currentBuild ||
-    !currentOrigin ||
+    !build ||
+    !origin ||
     !responseClassId ||
     !adapter ||
     !declaredCapabilities ||
@@ -493,34 +476,27 @@ export function evaluateLiveAuthorization(input: unknown): LiveAuthorizationDeci
     return deny("authorization-input-invalid");
   }
 
-  if (!declaredCapabilities.includes(requestedCapability)) return deny("capability-disabled");
+  if (!declaredCapabilities.includes(capability)) return deny("capability-disabled");
   if (!optIn.recorded) return deny("local-opt-in-required");
+  if (isAdapterDenied(adapter, denylist)) return deny("adapter-denylisted");
 
-  try {
-    if (isAdapterDenied(adapter, denylist)) return deny("adapter-denylisted");
-  } catch {
-    return deny("authorization-input-invalid");
-  }
-
-  const rawApproval = dataValue(input, "approval");
+  const rawApproval = dataValue(record, "approval");
   if (rawApproval === null) return deny("approval-missing");
-  const approval = readApproval(rawApproval);
+  const approval = authorizationApproval(rawApproval);
   if (!approval) return deny("approval-invalid");
   if (revocations.has(approval.approvalId)) return deny("approval-revoked");
   if (nowEpochMs < approval.validFromEpochMs) return deny("approval-not-yet-valid");
   if (nowEpochMs >= approval.validUntilEpochMs) return deny("approval-expired");
-  if (!sameBuild(currentBuild, approval.build)) return deny("build-mismatch");
-  if (currentOrigin !== approval.origin) return deny("origin-mismatch");
+  if (!sameBuild(build, approval.build)) return deny("build-mismatch");
+  if (origin !== approval.origin) return deny("origin-mismatch");
   if (responseClassId !== approval.responseClassId) return deny("response-class-mismatch");
   if (!sameAdapter(adapter, approval.adapter)) return deny("adapter-mismatch");
-  if (!sameCapabilities(declaredCapabilities, approval.capabilities)) {
-    return deny("capability-set-mismatch");
-  }
+  if (!sameCapabilities(declaredCapabilities, approval.capabilities)) return deny("capability-set-mismatch");
 
-  const rawGrant = dataValue(input, "grant");
+  const rawGrant = dataValue(record, "grant");
   if (rawGrant === null) return deny("grant-missing");
-  const grant = readGrant(rawGrant);
-  if (!grant) return deny("grant-invalid");
+  const grant = volatileGrant(rawGrant);
+  if (!grant || nowEpochMs < grant.issuedAtEpochMs) return deny("grant-invalid");
   if (nowEpochMs >= grant.expiresAtEpochMs) return deny("grant-expired");
   if (grant.sessionId !== sessionId) return deny("grant-session-mismatch");
   if (grant.safetyGeneration !== safety.generation || grant.optInGeneration !== optIn.generation) {
@@ -530,9 +506,9 @@ export function evaluateLiveAuthorization(input: unknown): LiveAuthorizationDeci
     grant.issuedAtEpochMs < approval.validFromEpochMs ||
     grant.expiresAtEpochMs > approval.validUntilEpochMs ||
     grant.approvalId !== approval.approvalId ||
-    grant.capability !== requestedCapability ||
-    grant.buildManifestSha256 !== currentBuild.buildManifestSha256 ||
-    grant.origin !== currentOrigin ||
+    grant.capability !== capability ||
+    grant.buildManifestSha256 !== build.buildManifestSha256 ||
+    grant.origin !== origin ||
     grant.responseClassId !== responseClassId ||
     !sameAdapter(grant.adapter, adapter) ||
     !sameCapabilities(grant.approvedCapabilities, approval.capabilities)
@@ -540,5 +516,13 @@ export function evaluateLiveAuthorization(input: unknown): LiveAuthorizationDeci
     return deny("grant-binding-mismatch");
   }
 
-  return Object.freeze({ eligible: true, reason: "authorized", capability: requestedCapability });
+  return Object.freeze({ eligible: true, reason: "authorized", capability });
+}
+
+export function evaluateLiveAuthorization(input: unknown): LiveAuthorizationDecision {
+  try {
+    return evaluate(input);
+  } catch {
+    return deny("authorization-input-invalid");
+  }
 }
