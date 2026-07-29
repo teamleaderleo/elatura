@@ -87,4 +87,31 @@ describe("companion adapter identities", () => {
         }),
     ).toThrow(/acceptedAdapters/u);
   });
+
+  it("does not invoke adapter identity accessors", () => {
+    let invoked = false;
+    const hostile = Object.defineProperties({}, {
+      id: {
+        enumerable: true,
+        get() {
+          invoked = true;
+          return "chatgpt-conversation";
+        },
+      },
+      version: {
+        enumerable: true,
+        value: "0.3.0",
+      },
+    });
+
+    expect(
+      () =>
+        new SyntheticCompanion({
+          sessionId: SESSION,
+          conversations: [],
+          acceptedAdapters: [hostile as typeof ADAPTER],
+        }),
+    ).toThrow(/acceptedAdapters/u);
+    expect(invoked).toBe(false);
+  });
 });
