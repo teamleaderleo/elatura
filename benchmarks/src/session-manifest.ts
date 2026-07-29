@@ -60,9 +60,15 @@ function exactKeys(value: JsonRecord, allowed: readonly string[], path: string):
 
 function canonicalDate(value: unknown, path: string): string {
   if (typeof value !== "string" || !CANONICAL_UTC.test(value) || Number.isNaN(Date.parse(value))) {
-    throw new TypeError(`${path} must be canonical millisecond-precision UTC.`);
+    throw new TypeError(
+      `${path} must be a canonical ISO-8601 UTC timestamp with millisecond precision.`,
+    );
   }
-  if (new Date(value).toISOString() !== value) throw new TypeError(`${path} must round-trip canonically.`);
+  if (new Date(value).toISOString() !== value) {
+    throw new TypeError(
+      `${path} must be a canonical ISO-8601 UTC timestamp with millisecond precision.`,
+    );
+  }
   return value;
 }
 
@@ -105,12 +111,12 @@ export function parseSessionBoundBenchmarkRunManifest(
   input: unknown,
 ): ParsedSessionBoundBenchmarkRunManifest {
   const root = record(input, "$manifest");
-  exactKeys(root, ROOT_KEYS, "$manifest");
   if (root.schemaVersion !== BENCHMARK_SESSION_RUN_MANIFEST_SCHEMA_VERSION) {
     throw new TypeError(
       `$manifest.schemaVersion must be ${BENCHMARK_SESSION_RUN_MANIFEST_SCHEMA_VERSION} for session readiness.`,
     );
   }
+  exactKeys(root, ROOT_KEYS, "$manifest");
 
   const session = record(root.session, "$manifest.session");
   exactKeys(
