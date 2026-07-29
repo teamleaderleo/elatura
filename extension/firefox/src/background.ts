@@ -11,6 +11,10 @@ import {
   type StoredObservationState,
 } from "./report.js";
 import { redactPath } from "./path-redaction.js";
+import {
+  BUNDLED_ADAPTER_DENYLIST,
+  createTransformSafetyController,
+} from "./transform-safety.js";
 
 const MAX_PATH_CLASSES = 256;
 
@@ -29,6 +33,16 @@ type BackgroundPageMetric = {
   elapsedMs: number;
   recordedAt: string;
 };
+
+function clearVolatileTransformState(): void {
+  // The observe-only build links no transform module. This callback is the
+  // mandatory clearing boundary future transform integration must consume.
+}
+
+const transformSafety = createTransformSafetyController({
+  denylist: BUNDLED_ADAPTER_DENYLIST,
+  clearVolatileTransformState,
+});
 
 function idleState(): StoredObservationState {
   return {
@@ -268,6 +282,10 @@ browser.runtime.onMessage.addListener((message) => {
   if (candidate.type === "elatura:start-run") return startObservationRun();
   if (candidate.type === "elatura:clear-run") return clearObservationRun();
   if (candidate.type === "elatura:get-state") return getObservationState();
+  if (candidate.type === "elatura:get-transform-safety") return transformSafety.getState();
+  if (candidate.type === "elatura:emergency-disable-transforms") {
+    return transformSafety.emergencyDisable();
+  }
   if (candidate.type === "elatura:page-metric" && isPageMetric(candidate.metric)) {
     return recordPageMetric(candidate.metric);
   }
