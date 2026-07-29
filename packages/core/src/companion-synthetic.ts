@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MPL-2.0
+import type { AdapterIdentity } from "./adapter-contract.js";
 import {
   isCompanionEntryId,
   resolveCompanionWorkingSetPolicy,
@@ -21,7 +22,7 @@ function dataProperty(value: object, key: string): unknown {
     : undefined;
 }
 
-function validAdapterIdentity(value: unknown): boolean {
+function validAdapterIdentity(value: unknown): value is AdapterIdentity {
   try {
     if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
     const prototype = Object.getPrototypeOf(value);
@@ -36,6 +37,22 @@ function validAdapterIdentity(value: unknown): boolean {
       typeof version === "string" &&
       ADAPTER_TOKEN.test(version)
     );
+  } catch {
+    return false;
+  }
+}
+
+function validAdapterIdentities(value: unknown): value is readonly AdapterIdentity[] {
+  try {
+    if (!Array.isArray(value)) return false;
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!descriptor || !("value" in descriptor) || descriptor.get || descriptor.set) {
+        return false;
+      }
+      if (!validAdapterIdentity(descriptor.value)) return false;
+    }
+    return true;
   } catch {
     return false;
   }
@@ -64,8 +81,7 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
     }
     if (
       options.acceptedAdapters !== undefined &&
-      (!Array.isArray(options.acceptedAdapters) ||
-        options.acceptedAdapters.some((identity) => !validAdapterIdentity(identity)))
+      !validAdapterIdentities(options.acceptedAdapters)
     ) {
       throw new TypeError("acceptedAdapters must contain bounded adapter identities.");
     }
@@ -89,6 +105,13 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
       return input;
     });
     super({ ...options, policy, conversations });
+  }
+
+  override updateAcceptedAdapters(identities: readonly AdapterIdentity[]): void {
+    if (!validAdapterIdentities(identities)) {
+      throw new TypeError("acceptedAdapters must contain bounded adapter identities.");
+    }
+    super.updateAcceptedAdapters(identities);
   }
 
   override async dispatch(
