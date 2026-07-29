@@ -75,13 +75,19 @@ function exactKeys(
   allowed: readonly string[],
   path: string,
   issues: ValidationIssue[],
+  optional: readonly string[] = [],
 ): void {
-  const set = new Set(allowed);
+  const allowedSet = new Set(allowed);
+  const optionalSet = new Set(optional);
   for (const key of Object.keys(value)) {
-    if (!set.has(key)) issues.push(issue(`${path}.${key}`, "unknown-field", "Unexpected client payload field."));
+    if (!allowedSet.has(key)) {
+      issues.push(issue(`${path}.${key}`, "unknown-field", "Unexpected client payload field."));
+    }
   }
   for (const key of allowed) {
-    if (!(key in value)) issues.push(issue(`${path}.${key}`, "missing-field", "Required client payload field is missing."));
+    if (!optionalSet.has(key) && !(key in value)) {
+      issues.push(issue(`${path}.${key}`, "missing-field", "Required client payload field is missing."));
+    }
   }
 }
 
@@ -214,6 +220,7 @@ function parsePageEntry(
     ],
     path,
     issues,
+    ["label", "text", "jumpBackReference"],
   );
   if (
     !isCompanionEntryId(input.id) ||
@@ -349,7 +356,13 @@ function parseSearch(
       issues.push(issue(path, "invalid-search-result", "Expected a search result object."));
       return;
     }
-    exactKeys(candidate, ["entryId", "sequence", "label", "snippet"], path, issues);
+    exactKeys(
+      candidate,
+      ["entryId", "sequence", "label", "snippet"],
+      path,
+      issues,
+      ["label"],
+    );
     if (
       !isCompanionEntryId(candidate.entryId) ||
       !nonNegativeInteger(candidate.sequence) ||
@@ -396,7 +409,7 @@ function parseCode(
     issues.push(issue("$.payload", "invalid-code", "Code payload fields are invalid."));
     return null;
   }
-  exactKeys(input.block, ["language", "text"], "$.payload.block", issues);
+  exactKeys(input.block, ["language", "text"], "$.payload.block", issues, ["language"]);
   if (
     (input.block.language !== undefined && typeof input.block.language !== "string") ||
     typeof input.block.text !== "string" ||
