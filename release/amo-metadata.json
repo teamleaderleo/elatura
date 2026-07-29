@@ -1,0 +1,12 @@
+{
+  "summary": {
+    "en-US": "Observe content-free performance signals for oversized authenticated web applications."
+  },
+  "categories": [
+    "other"
+  ],
+  "version": {
+    "license": "MPL-2.0",
+    "approval_notes": "Elatura is currently observe-only. Build instructions are in docs/amo-build-instructions.md. The submitted source archive contains the complete TypeScript source, frozen package-lock.json, build scripts, capability policy, tests, and documentation needed to reproduce and inspect the extension. No remote code, telemetry, native messaging, response transformation, or private-content cache is enabled."
+  }
+}

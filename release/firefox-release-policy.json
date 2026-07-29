@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "defaultDistribution": "none",
+  "addonId": "observer@elatura.com",
+  "channels": {
+    "development": {
+      "artifact": "temporary-extension",
+      "mozillaSigningRequired": false,
+      "distribution": "none"
+    },
+    "reviewCandidate": {
+      "artifact": "unsigned-zip",
+      "mozillaSigningRequired": false,
+      "distribution": "none"
+    },
+    "unlistedAlpha": {
+      "artifact": "mozilla-signed-xpi",
+      "mozillaSigningRequired": true,
+      "webExtChannel": "unlisted",
+      "distribution": "limited-self-distribution",
+      "requiresIssuesComplete": [3, 4]
+    },
+    "listedProduction": {
+      "artifact": "mozilla-signed-xpi",
+      "mozillaSigningRequired": true,
+      "webExtChannel": "listed",
+      "distribution": "addons-mozilla-org",
+      "requiresIssuesComplete": [3, 4]
+    }
+  },
+  "credentials": {
+    "allowedInRepository": false,
+    "allowedInPullRequestCi": false,
+    "allowedInOrdinaryBuildJobs": false,
+    "allowedInLogs": false,
+    "allowedInArtifacts": false,
+    "requiredNames": [
+      "WEB_EXT_API_KEY",
+      "WEB_EXT_API_SECRET"
+    ]
+  },
+  "sourceReview": {
+    "required": true,
+    "archiveKind": "human-readable-source",
+    "buildInstructions": "docs/amo-build-instructions.md"
+  },
+  "candidate": {
+    "schemaVersion": 1,
+    "kind": "unsigned-firefox-release-candidate",
+    "installableClaimAllowed": false,
+    "signedClaimAllowed": false,
+    "deterministicBuildCheckRequired": true
+  }
+}
