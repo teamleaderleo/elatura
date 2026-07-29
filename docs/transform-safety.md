@@ -1,6 +1,6 @@
 # Local transform safety controls
 
-The Firefox extension remains observe-only. Transform safety controls exist before transform code so future integration cannot treat emergency disablement as an afterthought.
+The Firefox extension remains observe-only. Transform safety and explicit consent-intent controls exist before transform code so future integration cannot treat either boundary as an afterthought.
 
 ## Locked default
 
@@ -12,7 +12,28 @@ Every background start creates a fresh transform-safety controller with the emer
 - volatile-clear attempt and failure counters
 - bundled denylist entry count
 
-The controller is not persisted. A browser or extension-background restart therefore returns to the locked build default rather than restoring a possibly enabled transform state.
+The safety controller is not persisted. A browser or extension-background restart therefore returns to the locked build default rather than restoring a possibly active transform state.
+
+## Session-local opt-in intent
+
+The popup exposes a separate opt-in intent flow. The user must acknowledge exactly three fixed statements:
+
+- the intent lasts only for the current background session;
+- a future reviewed transform may alter page behaviour;
+- emergency disable and ordinary site access remain available.
+
+No free text, conversation identifier, adapter identifier, URL, or page content enters the opt-in state. The state contains only:
+
+- schema version
+- recorded boolean
+- fixed reason code
+- local generation counter
+- acknowledgement count
+- `authorizesTransform: false`
+
+Recording intent does not disengage the emergency lock, change the capability policy, mutate a response, or authorize a transform. The current build cannot reach an allowed transform decision.
+
+Opt-in intent is not written to browser storage. A background restart resets it to the unrecorded build default. The popup also exposes explicit revocation.
 
 ## Emergency disable
 
@@ -20,18 +41,19 @@ The popup exposes **Emergency disable transforms**. Activating it:
 
 1. keeps the emergency lock engaged;
 2. invokes every registered volatile transform-state clearer;
-3. records only fixed numeric counters if a clearer fails;
-4. leaves observation and ordinary browsing available.
+3. revokes session-local opt-in intent;
+4. records only fixed numeric counters if a clearer fails;
+5. leaves observation and ordinary browsing available.
 
 Repeated activation runs the clearers again. A throwing clearer cannot unlock transformation or prevent the remaining clearers from being attempted.
 
-There is no popup unlock, enable, or arm action. A future explicit local opt-in flow requires a separate reviewed milestone and must still consult the emergency lock and denylist before every transform decision.
+There is no popup unlock, enable, or arm action. A future transform authorization path requires a separate reviewed milestone and must still consult the emergency lock, explicit intent, build/live gate, and denylist before every transform decision.
 
 ## Volatile state registry
 
 Future transform modules must register cleanup callbacks through `registerVolatileTransformStateClearer`. The registry is local to the extension process. The emergency control invokes all registered callbacks and reports failure through a fixed content-free code.
 
-The current observe-only build registers no transform state because no transform module is linked.
+The current observe-only build registers only the session-local opt-in controller. No transform payload, plan, output, cache, or application content is linked to the registry.
 
 ## Adapter denylist
 
@@ -50,11 +72,12 @@ The bundled list is currently empty because no production transform adapter is e
 A future transform is allowed only when all of these are true:
 
 - emergency lock is not engaged;
-- an explicit reviewed local opt-in exists;
+- explicit reviewed local opt-in intent exists;
+- a separately reviewed build/live authorization gate is enabled;
 - the exact adapter id/version is not denylisted;
 - the adapter, input, plan, materialized output, and release gates all pass their independent checks.
 
-The current controller starts locked and exposes no unlock path, so the observe-only build cannot reach an allowed transform decision.
+The current controller starts locked, opt-in intent explicitly reports `authorizesTransform: false`, the capability policy keeps transforms disabled, and no unlock path exists.
 
 ## Static enforcement
 
@@ -64,6 +87,7 @@ The current controller starts locked and exposes no unlock path, so the observe-
 - transform permissions and hosts remain empty;
 - no transform network/native/persistence capability appears;
 - the emergency control remains local and disabled by default;
+- opt-in intent is session-local, fixed-field, and non-authorizing;
 - the bundled denylist remains local source data;
-- the popup contains the emergency action;
+- the popup contains record, revoke, and emergency actions;
 - no popup/background transform unlock message exists.
