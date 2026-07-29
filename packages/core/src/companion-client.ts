@@ -86,7 +86,10 @@ function exactKeys(
     }
   }
   for (const key of allowed) {
-    if (!optionalSet.has(key) && !(key in value)) {
+    if (
+      !optionalSet.has(key) &&
+      !Object.prototype.hasOwnProperty.call(value, key)
+    ) {
       issues.push(issue(`${path}.${key}`, "missing-field", "Required client payload field is missing."));
     }
   }
