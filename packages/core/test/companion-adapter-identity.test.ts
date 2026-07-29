@@ -47,6 +47,21 @@ function source(): ReadOnlyRepresentation {
   };
 }
 
+function openRequest(requestId: string): CompanionRequestEnvelope {
+  return {
+    version: COMPANION_PROTOCOL_VERSION,
+    sessionId: SESSION,
+    requestId,
+    operation: "open",
+    payload: {
+      conversationId: "adapter-source",
+      anchorEntryId: null,
+      before: 0,
+      after: 0,
+    },
+  };
+}
+
 describe("companion adapter identities", () => {
   it("round-trips dotted adapter versions through runtime and client", async () => {
     const companion = new SyntheticCompanion({
@@ -58,19 +73,7 @@ describe("companion adapter identities", () => {
     const client = new BoundedCompanionClientState(SESSION);
     expect(client.expect("adapter-open", "open").ok).toBe(true);
 
-    const request: CompanionRequestEnvelope = {
-      version: COMPANION_PROTOCOL_VERSION,
-      sessionId: SESSION,
-      requestId: "adapter-open",
-      operation: "open",
-      payload: {
-        conversationId: "adapter-source",
-        anchorEntryId: null,
-        before: 0,
-        after: 0,
-      },
-    };
-    const response = await companion.dispatch(request);
+    const response = await companion.dispatch(openRequest("adapter-open"));
 
     expect(response.ok).toBe(true);
     expect(client.apply(response).ok).toBe(true);
@@ -113,5 +116,28 @@ describe("companion adapter identities", () => {
         }),
     ).toThrow(/acceptedAdapters/u);
     expect(invoked).toBe(false);
+  });
+
+  it("rejects malformed adapter updates before changing drift state", async () => {
+    const companion = new SyntheticCompanion({
+      sessionId: SESSION,
+      now: () => 150,
+      acceptedAdapters: [ADAPTER],
+      conversations: [{ id: "adapter-source", representation: source() }],
+    });
+    const opened = await companion.dispatch(openRequest("before-invalid-update"));
+    expect(opened.ok).toBe(true);
+    expect(companion.usage.residentRecordCount).toBe(1);
+
+    expect(
+      () =>
+        companion.updateAcceptedAdapters([
+          { id: "bad adapter", version: "0.3.0" },
+        ]),
+    ).toThrow(/acceptedAdapters/u);
+    expect(companion.usage.residentRecordCount).toBe(1);
+
+    const reopened = await companion.dispatch(openRequest("after-invalid-update"));
+    expect(reopened.ok).toBe(true);
   });
 });
