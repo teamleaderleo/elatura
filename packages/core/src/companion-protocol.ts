@@ -196,6 +196,7 @@ export const DEFAULT_COMPANION_WORKING_SET_POLICY: CompanionWorkingSetPolicy = O
 });
 
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
+const ENTRY_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$/u;
 const CURSOR_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,511}$/u;
 const RESPONSE_ENVELOPE_RESERVE_BYTES = 65_536;
 const OPERATIONS = new Set<CompanionOperation>([
@@ -236,6 +237,10 @@ function exactKeys(
 
 export function isCompanionToken(value: unknown): value is string {
   return typeof value === "string" && TOKEN.test(value);
+}
+
+export function isCompanionEntryId(value: unknown): value is string {
+  return typeof value === "string" && ENTRY_ID.test(value);
 }
 
 export function isCompanionCursorToken(value: unknown): value is string {
@@ -318,7 +323,7 @@ function parsePayload(
     case "open":
       exact(["conversationId", "anchorEntryId", "before", "after"]);
       if (!isCompanionToken(input.conversationId)) issues.push(issue("$.payload.conversationId", "invalid-id", "Expected a bounded conversation id."));
-      if (!(input.anchorEntryId === null || isCompanionToken(input.anchorEntryId))) {
+      if (!(input.anchorEntryId === null || isCompanionEntryId(input.anchorEntryId))) {
         issues.push(issue("$.payload.anchorEntryId", "invalid-id", "Expected null or a bounded entry id."));
       }
       if (!nonNegativeInteger(input.before) || !nonNegativeInteger(input.after)) {
@@ -338,13 +343,13 @@ function parsePayload(
     case "entry":
     case "navigate":
       exact(["conversationId", "entryId"]);
-      if (!isCompanionToken(input.conversationId) || !isCompanionToken(input.entryId)) {
+      if (!isCompanionToken(input.conversationId) || !isCompanionEntryId(input.entryId)) {
         issues.push(issue("$.payload", "invalid-id", "Expected bounded conversation and entry ids."));
       }
       break;
     case "code":
       exact(["conversationId", "entryId", "blockIndex"]);
-      if (!isCompanionToken(input.conversationId) || !isCompanionToken(input.entryId)) {
+      if (!isCompanionToken(input.conversationId) || !isCompanionEntryId(input.entryId)) {
         issues.push(issue("$.payload", "invalid-id", "Expected bounded conversation and entry ids."));
       }
       if (!nonNegativeInteger(input.blockIndex)) {
