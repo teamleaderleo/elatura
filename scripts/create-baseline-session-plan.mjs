@@ -2,10 +2,11 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createBenchmarkSessionPlan } from "../benchmarks/dist/session.js";
 import { OBSERVATION_REPORT_SCHEMA_VERSION } from "../extension/firefox/dist/report.js";
 
-const ROOT = resolve(new URL("..", import.meta.url).pathname);
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MEMORY_METHODS = new Set(["activity-monitor", "task-manager", "ps"]);
 
 function usage() {
