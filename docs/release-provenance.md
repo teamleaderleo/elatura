@@ -1,8 +1,8 @@
 # Release provenance
 
-Elatura's build manifest records facts about one built extension artifact. It is not a compatibility promise and must not blur independent version domains.
+Elatura's build manifest records facts about one built extension artifact. It is not a compatibility promise and keeps independent version domains explicit.
 
-## Build-manifest schema 2
+## Build-manifest schema 3
 
 The manifest contains:
 
@@ -12,14 +12,41 @@ The manifest contains:
 - the built extension digest and per-file digests
 - requested extension and host permissions
 - npm package versions for adapter packages
+- the normalized adapter compatibility identity registry and its canonical SHA-256 digest
 
-The adapter package field is named `adapterPackageVersions`. These are distribution/package versions only.
+The adapter package field remains named `adapterPackageVersions`. These are distribution/package versions only.
+
+`adapterCompatibilityRegistry` is a separate object with:
+
+- registry schema version
+- canonical SHA-256 digest
+- normalized entries containing a fixed local name, adapter id, and compatibility version
+
+The build step reads `packages/adapter-chatgpt/src/compatibility-identities.json`, validates bounded tokens and uniqueness, imports the compiled adapter identity module, and compares the registry with the exported inspection adapter, adapter version policy, and synthetic pipeline adapter. Any mismatch fails manifest generation and therefore fails CI.
 
 ## Adapter compatibility versions
 
-An adapter's schema or compatibility version answers a different question: which input structures and semantics the adapter understands. It may change independently of the npm package version.
+An adapter's compatibility version answers a different question from its npm package version: which input formats and semantics the adapter understands. It may change independently of the package version.
 
-A future adapter-contract milestone will define an explicit compatibility-version registry and add a separately named provenance field. Until then, the build manifest must not infer compatibility from package metadata or label package versions as adapter versions.
+The current registry contains:
+
+- `inspection`: `chatgpt-conversation` / `0.3.0`
+- `synthetic-transform`: `chatgpt-synthetic-conversation` / `0.1.0`
+
+Updating either compatibility version requires an intentional source-registry change. Build provenance changes through both the normalized entries and the registry digest. The generic package version may remain `0.0.0` during the same change.
+
+The transform-safety gate parses the bundled local denylist and rejects every entry that is not an exact id/version member of this registry. No remote policy, page input, or runtime network source can add an identity.
+
+## Release-candidate schema 2
+
+The deterministic unsigned Firefox release-candidate manifest copies the exact normalized `adapterCompatibilityRegistry` object from build-manifest schema 3. The candidate also verifies that the build manifest uses the expected schema and that the registry is present before packaging.
+
+This allows a reviewer to identify both:
+
+- which npm workspace package versions produced the build
+- which exact adapter compatibility identities the build declares
+
+The candidate remains unsigned, non-installable as a release claim, and disconnected from Mozilla credentials or publishing.
 
 ## Workspace links
 

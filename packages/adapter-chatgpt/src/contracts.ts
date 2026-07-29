@@ -18,9 +18,18 @@ import {
   type ChatGptConversation,
   type ChatGptNode,
 } from "./index.js";
+import { CHATGPT_ADAPTER_ID, CHATGPT_ADAPTER_VERSION } from "./identities.js";
 
-export const CHATGPT_ADAPTER_ID = "chatgpt-conversation";
-export const CHATGPT_ADAPTER_VERSION = "0.3.0";
+export {
+  ADAPTER_COMPATIBILITY_IDENTITIES,
+  ADAPTER_COMPATIBILITY_REGISTRY_SCHEMA_VERSION,
+  CHATGPT_ADAPTER_ID,
+  CHATGPT_ADAPTER_VERSION,
+  SYNTHETIC_CHATGPT_ADAPTER_ID,
+  SYNTHETIC_CHATGPT_ADAPTER_VERSION,
+  type AdapterCompatibilityIdentity,
+  type AdapterCompatibilityIdentityName,
+} from "./identities.js";
 
 export type SyntheticChatGptRepresentationOptions = {
   authorityOrigin: string;

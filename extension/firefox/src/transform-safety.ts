@@ -90,7 +90,12 @@ export function evaluateTransformPermission(input: {
   return { allowed: true };
 }
 
-export const BUNDLED_ADAPTER_DENYLIST: readonly AdapterIdentity[] = normalizeAdapterDenylist([]);
+// This literal is parsed by the repository transform-safety gate. Every future
+// bundled entry must be an exact member of the source-controlled adapter
+// compatibility registry before the extension can build.
+export const BUNDLED_ADAPTER_DENYLIST_ENTRIES: readonly AdapterIdentity[] = [];
+export const BUNDLED_ADAPTER_DENYLIST: readonly AdapterIdentity[] =
+  normalizeAdapterDenylist(BUNDLED_ADAPTER_DENYLIST_ENTRIES);
 
 export function createTransformSafetyController(options: {
   denylist?: readonly AdapterIdentity[];

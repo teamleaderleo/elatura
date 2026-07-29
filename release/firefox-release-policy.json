@@ -45,10 +45,11 @@
     "buildInstructions": "docs/amo-build-instructions.md"
   },
   "candidate": {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "kind": "unsigned-firefox-release-candidate",
     "installableClaimAllowed": false,
     "signedClaimAllowed": false,
-    "deterministicBuildCheckRequired": true
+    "deterministicBuildCheckRequired": true,
+    "adapterCompatibilityRegistryRequired": true
   }
 }

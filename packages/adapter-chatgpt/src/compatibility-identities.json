@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "identities": [
+    {
+      "name": "inspection",
+      "id": "chatgpt-conversation",
+      "version": "0.3.0"
+    },
+    {
+      "name": "synthetic-transform",
+      "id": "chatgpt-synthetic-conversation",
+      "version": "0.1.0"
+    }
+  ]
+}

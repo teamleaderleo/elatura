@@ -10,6 +10,9 @@ const DIST = join(ROOT, "extension/firefox/dist");
 const OUTPUT = join(ROOT, "artifacts/firefox-release");
 const CHANNELS = new Set(["listed", "unlisted"]);
 const LEGACY_CREDENTIAL_NAMES = ["AMO_JWT_ISSUER", "AMO_JWT_SECRET"];
+const IDENTITY_NAME = /^[0-9A-Za-z][0-9A-Za-z._-]{0,127}$/u;
+const ADAPTER_ID = /^[0-9A-Za-z][0-9A-Za-z._-]{0,127}$/u;
+const ADAPTER_VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,127}$/u;
 const FIXED_GIT_IDENTITY = {
   GIT_AUTHOR_NAME: "Elatura Release Builder",
   GIT_AUTHOR_EMAIL: "release-builder@elatura.invalid",
@@ -171,6 +174,65 @@ async function createSourceArchive(revision, shortRevision) {
   return output;
 }
 
+function exactKeys(value, allowed, label) {
+  const keys = Object.keys(value).sort();
+  const expected = [...allowed].sort();
+  if (JSON.stringify(keys) !== JSON.stringify(expected)) {
+    throw new Error(`${label} fields are invalid.`);
+  }
+}
+
+function validateCompatibilityRegistry(registry) {
+  if (typeof registry !== "object" || registry === null || Array.isArray(registry)) {
+    throw new Error("Build manifest adapter compatibility registry is invalid.");
+  }
+  exactKeys(registry, ["schemaVersion", "sha256", "identities"], "Compatibility registry");
+  if (
+    registry.schemaVersion !== 1 ||
+    typeof registry.sha256 !== "string" ||
+    !/^[0-9a-f]{64}$/u.test(registry.sha256) ||
+    !Array.isArray(registry.identities) ||
+    registry.identities.length === 0
+  ) {
+    throw new Error("Build manifest adapter compatibility registry is invalid.");
+  }
+
+  const names = new Set();
+  const pairs = new Set();
+  const identities = registry.identities.map((identity) => {
+    if (typeof identity !== "object" || identity === null || Array.isArray(identity)) {
+      throw new Error("Build manifest adapter compatibility identity is invalid.");
+    }
+    exactKeys(identity, ["name", "id", "version"], "Compatibility identity");
+    if (
+      typeof identity.name !== "string" ||
+      !IDENTITY_NAME.test(identity.name) ||
+      typeof identity.id !== "string" ||
+      !ADAPTER_ID.test(identity.id) ||
+      typeof identity.version !== "string" ||
+      !ADAPTER_VERSION.test(identity.version)
+    ) {
+      throw new Error("Build manifest adapter compatibility identity is invalid.");
+    }
+    const pair = `${identity.id}\0${identity.version}`;
+    if (names.has(identity.name) || pairs.has(pair)) {
+      throw new Error("Build manifest adapter compatibility identities must be unique.");
+    }
+    names.add(identity.name);
+    pairs.add(pair);
+    return { name: identity.name, id: identity.id, version: identity.version };
+  }).sort((left, right) => left.name.localeCompare(right.name));
+
+  const canonical = Buffer.from(
+    `${JSON.stringify({ schemaVersion: 1, identities })}\n`,
+    "utf8",
+  );
+  if (sha256(canonical) !== registry.sha256) {
+    throw new Error("Build manifest adapter compatibility registry digest is inconsistent.");
+  }
+  return { schemaVersion: 1, sha256: registry.sha256, identities };
+}
+
 const channel = parseChannel(process.argv.slice(2));
 requireCleanTrackedWorktree();
 
@@ -194,6 +256,12 @@ if (
 ) {
   throw new Error("Requested future AMO channel is not a Mozilla-signed release-policy channel.");
 }
+if (buildManifest.schemaVersion !== 3) {
+  throw new Error("Release candidates require build-manifest schema 3.");
+}
+const adapterCompatibilityRegistry = validateCompatibilityRegistry(
+  buildManifest.adapterCompatibilityRegistry,
+);
 
 const revision = buildManifest.revision;
 if (typeof revision !== "string" || !/^[0-9a-f]{40}$/u.test(revision)) {
@@ -239,6 +307,7 @@ const candidate = {
   kind: policy.candidate?.kind,
   revision,
   requestedFutureAmoChannel: channel,
+  adapterCompatibilityRegistry,
   extension: {
     id: addonId,
     version: extensionManifest.version,
@@ -277,15 +346,18 @@ const candidate = {
     signingCredentialsAbsent: true,
     sourceArchiveRequired: policy.sourceReview?.required === true,
     transformCapabilityEnabled: false,
+    adapterCompatibilityRegistryVerified:
+      policy.candidate?.adapterCompatibilityRegistryRequired === true,
   },
 };
 
 if (
-  candidate.schemaVersion !== 1 ||
+  candidate.schemaVersion !== 2 ||
   candidate.kind !== "unsigned-firefox-release-candidate" ||
   candidate.distribution.mozillaSigned !== false ||
   candidate.distribution.signedClaimAllowed !== false ||
-  candidate.distribution.installableClaimAllowed !== false
+  candidate.distribution.installableClaimAllowed !== false ||
+  candidate.gates.adapterCompatibilityRegistryVerified !== true
 ) {
   throw new Error("Release policy does not permit an unsigned review candidate.");
 }
