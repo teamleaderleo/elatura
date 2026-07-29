@@ -109,7 +109,7 @@ describe("companion adapter identities", () => {
         new SyntheticCompanion({
           sessionId: SESSION,
           conversations: [],
-          acceptedAdapters: [hostile as typeof ADAPTER],
+          acceptedAdapters: [hostile as unknown as typeof ADAPTER],
         }),
     ).toThrow(/acceptedAdapters/u);
     expect(invoked).toBe(false);
