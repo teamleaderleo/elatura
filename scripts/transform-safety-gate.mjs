@@ -30,8 +30,8 @@ assert.equal(transform?.adapterDenylist, "bundled-exact-id-version");
 assert.match(safety, /emergencyDisabled:\s*true/u, "Safety controller must start disabled.");
 assert.match(
   safety,
-  /BUNDLED_ADAPTER_DENYLIST[^=]*=\s*normalizeAdapterDenylist\(\[\]\)/u,
-  "Adapter denylist must be bundled local data.",
+  /BUNDLED_ADAPTER_DENYLIST[^=]*=\s*normalizeAdapterDenylist\(\s*\[/u,
+  "Adapter denylist must be declared as bundled local literal data.",
 );
 assert.doesNotMatch(safety, /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b/u);
 assert.doesNotMatch(safety, /https?:\/\//u);
