@@ -34,12 +34,14 @@ describe("ChatGPT adapter contracts", () => {
     });
   });
 
-  it("passes the reusable baseline conformance stages", () => {
+  it("passes reusable baseline and alternate-representation conformance stages", () => {
     const fixture = generateSyntheticConversation({ turnGroups: 8, branchEvery: 2, seed: 44 });
     expect(
       runAdapterConformance(chatGptAdapter, {
         validInput: fixture,
         invalidInput: { mapping: {} },
+        synthetic: true,
+        alternateOptions: representationOptions,
       }),
     ).toEqual({ ok: true, issues: [] });
   });
