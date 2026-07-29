@@ -196,7 +196,7 @@ describe("bounded synthetic companion protocol", () => {
     const opened = await companion.dispatch(
       request("open", {
         conversationId: "huge",
-        anchorEntryId: null,
+        anchorEntryId: "entry-1974",
         before: 24,
         after: 25,
       }),
@@ -340,22 +340,34 @@ describe("bounded synthetic companion protocol", () => {
       now: () => 150,
       conversations: [{ id: "cycle", representation: representation(100) }],
     });
-    let openPlateau: CompanionResponseEnvelope["usage"] | null = null;
     for (let index = 0; index < 25; index += 1) {
       const opened = await companion.dispatch(
         request(
           "open",
           {
             conversationId: "cycle",
-            anchorEntryId: null,
+            anchorEntryId: "entry-94",
             before: 4,
             after: 5,
           },
           `open-cycle-${index}`,
         ),
       );
-      openPlateau ??= opened.usage;
-      expect(opened.usage).toEqual(openPlateau);
+      const openedPage = page(opened);
+      expect(openedPage.entries).toHaveLength(10);
+      expect(opened.usage).toMatchObject({
+        residentConversationCount: 1,
+        residentRecordCount: 1,
+        residentEntryCount: 10,
+        inFlightRequests: 0,
+        queuedPageRequests: 0,
+      });
+      expect(opened.usage.residentSerializedBytes).toBeLessThanOrEqual(
+        companion.policy.maxResidentSerializedBytes,
+      );
+      expect(opened.usage.residentAccountedBytes).toBeLessThanOrEqual(
+        companion.policy.maxResidentAccountedBytes,
+      );
       const closed = await companion.dispatch(
         request("close", { conversationId: "cycle" }, `close-cycle-${index}`),
       );
@@ -537,7 +549,7 @@ describe("bounded companion client state", () => {
         "open",
         {
           conversationId: "client",
-          anchorEntryId: null,
+          anchorEntryId: "entry-94",
           before: 4,
           after: 5,
         },
