@@ -19,7 +19,17 @@
         <div><dt>Bytes observed</dt><dd id="bytes">—</dd></div>
         <div><dt>Latest composer mark</dt><dd id="composer">—</dd></div>
         <div><dt>Transform safety</dt><dd id="transform-safety">locked</dd></div>
+        <div><dt>Transform opt-in</dt><dd id="transform-opt-in">not recorded; locked</dd></div>
       </dl>
+      <fieldset id="transform-opt-in-controls">
+        <legend>Session-local transform opt-in intent</legend>
+        <p>Recording intent does not authorize response changes. Transforms remain locked in this build.</p>
+        <label><input id="opt-in-session-only" type="checkbox" /> I understand this intent lasts only for the current background session.</label>
+        <label><input id="opt-in-future-risk" type="checkbox" /> I understand a future reviewed transform may alter page behaviour.</label>
+        <label><input id="opt-in-emergency-control" type="checkbox" /> I understand emergency disable and ordinary site access remain available.</label>
+        <button id="record-opt-in" type="button" disabled>Record local opt-in intent</button>
+        <button id="revoke-opt-in" type="button" disabled>Revoke opt-in intent</button>
+      </fieldset>
       <div class="actions">
         <button id="start" type="button">Start new run</button>
         <button id="export" type="button" disabled>Export JSON</button>
