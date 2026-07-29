@@ -6,10 +6,11 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const [capabilities, background, safety, popup, popupScript] = await Promise.all([
+const [capabilities, background, safety, optIn, popup, popupScript] = await Promise.all([
   readFile(join(ROOT, "security/capabilities.json"), "utf8").then(JSON.parse),
   readFile(join(ROOT, "extension/firefox/src/background.ts"), "utf8"),
   readFile(join(ROOT, "extension/firefox/src/transform-safety.ts"), "utf8"),
+  readFile(join(ROOT, "extension/firefox/src/transform-opt-in.ts"), "utf8"),
   readFile(join(ROOT, "extension/firefox/static/popup.html"), "utf8"),
   readFile(join(ROOT, "extension/firefox/src/popup.ts"), "utf8"),
 ]);
@@ -26,6 +27,9 @@ assert.equal(transform?.emergencyControl, "local-disabled-by-default");
 assert.equal(transform?.popupUnlock, false);
 assert.equal(transform?.remotePolicy, false);
 assert.equal(transform?.adapterDenylist, "bundled-exact-id-version");
+assert.equal(transform?.localOptIn, "session-intent-only");
+assert.equal(transform?.optInPersistence, "none");
+assert.equal(transform?.optInAuthorizesTransform, false);
 
 assert.match(safety, /emergencyDisabled:\s*true/u, "Safety controller must start disabled.");
 assert.match(
@@ -36,12 +40,29 @@ assert.match(
 assert.doesNotMatch(safety, /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b/u);
 assert.doesNotMatch(safety, /https?:\/\//u);
 
+assert.match(optIn, /recorded:\s*false/u, "Opt-in intent must start unrecorded.");
+assert.match(optIn, /authorizesTransform:\s*false/u, "Opt-in intent must not authorize transformation.");
+assert.match(optIn, /TRANSFORM_OPT_IN_ACKNOWLEDGEMENTS/u);
+assert.doesNotMatch(optIn, /\bbrowser\.storage\b/u, "Opt-in intent must remain session-local.");
+assert.doesNotMatch(optIn, /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b/u);
+assert.doesNotMatch(optIn, /https?:\/\//u);
+
 assert.match(background, /elatura:get-transform-safety/u);
 assert.match(background, /elatura:emergency-disable-transforms/u);
 assert.match(background, /createTransformSafetyController/u);
+assert.match(background, /elatura:get-transform-opt-in/u);
+assert.match(background, /elatura:record-transform-opt-in/u);
+assert.match(background, /elatura:revoke-transform-opt-in/u);
+assert.match(background, /registerVolatileTransformStateClearer/u);
 assert.match(popup, /id="emergency-disable"/u);
 assert.match(popup, /id="transform-safety"/u);
+assert.match(popup, /id="transform-opt-in"/u);
+assert.match(popup, /id="record-opt-in"/u);
+assert.match(popup, /id="revoke-opt-in"/u);
 assert.match(popupScript, /elatura:emergency-disable-transforms/u);
+assert.match(popupScript, /elatura:record-transform-opt-in/u);
+assert.match(popupScript, /elatura:revoke-transform-opt-in/u);
+assert.match(popupScript, /authoriz(?:e|ed)/iu);
 
 const extensionControlSurface = `${background}\n${popup}\n${popupScript}`;
 assert.doesNotMatch(
@@ -56,5 +77,5 @@ assert.doesNotMatch(
 );
 
 process.stdout.write(
-  "Transform safety gate passed: locked default, local emergency control, bundled denylist, and no popup unlock path.\n",
+  "Transform safety gate passed: locked default, non-authorizing session opt-in intent, local emergency control, bundled denylist, and no popup unlock path.\n",
 );
