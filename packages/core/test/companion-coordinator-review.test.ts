@@ -178,4 +178,23 @@ describe("coordinator companion boundary review", () => {
     );
     expect(entry.ok).toBe(true);
   });
+
+  it("rejects valid private provenance at the public synthetic entrypoint", () => {
+    const privateRepresentation = representation(["entry-0"]);
+    privateRepresentation.provenance.synthetic = false;
+
+    expect(
+      () =>
+        new SyntheticCompanion({
+          sessionId: SESSION,
+          now: () => 150,
+          conversations: [
+            {
+              id: "private-source",
+              representation: privateRepresentation,
+            },
+          ],
+        }),
+    ).toThrow(/synthetic provenance only/u);
+  });
 });
