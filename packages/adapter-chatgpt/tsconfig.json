@@ -3,6 +3,7 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "resolveJsonModule": true,
     "paths": {
       "@elatura/core": ["../core/src/index.ts"],
       "@elatura/core/orchestration": ["../core/src/orchestration.ts"]
@@ -16,5 +17,5 @@
     "sourceMap": true
   },
   "references": [{ "path": "../core" }],
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.json"]
 }
