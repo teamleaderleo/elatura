@@ -231,7 +231,9 @@ function exactKeys(
     if (!set.has(key)) issues.push(issue(`${path}.${key}`, "unknown-field", "Unexpected protocol field."));
   }
   for (const key of allowed) {
-    if (!(key in value)) issues.push(issue(`${path}.${key}`, "missing-field", "Required protocol field is missing."));
+    if (!Object.prototype.hasOwnProperty.call(value, key)) {
+      issues.push(issue(`${path}.${key}`, "missing-field", "Required protocol field is missing."));
+    }
   }
 }
 
