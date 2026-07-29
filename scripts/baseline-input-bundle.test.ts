@@ -127,6 +127,9 @@ describe("strict live-baseline input bundles", () => {
     await writeFile(plan, '{"schemaVersion":1}\n');
     expect(await readBaselinePlan(plan)).toEqual({ schemaVersion: 1 });
 
+    await writeFile(plan, Buffer.from([0xff]));
+    await expectCode(readBaselinePlan(plan), "invalid-utf8");
+
     await writeFile(plan, "not json");
     await expectCode(readBaselinePlan(plan), "invalid-json");
     await expectCode(readBaselinePlan(plan, { limits: { maxFileBytes: 4 } }), "file-too-large");
