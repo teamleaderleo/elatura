@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 import type { AdapterIdentity } from "./adapter-contract.js";
 import {
+  isCompanionCursorToken,
   type CompanionConversationMetadata,
   type CompanionErrorCode,
   type CompanionOperation,
@@ -265,7 +266,7 @@ function parsePage(
   if (
     !token(input.conversationId) ||
     !nonNegativeInteger(input.generation) ||
-    !token(input.cursor) ||
+    !isCompanionCursorToken(input.cursor) ||
     typeof input.hasBefore !== "boolean" ||
     typeof input.hasAfter !== "boolean" ||
     (input.freshness !== "fresh" && input.freshness !== "stale") ||
@@ -538,7 +539,7 @@ export class BoundedCompanionClientState {
         if (
           !Array.isArray(response.payload.items) ||
           response.payload.items.length > this.#policy.maxConversationMetadata ||
-          !(response.payload.nextCursor === null || token(response.payload.nextCursor))
+          !(response.payload.nextCursor === null || isCompanionCursorToken(response.payload.nextCursor))
         ) {
           issues.push(issue("$.payload", "client-metadata-limit", "Conversation metadata exceeds the client policy."));
           break;
