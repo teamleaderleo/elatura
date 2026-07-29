@@ -4,6 +4,8 @@ Elatura's first companion contract is a pure, synthetic-only working-set experim
 
 This module does not start a server, read a browser profile, persist private content, inspect cookies, use native messaging, access the network, submit messages, or connect to a live application response.
 
+The public `@elatura/core/companion` entrypoint rejects every valid representation whose provenance does not explicitly declare `synthetic: true`. Malformed fixtures remain available as corrupt-source test cases, while valid private provenance never enters the synthetic runtime.
+
 ## Protocol version 1
 
 Every request contains exactly:
@@ -25,6 +27,8 @@ Every response contains exactly:
 - current companion working-set usage
 
 Unknown fields, malformed ids, unsupported operations, oversized strings, excessive JSON depth or nodes, and oversized request or response bodies are rejected through fixed content-free codes.
+
+Conversation, session, and request ids use compact local-token bounds. Timeline entry ids use the broader bounded representation-id contract. Page and list cursors are opaque protocol tokens with their own larger bound so a generated cursor always round-trips through request and client validation.
 
 Supported operations are:
 
@@ -79,7 +83,7 @@ Timeline pages include `codeBlockCount` and omit code text. A client must reques
 - 64 KiB serialized request
 - 1-hour volatile session lifetime
 
-Every policy value is a positive safe integer. Lower policies can be supplied for constrained clients and adversarial tests.
+Every policy value is a positive safe integer. Constrained and adversarial configurations may lower limits, but the response ceiling must remain large enough to contain the configured maximum page, search, code, metadata, relationship, and envelope payload. Incoherent policies fail during construction before any resident state exists.
 
 ## Resident admission
 
@@ -92,6 +96,8 @@ The runtime applies these rules:
 3. plan per-conversation page/search replacement;
 4. plan deterministic oldest-record eviction for aggregate limits;
 5. apply the plan only after the resulting counts and bytes satisfy every policy.
+
+The policy-coherence check guarantees that every accepted stateful success payload fits inside the configured response envelope. A page or search admission therefore cannot succeed internally and then return `response-too-large` with hidden retained state.
 
 Usage reports include resident conversation count, record count, entry count, text code units, serialized bytes, accounted bytes, in-flight requests, and queued pages.
 
