@@ -2,6 +2,8 @@
 import { constants, lstat, open, opendir } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve, sep } from "node:path";
 
+const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
+
 export const DEFAULT_BASELINE_INPUT_LIMITS = Object.freeze({
   maxDepth: 4,
   maxDirectories: 16,
@@ -168,14 +170,14 @@ async function readBounded(entry, maxFileBytes) {
     while (true) {
       const remaining = maxFileBytes + 1 - total;
       if (remaining <= 0) throw new BaselineInputBundleError("file-too-large", entry.entryIndex);
-      const buffer = Buffer.allocUnsafe(Math.min(65_536, remaining));
+      const buffer = Buffer.alloc(Math.min(65_536, remaining));
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
       if (bytesRead === 0) break;
       total += bytesRead;
       chunks.push(buffer.subarray(0, bytesRead));
     }
     if (total !== details.size) throw new BaselineInputBundleError("entry-changed", entry.entryIndex);
-    return Buffer.concat(chunks, total).toString("utf8");
+    return Buffer.concat(chunks, total);
   } catch (error) {
     if (error instanceof BaselineInputBundleError) throw error;
     throw new BaselineInputBundleError("entry-unreadable", entry.entryIndex);
@@ -186,7 +188,13 @@ async function readBounded(entry, maxFileBytes) {
 
 export async function readBaselineJsonEntry(entry, options = {}) {
   const limits = limitsWithDefaults(options.limits);
-  const text = await readBounded(entry, limits.maxFileBytes);
+  const bytes = await readBounded(entry, limits.maxFileBytes);
+  let text;
+  try {
+    text = UTF8_DECODER.decode(bytes);
+  } catch {
+    throw new BaselineInputBundleError("invalid-utf8", entry.entryIndex);
+  }
   try {
     return JSON.parse(text);
   } catch {
