@@ -176,14 +176,20 @@ function validateSuccessPayload(
 export function parseCompanionResponse(
   input: unknown,
   maxSerializedBytes = 2_097_152,
+  maxStringCodeUnits = 262_144,
 ): ValidationResult<CompanionResponseEnvelope> {
-  if (!Number.isSafeInteger(maxSerializedBytes) || maxSerializedBytes < 1) {
-    return { ok: false, issues: [issue("$", "response-policy-invalid", "Response byte policy is invalid.")] };
+  if (
+    !Number.isSafeInteger(maxSerializedBytes) ||
+    maxSerializedBytes < 1 ||
+    !Number.isSafeInteger(maxStringCodeUnits) ||
+    maxStringCodeUnits < 1
+  ) {
+    return { ok: false, issues: [issue("$", "response-policy-invalid", "Response resource policy is invalid.")] };
   }
   const measured = measureBoundedJson(input, {
     maxDepth: 64,
     maxNodes: 100_000,
-    maxStringCodeUnits: 262_144,
+    maxStringCodeUnits,
     maxSerializedBytes,
   });
   if (!measured.ok) {
