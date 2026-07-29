@@ -6,7 +6,7 @@ It keeps the authenticated website and browser session as the source of truth, b
 
 ## Status
 
-Elatura is in **M0: evidence and observation**. The current code does not modify ChatGPT responses. It provides:
+Elatura is in **M0: evidence and observation**. The current Firefox code passes ChatGPT responses through unchanged. The repository provides:
 
 - an observe-only Firefox extension that passes response bytes through unchanged
 - explicit benchmark runs with content-free JSON export
@@ -16,13 +16,15 @@ Elatura is in **M0: evidence and observation**. The current code does not modify
 - explicit schema-drift and adapter-version compatibility rules
 - a conservative ChatGPT graph-shape inspector
 - deterministic oversized synthetic fixtures and malformed graph families
-- generic active-path selection planning without response materialization
+- generic active-path selection planning
+- a pure fail-open controller and synthetic-only snapshot materialization with independent output validation
 - identifier-free, bounded structural fingerprints
 - a versioned synthetic-only in-memory cache with isolation, expiry, invalidation, retention, deletion, and corruption recovery
 - provenance and read-only representation contracts for search, timelines, branch navigation, code extraction, and jump-back
 - a synthetic-only ChatGPT alternate representation
-- privacy-validating batch analysis for observation reports
-- property and compatibility tests
+- privacy-validating benchmark analysis, cohort comparison, and live-baseline session preflight
+- locked transform emergency controls and non-authorizing session-local opt-in intent
+- property, compatibility, adversarial, and production-path tests
 
 Private transcript persistence, private alternate-surface bridging, and live response transformation remain disabled behind the project gates.
 
@@ -39,8 +41,10 @@ Requirements:
 - Node.js 22 or newer
 - Firefox Developer Edition or Firefox Nightly recommended for temporary extension loading
 
+Install exactly the frozen dependency graph and run the full repository gate:
+
 ```bash
-npm install
+npm ci --ignore-scripts
 npm run check
 npm run run:firefox
 ```
@@ -62,17 +66,21 @@ See `docs/offline-development.md` for the boundary between safe synthetic work a
 
 - `docs/adapter-contracts.md` — capability declarations, staged methods, conformance, schema drift, and version compatibility
 - `docs/cache-and-provenance.md` — cache envelopes, isolation, content identity, freshness, retention, recovery, provenance, and protection hooks
+- `docs/fail-open-pipeline.md` — pure orchestration, resource budgets, diagnostics, and synthetic materialization
 - `docs/second-workload-rubric.md` — evidence-based selection criteria for the second real adapter
+- `docs/transform-safety.md` — disabled-by-default transform controls and authorization boundaries
+- `docs/live-baseline-runbook.md` — canonical content-free M0 evidence protocol
 
 ## Repository map
 
 ```text
-extension/firefox/        observe-only Firefox transport and tested report export
-packages/core/            generic runtime, adapter, cache, provenance, representation, fingerprint, and selection contracts
-packages/adapter-chatgpt/ ChatGPT-specific graph inspection and synthetic representation
+extension/firefox/        observe-only Firefox transport, reports, and locked safety controls
+packages/core/            generic runtime, orchestration, adapter, cache, provenance, representation, fingerprint, and selection contracts
+packages/adapter-chatgpt/ ChatGPT-specific graph inspection, synthetic transformation, and synthetic representation
 packages/fixtures/        deterministic synthetic and malformed graph workloads
-benchmarks/               report privacy validation, parsing, integrity, and batch analysis
-docs/                     architecture, privacy, contracts, measurement, and development decisions
+benchmarks/               report validation, integrity, cohort analysis, session planning, and readiness
+scripts/                  security, release, benchmark, fixture, and evidence tooling
+docs/                     architecture, privacy, contracts, measurement, release, and development decisions
 ```
 
 ## License
