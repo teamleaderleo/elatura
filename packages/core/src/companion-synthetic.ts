@@ -14,16 +14,31 @@ import { validateAndMeasureReadOnlyRepresentation } from "./representation.js";
 const ADAPTER_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const MAX_COMPANION_REFERENCE_CODE_UNITS = 4_096;
 
+function dataProperty(value: object, key: string): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  return descriptor && "value" in descriptor && !descriptor.get && !descriptor.set
+    ? descriptor.value
+    : undefined;
+}
+
 function validAdapterIdentity(value: unknown): boolean {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  const identity = value as Record<string, unknown>;
-  return (
-    Object.keys(identity).length === 2 &&
-    typeof identity.id === "string" &&
-    ADAPTER_TOKEN.test(identity.id) &&
-    typeof identity.version === "string" &&
-    ADAPTER_TOKEN.test(identity.version)
-  );
+  try {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    const keys = Object.keys(value);
+    if (keys.length !== 2 || !keys.includes("id") || !keys.includes("version")) return false;
+    const id = dataProperty(value, "id");
+    const version = dataProperty(value, "version");
+    return (
+      typeof id === "string" &&
+      ADAPTER_TOKEN.test(id) &&
+      typeof version === "string" &&
+      ADAPTER_TOKEN.test(version)
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
