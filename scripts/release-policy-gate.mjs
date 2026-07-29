@@ -80,26 +80,36 @@ assert.match(amoMetadata.version?.approval_notes ?? "", /observe-only/iu);
 assert.match(amoMetadata.version?.approval_notes ?? "", /build instructions/iu);
 
 const scripts = Object.entries(packageJson.scripts ?? {});
-const ordinaryAutomation = `${scripts.map(([name, value]) => `${name}: ${value}`).join("\n")}\n${workflows}`;
+const packageAutomation = scripts.map(([name, value]) => `${name}: ${value}`).join("\n");
 for (const forbidden of [
   /\bweb-ext\s+sign\b/iu,
   /\bweb-ext\s+submit\b/iu,
   /\bnpm\s+publish\b/iu,
   /\bWEB_EXT_API_(?:KEY|SECRET)\b/u,
   /\bAMO_JWT_(?:ISSUER|SECRET)\b/u,
-  /\b(?:contents|packages):\s*write\b/iu,
 ]) {
   assert.doesNotMatch(
-    ordinaryAutomation,
+    `${packageAutomation}\n${workflows}`,
     forbidden,
     "Ordinary scripts and pull-request workflows must not sign, publish, or receive release credentials.",
   );
 }
+assert.doesNotMatch(
+  workflows,
+  /(?:^|\n)\s*(?:permissions:\s*write-all|[A-Za-z][A-Za-z-]*:\s*write)\b/iu,
+  "Ordinary pull-request workflows must remain completely read-only.",
+);
+assert.doesNotMatch(
+  workflows,
+  /\$\{\{\s*secrets\./u,
+  "Ordinary pull-request workflows must not receive repository or environment secrets.",
+);
 
 assert.match(packageJson.scripts?.["release:candidate:unsigned"] ?? "", /create-firefox-release-candidate/u);
 assert.match(packageJson.scripts?.["release:candidate:smoke"] ?? "", /--channel=unlisted/u);
 assert.match(candidateScript, /deterministicUnsignedBuild:\s*true/u);
 assert.match(candidateScript, /mozillaSigned:\s*false/u);
+assert.match(candidateScript, /signedClaimAllowed:\s*false/u);
 assert.match(candidateScript, /installableClaimAllowed:\s*false/u);
 assert.match(candidateScript, /git[\s\S]*archive/u);
 assert.match(candidateScript, /buildUnsignedTwice/u);
