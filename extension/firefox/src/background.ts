@@ -15,6 +15,7 @@ import {
   BUNDLED_ADAPTER_DENYLIST,
   createTransformSafetyController,
 } from "./transform-safety.js";
+import { clearAllVolatileTransformState } from "./volatile-transform-state.js";
 
 const MAX_PATH_CLASSES = 256;
 
@@ -34,14 +35,9 @@ type BackgroundPageMetric = {
   recordedAt: string;
 };
 
-function clearVolatileTransformState(): void {
-  // The observe-only build links no transform module. This callback is the
-  // mandatory clearing boundary future transform integration must consume.
-}
-
 const transformSafety = createTransformSafetyController({
   denylist: BUNDLED_ADAPTER_DENYLIST,
-  clearVolatileTransformState,
+  clearVolatileTransformState: clearAllVolatileTransformState,
 });
 
 function idleState(): StoredObservationState {
