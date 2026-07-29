@@ -31,6 +31,7 @@ export const RESPONSE_BINDING_REASON_CODES = [
   "pipeline-invalid",
   "pipeline-exception",
   "serialize-invalid",
+  "output-byte-limit-exceeded",
   "serialize-exception",
 ] as const;
 export type ResponseBindingReasonCode = (typeof RESPONSE_BINDING_REASON_CODES)[number];
@@ -54,11 +55,13 @@ export type ResponseBindingCancellation = Readonly<{ aborted: boolean }>;
 export type ResponseBindingLimits = Readonly<{
   maxChunks: number;
   maxBodyBytes: number;
+  maxOutputBytes: number;
 }>;
 
 export const DEFAULT_RESPONSE_BINDING_LIMITS: ResponseBindingLimits = Object.freeze({
   maxChunks: 16_384,
   maxBodyBytes: 256 * 1024 * 1024,
+  maxOutputBytes: 256 * 1024 * 1024,
 });
 
 export type ResponseBindingDependencies<TMetadata, TDecoded, TOutput> = Readonly<{
@@ -107,9 +110,13 @@ function fixedInteger(value: unknown, minimum: number): number | null {
 function resolveLimits(value: Partial<ResponseBindingLimits> | undefined): ResponseBindingLimits | null {
   const maxChunks = fixedInteger(value?.maxChunks ?? DEFAULT_RESPONSE_BINDING_LIMITS.maxChunks, 0);
   const maxBodyBytes = fixedInteger(value?.maxBodyBytes ?? DEFAULT_RESPONSE_BINDING_LIMITS.maxBodyBytes, 0);
-  return maxChunks === null || maxBodyBytes === null
+  const maxOutputBytes = fixedInteger(
+    value?.maxOutputBytes ?? DEFAULT_RESPONSE_BINDING_LIMITS.maxOutputBytes,
+    0,
+  );
+  return maxChunks === null || maxBodyBytes === null || maxOutputBytes === null
     ? null
-    : Object.freeze({ maxChunks, maxBodyBytes });
+    : Object.freeze({ maxChunks, maxBodyBytes, maxOutputBytes });
 }
 
 function cancellationAborted(value: ResponseBindingCancellation): boolean | null {
@@ -174,10 +181,6 @@ function capturePipelineDecision<TOutput>(value: unknown): ResponsePipelineDecis
     : null;
 }
 
-function originalChunks(chunks: readonly Uint8Array[]): readonly Uint8Array[] {
-  return Object.freeze([...chunks]);
-}
-
 function makeDiagnostic(
   decision: "pass-through" | "transformed",
   stage: ResponseBindingStage,
@@ -209,7 +212,7 @@ function passThrough(
 ): ResponseBindingDecision {
   return Object.freeze({
     kind: "pass-through",
-    chunks: originalChunks(chunks),
+    chunks,
     diagnostic: makeDiagnostic(
       "pass-through",
       stage,
@@ -338,6 +341,15 @@ export function prepareResponseBinding<TMetadata, TDecoded, TOutput>(
     const candidate = captured.serialize(pipelineDecision.output);
     if (!isStandardByteChunk(candidate)) {
       return passThrough(chunks, "serialize", "serialize-invalid", completed, inputByteCount);
+    }
+    if (candidate.byteLength > limits.maxOutputBytes) {
+      return passThrough(
+        chunks,
+        "serialize",
+        "output-byte-limit-exceeded",
+        completed,
+        inputByteCount,
+      );
     }
     serialized = candidate.slice();
   } catch {
