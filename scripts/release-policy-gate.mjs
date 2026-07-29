@@ -68,11 +68,12 @@ assert.deepEqual(policy.credentials.requiredNames, ["WEB_EXT_API_KEY", "WEB_EXT_
 assert.equal(policy.sourceReview.required, true);
 assert.equal(policy.sourceReview.archiveKind, "human-readable-source");
 assert.equal(policy.sourceReview.buildInstructions, "docs/amo-build-instructions.md");
-assert.equal(policy.candidate.schemaVersion, 1);
+assert.equal(policy.candidate.schemaVersion, 2);
 assert.equal(policy.candidate.kind, "unsigned-firefox-release-candidate");
 assert.equal(policy.candidate.installableClaimAllowed, false);
 assert.equal(policy.candidate.signedClaimAllowed, false);
 assert.equal(policy.candidate.deterministicBuildCheckRequired, true);
+assert.equal(policy.candidate.adapterCompatibilityRegistryRequired, true);
 
 assert.equal(amoMetadata.version?.license, "MPL-2.0");
 assert.equal(typeof amoMetadata.summary?.["en-US"], "string");
@@ -108,6 +109,8 @@ assert.doesNotMatch(
 assert.match(packageJson.scripts?.["release:candidate:unsigned"] ?? "", /create-firefox-release-candidate/u);
 assert.match(packageJson.scripts?.["release:candidate:smoke"] ?? "", /--channel=unlisted/u);
 assert.match(candidateScript, /deterministicUnsignedBuild:\s*true/u);
+assert.match(candidateScript, /adapterCompatibilityRegistry/u);
+assert.match(candidateScript, /adapterCompatibilityRegistryVerified/u);
 assert.match(candidateScript, /mozillaSigned:\s*false/u);
 assert.match(candidateScript, /signedClaimAllowed:\s*false/u);
 assert.match(candidateScript, /installableClaimAllowed:\s*false/u);
@@ -117,5 +120,5 @@ assert.doesNotMatch(candidateScript, /["'`]sign["'`]/u);
 assert.doesNotMatch(candidateScript, /https?:\/\//u);
 
 process.stdout.write(
-  "Firefox release policy gate passed: unsigned candidates only, deterministic source/package evidence, and no signing credentials or publishing path in ordinary CI.\n",
+  "Firefox release policy gate passed: unsigned candidates only, deterministic source/package/adapter evidence, and no signing credentials or publishing path in ordinary CI.\n",
 );
