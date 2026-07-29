@@ -196,6 +196,8 @@ export const DEFAULT_COMPANION_WORKING_SET_POLICY: CompanionWorkingSetPolicy = O
 });
 
 const TOKEN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u;
+const CURSOR_TOKEN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,511}$/u;
+const RESPONSE_ENVELOPE_RESERVE_BYTES = 65_536;
 const OPERATIONS = new Set<CompanionOperation>([
   "list",
   "open",
@@ -236,6 +238,10 @@ export function isCompanionToken(value: unknown): value is string {
   return typeof value === "string" && TOKEN.test(value);
 }
 
+export function isCompanionCursorToken(value: unknown): value is string {
+  return typeof value === "string" && CURSOR_TOKEN.test(value);
+}
+
 function positiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
@@ -248,6 +254,31 @@ function boundedString(value: unknown, maximum: number): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= maximum;
 }
 
+function safeProduct(name: string, value: number, multiplier: number): number {
+  const product = value * multiplier;
+  if (!Number.isSafeInteger(product)) {
+    throw new RangeError(`${name} produces an unsafe response-size bound.`);
+  }
+  return product;
+}
+
+function minimumResponseSerializedBytes(policy: CompanionWorkingSetPolicy): number {
+  const payloadBounds = [
+    policy.maxPageSerializedBytes,
+    policy.maxSearchSerializedBytes,
+    safeProduct("maxCodeResponseCodeUnits", policy.maxCodeResponseCodeUnits, 6),
+    safeProduct("maxPageEntryTextCodeUnits", policy.maxPageEntryTextCodeUnits, 6),
+    safeProduct("maxResourceMetadataRecords", policy.maxResourceMetadataRecords, 2_048),
+    safeProduct("maxRelationshipIds", policy.maxRelationshipIds, 3_072),
+  ];
+  const maximumPayload = Math.max(...payloadBounds);
+  const required = maximumPayload + RESPONSE_ENVELOPE_RESERVE_BYTES;
+  if (!Number.isSafeInteger(required)) {
+    throw new RangeError("Companion response-size policy is unsafe.");
+  }
+  return required;
+}
+
 export function resolveCompanionWorkingSetPolicy(
   input: Partial<CompanionWorkingSetPolicy> | undefined,
 ): CompanionWorkingSetPolicy {
@@ -256,6 +287,12 @@ export function resolveCompanionWorkingSetPolicy(
     if (!Number.isSafeInteger(value) || value < 1) {
       throw new RangeError(`${name} must be a positive safe integer.`);
     }
+  }
+  const minimumResponse = minimumResponseSerializedBytes(resolved);
+  if (resolved.maxResponseSerializedBytes < minimumResponse) {
+    throw new RangeError(
+      `maxResponseSerializedBytes must be at least ${minimumResponse} for the configured payload limits.`,
+    );
   }
   return Object.freeze(resolved);
 }
@@ -273,7 +310,7 @@ function parsePayload(
   switch (operation) {
     case "list":
       exact(["cursor", "limit"]);
-      if (!(input.cursor === null || isCompanionToken(input.cursor))) {
+      if (!(input.cursor === null || isCompanionCursorToken(input.cursor))) {
         issues.push(issue("$.payload.cursor", "invalid-cursor", "Expected null or a bounded cursor token."));
       }
       if (!positiveInteger(input.limit)) issues.push(issue("$.payload.limit", "invalid-limit", "Expected a positive integer."));
@@ -290,7 +327,7 @@ function parsePayload(
       break;
     case "page":
       exact(["conversationId", "cursor", "direction", "limit"]);
-      if (!isCompanionToken(input.conversationId) || !isCompanionToken(input.cursor)) {
+      if (!isCompanionToken(input.conversationId) || !isCompanionCursorToken(input.cursor)) {
         issues.push(issue("$.payload", "invalid-id", "Expected bounded conversation and cursor ids."));
       }
       if (input.direction !== "before" && input.direction !== "after") {
