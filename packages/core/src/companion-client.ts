@@ -11,16 +11,56 @@ export class BoundedCompanionClientState {
   readonly #policy: CompanionClientPolicy; #generation = 0; #conversations: CompanionConversationMetadata[] = []; #active: CompanionConversationMetadata | null = null; #entries: CompanionEntryView[] = []; #search: CompanionSearchResult[] = []; #code: CompanionCodeResult | null = null;
   constructor(policy?: Partial<CompanionClientPolicy>) { this.#policy = resolvePolicy(policy); }
   apply(delivered: DeliveredCompanionResponse): boolean {
-    const parsed = parseCompanionResponse(delivered.response, { maxResponseSerializedBytes: this.#policy.maxSerializedBytes }); if (!parsed.ok || parsed.value.generation < this.#generation) return false; const response = parsed.value;
-    const previous = [this.#generation, this.#conversations, this.#active, this.#entries, this.#search, this.#code] as const; this.#generation = response.generation;
-    if (!response.ok) { if (["session-revoked", "conversation-closed", "source-expired"].includes(response.code)) { this.clear(); this.#generation = response.generation; } return false; }
-    if (response.operation === "close" || response.operation === "revoke") { this.clear(); this.#generation = response.generation; return true; }
-    if (!isCompanionRecord(response.data)) return false;
-    if (response.operation === "list") { const values = response.data.conversations; if (!Array.isArray(values) || values.length > this.#policy.maxConversationMetadata) return false; this.#conversations = values.map((value) => ({ ...(value as CompanionConversationMetadata) })); }
-    if (response.operation === "open" || response.operation === "page") { const page = response.data as unknown as CompanionTimelinePage; if (!Array.isArray(page.entries) || page.entries.length > this.#policy.maxEntries) return false; this.#active = { ...page.conversation }; this.#entries = page.entries.map((entry) => ({ ...entry, childIds: [...entry.childIds], codeLanguages: [...entry.codeLanguages] })); this.#search = []; this.#code = null; }
-    if (response.operation === "search") { const values = response.data.results; if (!Array.isArray(values) || values.length > this.#policy.maxSearchResults) return false; this.#search = values.map((value) => ({ ...(value as CompanionSearchResult) })); }
-    if (response.operation === "code") { const value = response.data as unknown as CompanionCodeResult; if (typeof value.text !== "string" || value.text.length > this.#policy.maxCodeTextCodeUnits) return false; this.#code = { ...value }; }
-    if (this.measure().ok) return true; [this.#generation, this.#conversations, this.#active, this.#entries, this.#search, this.#code] = previous; return false;
+    const parsed = parseCompanionResponse(delivered.response, { maxResponseSerializedBytes: this.#policy.maxSerializedBytes });
+    if (!parsed.ok || parsed.value.generation < this.#generation) return false;
+    const response = parsed.value;
+    const previous = [this.#generation, this.#conversations, this.#active, this.#entries, this.#search, this.#code] as const;
+    const reject = (): false => {
+      [this.#generation, this.#conversations, this.#active, this.#entries, this.#search, this.#code] = previous;
+      return false;
+    };
+    this.#generation = response.generation;
+    if (!response.ok) {
+      if (["session-revoked", "conversation-closed", "source-expired"].includes(response.code)) {
+        this.clear();
+        this.#generation = response.generation;
+      }
+      return false;
+    }
+    if (response.operation === "close" || response.operation === "revoke") {
+      this.clear();
+      this.#generation = response.generation;
+      return true;
+    }
+    try {
+      if (!isCompanionRecord(response.data)) return reject();
+      if (response.operation === "list") {
+        const values = response.data.conversations;
+        if (!Array.isArray(values) || values.length > this.#policy.maxConversationMetadata) return reject();
+        this.#conversations = values.map((value) => ({ ...(value as CompanionConversationMetadata) }));
+      }
+      if (response.operation === "open" || response.operation === "page") {
+        const page = response.data as unknown as CompanionTimelinePage;
+        if (!isCompanionRecord(page.conversation) || !Array.isArray(page.entries) || page.entries.length > this.#policy.maxEntries) return reject();
+        this.#active = { ...page.conversation };
+        this.#entries = page.entries.map((entry) => ({ ...entry, childIds: [...entry.childIds], codeLanguages: [...entry.codeLanguages] }));
+        this.#search = [];
+        this.#code = null;
+      }
+      if (response.operation === "search") {
+        const values = response.data.results;
+        if (!Array.isArray(values) || values.length > this.#policy.maxSearchResults) return reject();
+        this.#search = values.map((value) => ({ ...(value as CompanionSearchResult) }));
+      }
+      if (response.operation === "code") {
+        const value = response.data as unknown as CompanionCodeResult;
+        if (typeof value.text !== "string" || value.text.length > this.#policy.maxCodeTextCodeUnits) return reject();
+        this.#code = { ...value };
+      }
+      return this.measure().ok ? true : reject();
+    } catch {
+      return reject();
+    }
   }
   clear(): void { this.#conversations = []; this.#active = null; this.#entries = []; this.#search = []; this.#code = null; }
   snapshot(): Readonly<{ generation: number; conversations: readonly CompanionConversationMetadata[]; activeConversation: CompanionConversationMetadata | null; entries: readonly CompanionEntryView[]; searchResults: readonly CompanionSearchResult[]; code: CompanionCodeResult | null }> { return Object.freeze({ generation: this.#generation, conversations: Object.freeze(this.#conversations.map((value) => Object.freeze({ ...value }))), activeConversation: this.#active ? Object.freeze({ ...this.#active }) : null, entries: Object.freeze(this.#entries.map((value) => Object.freeze({ ...value, childIds: Object.freeze([...value.childIds]), codeLanguages: Object.freeze([...value.codeLanguages]) }))), searchResults: Object.freeze(this.#search.map((value) => Object.freeze({ ...value }))), code: this.#code ? Object.freeze({ ...this.#code }) : null }); }
