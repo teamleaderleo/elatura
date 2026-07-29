@@ -112,37 +112,6 @@ function parseUsage(input: unknown, issues: ValidationIssue[]): CompanionUsage |
   });
 }
 
-function addAbsentFields(value: Record<string, unknown>, fields: readonly string[]): void {
-  for (const field of fields) {
-    if (!(field in value)) value[field] = undefined;
-  }
-}
-
-function normalizeSuccessPayload(
-  operation: CompanionOperation | "invalid",
-  payload: unknown,
-): unknown {
-  const cloned = structuredClone(payload);
-  if (operation === "open" || operation === "page") {
-    if (isRecord(cloned) && Array.isArray(cloned.entries)) {
-      for (const entry of cloned.entries) {
-        if (isRecord(entry)) addAbsentFields(entry, ["label", "text", "jumpBackReference"]);
-      }
-    }
-  } else if (operation === "search") {
-    if (isRecord(cloned) && Array.isArray(cloned.results)) {
-      for (const result of cloned.results) {
-        if (isRecord(result)) addAbsentFields(result, ["label"]);
-      }
-    }
-  } else if (operation === "code") {
-    if (isRecord(cloned) && isRecord(cloned.block)) {
-      addAbsentFields(cloned.block, ["language"]);
-    }
-  }
-  return cloned;
-}
-
 export function parseCompanionResponse(
   input: unknown,
   maxSerializedBytes = 2_097_152,
@@ -213,16 +182,15 @@ export function parseCompanionResponse(
       typeof input.ok !== "boolean"
     ) return { ok: false, issues };
 
-    const operation = input.operation as CompanionOperation | "invalid";
     return {
       ok: true,
       value: {
         version: COMPANION_PROTOCOL_VERSION,
         sessionId: input.sessionId,
         requestId: input.requestId,
-        operation,
+        operation: input.operation as CompanionOperation | "invalid",
         ok: input.ok,
-        payload: input.ok ? normalizeSuccessPayload(operation, input.payload) : null,
+        payload: structuredClone(input.payload),
         errorCode: input.errorCode as CompanionErrorCode | null,
         usage,
       },
