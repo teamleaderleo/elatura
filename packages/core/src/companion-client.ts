@@ -2,6 +2,7 @@
 import type { AdapterIdentity } from "./adapter-contract.js";
 import {
   isCompanionCursorToken,
+  isCompanionEntryId,
   type CompanionConversationMetadata,
   type CompanionErrorCode,
   type CompanionOperation,
@@ -86,6 +87,15 @@ function exactKeys(
 
 function token(value: unknown): value is string {
   return typeof value === "string" && TOKEN.test(value);
+}
+
+function boundedClientString(value: unknown, maximum = 512): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= maximum &&
+    !/[\u0000-\u001f\u007f]/u.test(value)
+  );
 }
 
 function nonNegativeInteger(value: unknown): value is number {
@@ -206,11 +216,11 @@ function parsePageEntry(
     issues,
   );
   if (
-    !token(input.id) ||
-    !(input.parentId === null || token(input.parentId)) ||
+    !isCompanionEntryId(input.id) ||
+    !(input.parentId === null || isCompanionEntryId(input.parentId)) ||
     !nonNegativeInteger(input.childCount) ||
     !nonNegativeInteger(input.sequence) ||
-    !token(input.kind) ||
+    !boundedClientString(input.kind) ||
     (input.label !== undefined && typeof input.label !== "string") ||
     (input.text !== undefined && typeof input.text !== "string") ||
     typeof input.textTruncated !== "boolean" ||
@@ -341,7 +351,7 @@ function parseSearch(
     }
     exactKeys(candidate, ["entryId", "sequence", "label", "snippet"], path, issues);
     if (
-      !token(candidate.entryId) ||
+      !isCompanionEntryId(candidate.entryId) ||
       !nonNegativeInteger(candidate.sequence) ||
       (candidate.label !== undefined && typeof candidate.label !== "string") ||
       typeof candidate.snippet !== "string"
@@ -379,7 +389,7 @@ function parseCode(
   if (
     !token(input.conversationId) ||
     !nonNegativeInteger(input.generation) ||
-    !token(input.entryId) ||
+    !isCompanionEntryId(input.entryId) ||
     !nonNegativeInteger(input.blockIndex) ||
     !isRecord(input.block)
   ) {
