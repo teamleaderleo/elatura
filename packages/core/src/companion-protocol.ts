@@ -13,7 +13,8 @@ export type CompanionPolicy = Readonly<{
   maxChildIdsPerEntry: number; maxConversationList: number; maxSearchQueryCodeUnits: number;
   maxSearchResults: number; maxSnippetCodeUnits: number; maxNavigationEntries: number;
   maxCodeBlockTextCodeUnits: number; maxPendingPageWork: number; maxResidentPageBytes: number;
-  maxAggregateResidentPageBytes: number; maxResponseSerializedBytes: number; maxResponseNodes: number;
+  maxAggregateResidentPageBytes: number; maxRequestSerializedBytes: number;
+  maxResponseSerializedBytes: number; maxResponseNodes: number;
 }>;
 export const DEFAULT_COMPANION_POLICY: CompanionPolicy = Object.freeze({
   maxSessions: 8, maxRevokedSessions: 64, maxResidentConversations: 3, maxResidentPages: 12,
@@ -21,7 +22,8 @@ export const DEFAULT_COMPANION_POLICY: CompanionPolicy = Object.freeze({
   maxConversationList: 256, maxSearchQueryCodeUnits: 1_024, maxSearchResults: 50,
   maxSnippetCodeUnits: 512, maxNavigationEntries: 128, maxCodeBlockTextCodeUnits: 131_072,
   maxPendingPageWork: 8, maxResidentPageBytes: 1_048_576,
-  maxAggregateResidentPageBytes: 8_388_608, maxResponseSerializedBytes: 1_048_576,
+  maxAggregateResidentPageBytes: 8_388_608, maxRequestSerializedBytes: 65_536,
+  maxResponseSerializedBytes: 1_048_576,
   maxResponseNodes: 100_000,
 });
 export type SyntheticCompanionSource = Readonly<{ conversationId: string; label?: string; representation: unknown; adapterPolicy: AdapterVersionPolicy }>;
@@ -75,6 +77,13 @@ export function makeCompanionCursor(generation: number, start: number): string {
 
 export function parseCompanionRequest(input: unknown, inputPolicy?: Partial<CompanionPolicy>): ValidationResult<CompanionRequest> {
   let p: CompanionPolicy; try { p = resolveCompanionPolicy(inputPolicy); } catch { return { ok: false, issues: [companionIssue("$.policy", "companion-policy-invalid", "Companion policy is invalid.")] }; }
+  const measured = measureBoundedJson(input, {
+    maxDepth: 8,
+    maxNodes: 64,
+    maxStringCodeUnits: Math.max(p.maxSearchQueryCodeUnits, 512),
+    maxSerializedBytes: p.maxRequestSerializedBytes,
+  });
+  if (!measured.ok) return measured;
   try {
     if (!isCompanionRecord(input)) return { ok: false, issues: [companionIssue("$", "companion-request-not-object", "Expected a request object.")] };
     const issues: ValidationIssue[] = []; const op = input.operation;
