@@ -9,7 +9,6 @@ import {
 } from "./benchmark.js";
 import {
   parseObservationReport,
-  type ObservationReport,
   type ObservationReportSchemaVersion,
 } from "./observation.js";
 
@@ -133,13 +132,6 @@ function canonicalDate(value: unknown, path: string): string {
   return value;
 }
 
-function positiveInteger(value: unknown, path: string): number {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
-    throw new TypeError(`${path} must be a positive integer.`);
-  }
-  return value;
-}
-
 function nonNegativeInteger(value: unknown, path: string): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
     throw new TypeError(`${path} must be a non-negative integer.`);
@@ -152,6 +144,11 @@ function enumeration<T extends string>(value: unknown, values: readonly T[], pat
     throw new TypeError(`${path} has an unsupported value.`);
   }
   return value as T;
+}
+
+function observationSchemaVersion(value: unknown, path: string): ObservationReportSchemaVersion {
+  if (value !== 2 && value !== 3) throw new TypeError(`${path} must be 2 or 3.`);
+  return value;
 }
 
 function exactFalse(value: unknown, path: string): false {
@@ -182,9 +179,8 @@ export function createBenchmarkSessionPlan(options: BenchmarkSessionPlanOptions)
     options.observerExtensionVersion,
     "$options.observerExtensionVersion",
   );
-  const observerReportSchemaVersion = enumeration(
+  const observerReportSchemaVersion = observationSchemaVersion(
     options.observerReportSchemaVersion,
-    [2, 3] as const,
     "$options.observerReportSchemaVersion",
   );
   const memoryMethod = enumeration(options.memoryMethod, MEMORY_METHODS, "$options.memoryMethod");
@@ -294,9 +290,8 @@ export function parseBenchmarkSessionPlan(input: unknown): BenchmarkSessionPlan 
     edgeVersion: token(browserVersions.edge, "$plan.browserVersions.edge"),
     firefoxVersion: token(browserVersions.firefox, "$plan.browserVersions.firefox"),
     observerExtensionVersion: token(observer.extensionVersion, "$plan.observer.extensionVersion"),
-    observerReportSchemaVersion: enumeration(
+    observerReportSchemaVersion: observationSchemaVersion(
       observer.reportSchemaVersion,
-      [2, 3] as const,
       "$plan.observer.reportSchemaVersion",
     ),
     memoryMethod: enumeration(root.memoryMethod, MEMORY_METHODS, "$plan.memoryMethod"),
