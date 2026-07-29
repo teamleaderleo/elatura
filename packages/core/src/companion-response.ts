@@ -23,6 +23,50 @@ const OPERATIONS = new Set<CompanionOperation | "invalid">([
   "invalid",
 ]);
 
+const SUCCESS_PAYLOAD_FIELDS: Readonly<Record<CompanionOperation, readonly string[]>> = Object.freeze({
+  list: ["items", "nextCursor"],
+  open: [
+    "conversationId",
+    "generation",
+    "cursor",
+    "hasBefore",
+    "hasAfter",
+    "freshness",
+    "adapter",
+    "provenance",
+    "entries",
+  ],
+  page: [
+    "conversationId",
+    "generation",
+    "cursor",
+    "hasBefore",
+    "hasAfter",
+    "freshness",
+    "adapter",
+    "provenance",
+    "entries",
+  ],
+  entry: ["conversationId", "generation", "entry", "freshness"],
+  code: ["conversationId", "generation", "entryId", "blockIndex", "block"],
+  search: ["conversationId", "generation", "freshness", "results", "truncated"],
+  navigate: [
+    "conversationId",
+    "generation",
+    "entryId",
+    "parentId",
+    "childIds",
+    "childCount",
+    "siblingIds",
+    "siblingCount",
+    "activePath",
+    "jumpBackReference",
+  ],
+  status: ["active", "sessionExpiresAt", "conversation", "usage"],
+  close: ["conversationId", "released", "generation"],
+  revoke: ["revoked"],
+});
+
 const ERROR_CODES = new Set<CompanionErrorCode>([
   "invalid-request",
   "session-mismatch",
@@ -112,6 +156,21 @@ function parseUsage(input: unknown, issues: ValidationIssue[]): CompanionUsage |
   });
 }
 
+function validateSuccessPayload(
+  operation: CompanionOperation,
+  payload: unknown,
+  issues: ValidationIssue[],
+): void {
+  if (!isRecord(payload)) {
+    issues.push(issue("$.payload", "invalid-success-payload", "Successful response payload must be an object."));
+    return;
+  }
+  exactKeys(payload, SUCCESS_PAYLOAD_FIELDS[operation], "$.payload", issues);
+  if (operation === "revoke" && payload.revoked !== true) {
+    issues.push(issue("$.payload.revoked", "invalid-revoke", "Revoke payload must confirm revocation."));
+  }
+}
+
 export function parseCompanionResponse(
   input: unknown,
   maxSerializedBytes = 2_097_152,
@@ -149,7 +208,11 @@ export function parseCompanionResponse(
     if (typeof input.requestId !== "string" || !TOKEN.test(input.requestId)) {
       issues.push(issue("$.requestId", "invalid-request-id", "Expected a bounded request id."));
     }
-    if (typeof input.operation !== "string" || !OPERATIONS.has(input.operation as CompanionOperation | "invalid")) {
+    const operation =
+      typeof input.operation === "string" && OPERATIONS.has(input.operation as CompanionOperation | "invalid")
+        ? (input.operation as CompanionOperation | "invalid")
+        : null;
+    if (!operation) {
       issues.push(issue("$.operation", "unsupported-operation", "Unsupported response operation."));
     }
     if (typeof input.ok !== "boolean") {
@@ -161,8 +224,10 @@ export function parseCompanionResponse(
       if (input.errorCode !== null) {
         issues.push(issue("$.errorCode", "unexpected-error-code", "Successful responses must not contain an error code."));
       }
-      if (input.payload === null || input.operation === "invalid") {
+      if (input.payload === null || operation === "invalid" || operation === null) {
         issues.push(issue("$.payload", "invalid-success-payload", "Successful responses require a payload and a valid operation."));
+      } else {
+        validateSuccessPayload(operation, input.payload, issues);
       }
     } else if (input.ok === false) {
       if (input.payload !== null) {
@@ -176,9 +241,9 @@ export function parseCompanionResponse(
     if (
       issues.length > 0 ||
       !usage ||
+      operation === null ||
       typeof input.sessionId !== "string" ||
       typeof input.requestId !== "string" ||
-      typeof input.operation !== "string" ||
       typeof input.ok !== "boolean"
     ) return { ok: false, issues };
 
@@ -188,7 +253,7 @@ export function parseCompanionResponse(
         version: COMPANION_PROTOCOL_VERSION,
         sessionId: input.sessionId,
         requestId: input.requestId,
-        operation: input.operation as CompanionOperation | "invalid",
+        operation,
         ok: input.ok,
         payload: structuredClone(input.payload),
         errorCode: input.errorCode as CompanionErrorCode | null,
