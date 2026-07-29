@@ -9,12 +9,15 @@ Elatura is still defining its safety and compatibility boundaries. Small, eviden
 3. **Measure before optimizing.** Performance claims require reproducible local reports.
 4. **Keep adapters isolated.** Application-specific assumptions belong in an adapter, not the generic core.
 5. **Preserve unknown data.** A transform must not silently discard fields or content types it does not understand.
+6. **Respect capability boundaries.** Adapter support, build authorization, and runtime reachability are separate decisions.
 
 ## Before opening a pull request
 
+Install exactly the committed dependency graph and run the complete repository gate:
+
 ```bash
-npm install
+npm ci --ignore-scripts
 npm run check
 ```
 
-Explain which measured problem the change addresses and how failure behaves.
+Explain which measured problem the change addresses, how failure behaves, which project gate applies, and which issue #12 handoff consumes the result.
