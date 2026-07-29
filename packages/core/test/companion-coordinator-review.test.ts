@@ -70,43 +70,23 @@ function page(response: CompanionResponseEnvelope): {
 }
 
 describe("coordinator companion boundary review", () => {
-  it("does not retain a page when the final response cannot fit", async () => {
-    const companion = new SyntheticCompanion({
-      sessionId: SESSION,
-      now: () => 150,
-      conversations: [
-        {
-          id: "atomic",
-          representation: representation(["entry-0", "entry-1", "entry-2"]),
-        },
-      ],
-      policy: {
-        maxResponseSerializedBytes: 256,
-      },
-    });
-
-    const response = await companion.dispatch(
-      request(
-        "open",
-        {
-          conversationId: "atomic",
-          anchorEntryId: null,
-          before: 1,
-          after: 0,
-        },
-        "atomic-open",
-      ),
-    );
-
-    expect(response).toMatchObject({ ok: false, errorCode: "response-too-large" });
-    expect(companion.usage).toMatchObject({
-      residentConversationCount: 0,
-      residentRecordCount: 0,
-      residentEntryCount: 0,
-      residentTextCodeUnits: 0,
-      residentSerializedBytes: 0,
-      residentAccountedBytes: 0,
-    });
+  it("rejects a response ceiling that cannot contain configured success payloads", () => {
+    expect(
+      () =>
+        new SyntheticCompanion({
+          sessionId: SESSION,
+          now: () => 150,
+          conversations: [
+            {
+              id: "atomic",
+              representation: representation(["entry-0", "entry-1", "entry-2"]),
+            },
+          ],
+          policy: {
+            maxResponseSerializedBytes: 256,
+          },
+        }),
+    ).toThrow(/maxResponseSerializedBytes/u);
   });
 
   it("accepts its own cursor for a maximum-length conversation id", async () => {
@@ -154,7 +134,7 @@ describe("coordinator companion boundary review", () => {
     expect(paged.ok).toBe(true);
   });
 
-  it("rejects a source whose entry ids cannot round-trip through the protocol", async () => {
+  it("round-trips representation entry ids beyond ordinary token length", async () => {
     const longEntryId = `e${"y".repeat(128)}`;
     const companion = new SyntheticCompanion({
       sessionId: SESSION,
@@ -182,7 +162,20 @@ describe("coordinator companion boundary review", () => {
       ),
     );
 
-    expect(opened).toMatchObject({ ok: false, errorCode: "conversation-corrupt" });
+    expect(opened.ok).toBe(true);
     expect(client.apply(opened).ok).toBe(true);
+    expect(client.snapshot.page?.entries[0]?.id).toBe(longEntryId);
+
+    const entry = await companion.dispatch(
+      request(
+        "entry",
+        {
+          conversationId: "long-entry-source",
+          entryId: longEntryId,
+        },
+        "long-entry-read",
+      ),
+    );
+    expect(entry.ok).toBe(true);
   });
 });
