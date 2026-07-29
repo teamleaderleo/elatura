@@ -30,7 +30,10 @@
       "emergencyControl": "local-disabled-by-default",
       "popupUnlock": false,
       "remotePolicy": false,
-      "adapterDenylist": "bundled-exact-id-version"
+      "adapterDenylist": "bundled-exact-id-version",
+      "localOptIn": "session-intent-only",
+      "optInPersistence": "none",
+      "optInAuthorizesTransform": false
     },
     "cache": {
       "enabled": false,
