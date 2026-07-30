@@ -126,16 +126,15 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
     const settled = response.errorCode === "request-cancelled"
       ? { ...response, usage: this.usage }
       : response;
-    if (
+    const normalized =
       settled.ok &&
       settled.operation === "status" &&
       isRecord(settled.payload)
-    ) {
-      return {
-        ...settled,
-        payload: { ...settled.payload, usage: settled.usage },
-      };
-    }
-    return settled;
+        ? {
+            ...settled,
+            payload: { ...settled.payload, usage: settled.usage },
+          }
+        : settled;
+    return structuredClone(normalized);
   }
 }
