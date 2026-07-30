@@ -168,18 +168,17 @@ type NormalizedOptions = Readonly<{
   now?: () => number;
 }>;
 
+const OPTION_KEYS = [
+  "sessionId",
+  "conversations",
+  "acceptedAdapters",
+  "policy",
+  "now",
+] as const;
+
 function copyOptions(value: unknown): NormalizedOptions | null {
   try {
-    if (
-      !plainRecord(value) ||
-      !exactOwnKeys(value, [
-        "sessionId",
-        "conversations",
-        "acceptedAdapters",
-        "policy",
-        "now",
-      ])
-    ) {
+    if (!plainRecord(value) || !exactOwnKeys(value, OPTION_KEYS)) {
       return null;
     }
     const sessionId = dataProperty(value, "sessionId");
@@ -230,6 +229,32 @@ function copyOptions(value: unknown): NormalizedOptions | null {
   }
 }
 
+type NestedOptionError = "acceptedAdapters" | "conversations";
+
+function nestedOptionError(value: unknown): NestedOptionError | null {
+  try {
+    if (!plainRecord(value) || !exactOwnKeys(value, OPTION_KEYS)) return null;
+    const sessionId = dataProperty(value, "sessionId");
+    const conversationsDescriptor = dataDescriptor(value, "conversations");
+    if (!isCompanionToken(sessionId) || !conversationsDescriptor) return null;
+    if (!copyConversationInputs(conversationsDescriptor.value)) return "conversations";
+
+    if (Object.prototype.hasOwnProperty.call(value, "acceptedAdapters")) {
+      const descriptor = dataDescriptor(value, "acceptedAdapters");
+      if (!descriptor) return null;
+      if (
+        descriptor.value !== undefined &&
+        !copyAdapterIdentities(descriptor.value)
+      ) {
+        return "acceptedAdapters";
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function copyDispatchOptions(value: unknown): SyntheticCompanionDispatchOptions | null {
   try {
     if (!plainRecord(value) || !exactOwnKeys(value, ["beforeCommit"])) return null;
@@ -263,6 +288,13 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
   constructor(options: SyntheticCompanionOptions) {
     const normalized = copyOptions(options);
     if (!normalized) {
+      const nestedError = nestedOptionError(options);
+      if (nestedError === "acceptedAdapters") {
+        throw new TypeError("acceptedAdapters must contain bounded adapter identities.");
+      }
+      if (nestedError === "conversations") {
+        throw new TypeError("conversations must contain bounded local source records.");
+      }
       throw new TypeError("SyntheticCompanion options must be bounded own-data records.");
     }
     const policy = resolveCompanionWorkingSetPolicy(normalized.policy);
