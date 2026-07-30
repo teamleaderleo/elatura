@@ -196,7 +196,7 @@ describe("pulse planning", () => {
     expect(repositoryBlocked.deferred[0]?.reason).toBe("repository-concurrency");
 
     const globalBlocked = planPulseDispatches(
-      [definition({ maxConcurrentJobs: 2 })],
+      [definition()],
       {
         now: 240_000,
         activeJobs: [
