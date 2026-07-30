@@ -99,8 +99,11 @@ describe("companion option admission", () => {
     });
 
     await expect(
-      companion.dispatch(options as unknown as CompanionRequestEnvelope, request),
-    ).rejects.toThrow();
+      companion.dispatch(
+        request,
+        options as unknown as Parameters<SyntheticCompanion["dispatch"]>[1],
+      ),
+    ).rejects.toThrow(/own-data records/u);
     expect(invoked).toBe(false);
   });
 });
