@@ -145,7 +145,8 @@ describe("companion own-field admission", () => {
       () => client.apply(response).ok,
     );
     expect(accepted).toBe(false);
-    expect(client.snapshot.pendingRequestCount).toBe(0);
+    expect(client.snapshot.pendingRequestCount).toBe(1);
     expect(client.snapshot.page).toBeNull();
+    expect(client.cancel("own-fields-open")).toBe(true);
   });
 });
