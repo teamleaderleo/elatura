@@ -38,6 +38,15 @@ function success(
   };
 }
 
+function statusPayload(): Record<string, unknown> {
+  return {
+    active: true,
+    sessionExpiresAt: 1_000,
+    conversation: null,
+    usage,
+  };
+}
+
 describe("companion success payload contracts", () => {
   it("requires exact operation payload fields", () => {
     expect(parseCompanionResponse(success("revoke", { revoked: false })).ok).toBe(false);
@@ -46,16 +55,72 @@ describe("companion success payload contracts", () => {
     ).toBe(false);
     expect(
       parseCompanionResponse(
-        success("status", {
-          active: true,
-          sessionExpiresAt: 1_000,
-          conversation: null,
-          usage,
-          hidden: "field",
-        }),
+        success("status", { ...statusPayload(), hidden: "field" }),
       ).ok,
     ).toBe(false);
     expect(parseCompanionResponse(success("revoke", { revoked: true })).ok).toBe(true);
+    expect(parseCompanionResponse(success("status", statusPayload())).ok).toBe(true);
+  });
+
+  it("rejects invalid typed values inside success payloads", () => {
+    expect(
+      parseCompanionResponse(
+        success("status", { ...statusPayload(), active: "yes" }),
+      ).ok,
+    ).toBe(false);
+    expect(
+      parseCompanionResponse(
+        success("status", {
+          ...statusPayload(),
+          usage: { ...usage, residentRecordCount: -1 },
+        }),
+      ).ok,
+    ).toBe(false);
+    expect(
+      parseCompanionResponse(
+        success("navigate", {
+          conversationId: "conversation",
+          generation: 0,
+          entryId: "entry-0",
+          parentId: null,
+          childIds: ["entry id with spaces"],
+          childCount: 1,
+          siblingIds: [],
+          siblingCount: 0,
+          activePath: ["entry-0"],
+          jumpBackReference: null,
+        }),
+      ).ok,
+    ).toBe(false);
+    expect(
+      parseCompanionResponse(
+        success("entry", {
+          conversationId: "conversation",
+          generation: 0,
+          entry: {
+            id: "entry-0",
+            parentId: null,
+            childCount: 0,
+            sequence: 0,
+            kind: "message",
+            textTruncated: false,
+            codeBlockCount: "zero",
+          },
+          freshness: "fresh",
+        }),
+      ).ok,
+    ).toBe(false);
+    expect(
+      parseCompanionResponse(
+        success("code", {
+          conversationId: "conversation",
+          generation: 0,
+          entryId: "entry-0",
+          blockIndex: 0,
+          block: { text: 42 },
+        }),
+      ).ok,
+    ).toBe(false);
   });
 
   it("does not clear client ownership for a rejected revoke payload", () => {
