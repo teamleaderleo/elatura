@@ -75,10 +75,17 @@ function copyConversationInput(value: unknown): SyntheticCompanionConversationIn
       return null;
     }
     const id = dataProperty(value, "id");
-    const representation = dataProperty(value, "representation");
-    return isCompanionToken(id) && representation !== undefined
-      ? { id, representation }
-      : null;
+    const representation = Object.getOwnPropertyDescriptor(value, "representation");
+    if (
+      !isCompanionToken(id) ||
+      !representation ||
+      !("value" in representation) ||
+      representation.get ||
+      representation.set
+    ) {
+      return null;
+    }
+    return { id, representation: representation.value };
   } catch {
     return null;
   }
