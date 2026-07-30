@@ -2,11 +2,13 @@
 import type { AdapterIdentity } from "./adapter-contract.js";
 import {
   isCompanionEntryId,
+  isCompanionToken,
   resolveCompanionWorkingSetPolicy,
   type CompanionResponseEnvelope,
 } from "./companion-protocol.js";
 import {
   SyntheticCompanion as UncheckedSyntheticCompanion,
+  type SyntheticCompanionConversationInput,
   type SyntheticCompanionDispatchOptions,
   type SyntheticCompanionOptions,
 } from "./companion-runtime.js";
@@ -63,6 +65,46 @@ function copyAdapterIdentities(value: unknown): readonly AdapterIdentity[] | nul
   }
 }
 
+function copyConversationInput(value: unknown): SyntheticCompanionConversationInput | null {
+  try {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return null;
+    const keys = Object.keys(value);
+    if (keys.length !== 2 || !keys.includes("id") || !keys.includes("representation")) {
+      return null;
+    }
+    const id = dataProperty(value, "id");
+    const representation = dataProperty(value, "representation");
+    return isCompanionToken(id) && representation !== undefined
+      ? { id, representation }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function copyConversationInputs(
+  value: unknown,
+): readonly SyntheticCompanionConversationInput[] | null {
+  try {
+    if (!Array.isArray(value)) return null;
+    const copied: SyntheticCompanionConversationInput[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+      if (!descriptor || !("value" in descriptor) || descriptor.get || descriptor.set) {
+        return null;
+      }
+      const conversation = copyConversationInput(descriptor.value);
+      if (!conversation) return null;
+      copied.push(conversation);
+    }
+    return Object.freeze(copied);
+  } catch {
+    return null;
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -94,8 +136,12 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
     if (options.acceptedAdapters !== undefined && !acceptedAdapters) {
       throw new TypeError("acceptedAdapters must contain bounded adapter identities.");
     }
+    const conversations = copyConversationInputs(options.conversations);
+    if (!conversations) {
+      throw new TypeError("conversations must contain bounded local source records.");
+    }
 
-    const conversations = options.conversations.map((input) => {
+    for (const input of conversations) {
       const validated = validateAndMeasureReadOnlyRepresentation(input.representation);
       if (validated.ok) {
         if (validated.value.representation.provenance.synthetic !== true) {
@@ -111,8 +157,7 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
           );
         }
       }
-      return input;
-    });
+    }
     super({
       ...options,
       ...(acceptedAdapters ? { acceptedAdapters } : {}),
