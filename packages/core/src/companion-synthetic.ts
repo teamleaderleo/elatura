@@ -188,27 +188,31 @@ function copyOptions(value: unknown): NormalizedOptions | null {
     const conversations = copyConversationInputs(conversationsDescriptor.value);
     if (!conversations) return null;
 
-    const acceptedDescriptor = Object.getOwnPropertyDescriptor(value, "acceptedAdapters");
-    const acceptedAdapters = acceptedDescriptor === undefined || acceptedDescriptor.value === undefined
+    const acceptedOwn = Object.getOwnPropertyDescriptor(value, "acceptedAdapters");
+    const acceptedData = acceptedOwn === undefined
       ? undefined
-      : dataDescriptor(value, "acceptedAdapters")
-        ? copyAdapterIdentities(acceptedDescriptor.value)
-        : null;
+      : dataDescriptor(value, "acceptedAdapters");
+    if (acceptedOwn !== undefined && !acceptedData) return null;
+    const acceptedAdapters = acceptedData === undefined || acceptedData.value === undefined
+      ? undefined
+      : copyAdapterIdentities(acceptedData.value);
     if (acceptedAdapters === null) return null;
 
-    const policyDescriptor = Object.getOwnPropertyDescriptor(value, "policy");
-    const policy = policyDescriptor === undefined
-      ? copyPolicy(undefined)
-      : dataDescriptor(value, "policy")
-        ? copyPolicy(policyDescriptor.value)
-        : null;
+    const policyOwn = Object.getOwnPropertyDescriptor(value, "policy");
+    const policyData = policyOwn === undefined
+      ? undefined
+      : dataDescriptor(value, "policy");
+    if (policyOwn !== undefined && !policyData) return null;
+    const policy = copyPolicy(policyData?.value);
     if (!policy) return null;
 
-    const nowDescriptor = Object.getOwnPropertyDescriptor(value, "now");
-    const now = nowDescriptor === undefined || nowDescriptor.value === undefined
+    const nowOwn = Object.getOwnPropertyDescriptor(value, "now");
+    const nowData = nowOwn === undefined ? undefined : dataDescriptor(value, "now");
+    if (nowOwn !== undefined && !nowData) return null;
+    const now = nowData === undefined || nowData.value === undefined
       ? undefined
-      : dataDescriptor(value, "now") && typeof nowDescriptor.value === "function"
-        ? nowDescriptor.value as () => number
+      : typeof nowData.value === "function"
+        ? nowData.value as () => number
         : null;
     if (now === null) return null;
 
@@ -227,10 +231,11 @@ function copyOptions(value: unknown): NormalizedOptions | null {
 function copyDispatchOptions(value: unknown): SyntheticCompanionDispatchOptions | null {
   try {
     if (!plainRecord(value) || !exactOwnKeys(value, ["beforeCommit"])) return null;
-    const descriptor = Object.getOwnPropertyDescriptor(value, "beforeCommit");
-    if (descriptor === undefined || descriptor.value === undefined) return Object.freeze({});
-    const data = dataDescriptor(value, "beforeCommit");
-    return data && typeof data.value === "function"
+    const own = Object.getOwnPropertyDescriptor(value, "beforeCommit");
+    const data = own === undefined ? undefined : dataDescriptor(value, "beforeCommit");
+    if (own !== undefined && !data) return null;
+    if (data === undefined || data.value === undefined) return Object.freeze({});
+    return typeof data.value === "function"
       ? Object.freeze({ beforeCommit: data.value as () => Promise<void> })
       : null;
   } catch {
