@@ -29,6 +29,10 @@
       "types": "./dist/orchestration.d.ts",
       "default": "./dist/orchestration.js"
     },
+    "./pulse": {
+      "types": "./dist/pulse.d.ts",
+      "default": "./dist/pulse.js"
+    },
     "./representation": {
       "types": "./dist/representation.d.ts",
       "default": "./dist/representation.js"
