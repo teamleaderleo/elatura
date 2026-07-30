@@ -5,6 +5,7 @@ import {
   isCompanionToken,
   resolveCompanionWorkingSetPolicy,
   type CompanionResponseEnvelope,
+  type CompanionWorkingSetPolicy,
 } from "./companion-protocol.js";
 import {
   SyntheticCompanion as UncheckedSyntheticCompanion,
@@ -16,21 +17,61 @@ import { validateAndMeasureReadOnlyRepresentation } from "./representation.js";
 
 const ADAPTER_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const MAX_COMPANION_REFERENCE_CODE_UNITS = 4_096;
+const POLICY_KEYS = [
+  "maxResidentConversations",
+  "maxResidentRecords",
+  "maxResidentPagesPerConversation",
+  "maxResidentSearchesPerConversation",
+  "maxResidentEntries",
+  "maxResidentTextCodeUnits",
+  "maxResidentSerializedBytes",
+  "maxResidentAccountedBytes",
+  "maxPageEntries",
+  "maxPageEntryTextCodeUnits",
+  "maxPageTextCodeUnits",
+  "maxPageSerializedBytes",
+  "maxResponseSerializedBytes",
+  "maxSearchResults",
+  "maxSnippetCodeUnits",
+  "maxSearchSerializedBytes",
+  "maxIndexEntries",
+  "maxIndexTextCodeUnits",
+  "maxInFlightRequests",
+  "maxQueuedPageRequests",
+  "maxRelationshipIds",
+  "maxCodeResponseCodeUnits",
+  "maxResourceMetadataRecords",
+  "maxRequestSerializedBytes",
+  "sessionTtlMs",
+] as const satisfies readonly (keyof CompanionWorkingSetPolicy)[];
 
-function dataProperty(value: object, key: string): unknown {
+function plainRecord(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function exactOwnKeys(value: object, allowed: readonly string[]): boolean {
+  const allowedSet = new Set(allowed);
+  return Reflect.ownKeys(value).every(
+    (key) => typeof key === "string" && allowedSet.has(key),
+  );
+}
+
+function dataDescriptor(value: object, key: string): PropertyDescriptor | null {
   const descriptor = Object.getOwnPropertyDescriptor(value, key);
   return descriptor && "value" in descriptor && !descriptor.get && !descriptor.set
-    ? descriptor.value
-    : undefined;
+    ? descriptor
+    : null;
+}
+
+function dataProperty(value: object, key: string): unknown {
+  return dataDescriptor(value, key)?.value;
 }
 
 function copyAdapterIdentity(value: unknown): AdapterIdentity | null {
   try {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-    const prototype = Object.getPrototypeOf(value);
-    if (prototype !== Object.prototype && prototype !== null) return null;
-    const keys = Object.keys(value);
-    if (keys.length !== 2 || !keys.includes("id") || !keys.includes("version")) return null;
+    if (!plainRecord(value) || !exactOwnKeys(value, ["id", "version"])) return null;
     const id = dataProperty(value, "id");
     const version = dataProperty(value, "version");
     return (
@@ -51,10 +92,8 @@ function copyAdapterIdentities(value: unknown): readonly AdapterIdentity[] | nul
     if (!Array.isArray(value)) return null;
     const copied: AdapterIdentity[] = [];
     for (let index = 0; index < value.length; index += 1) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-      if (!descriptor || !("value" in descriptor) || descriptor.get || descriptor.set) {
-        return null;
-      }
+      const descriptor = dataDescriptor(value, String(index));
+      if (!descriptor) return null;
       const identity = copyAdapterIdentity(descriptor.value);
       if (!identity) return null;
       copied.push(identity);
@@ -67,24 +106,12 @@ function copyAdapterIdentities(value: unknown): readonly AdapterIdentity[] | nul
 
 function copyConversationInput(value: unknown): SyntheticCompanionConversationInput | null {
   try {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-    const prototype = Object.getPrototypeOf(value);
-    if (prototype !== Object.prototype && prototype !== null) return null;
-    const keys = Object.keys(value);
-    if (keys.length !== 2 || !keys.includes("id") || !keys.includes("representation")) {
+    if (!plainRecord(value) || !exactOwnKeys(value, ["id", "representation"])) {
       return null;
     }
     const id = dataProperty(value, "id");
-    const representation = Object.getOwnPropertyDescriptor(value, "representation");
-    if (
-      !isCompanionToken(id) ||
-      !representation ||
-      !("value" in representation) ||
-      representation.get ||
-      representation.set
-    ) {
-      return null;
-    }
+    const representation = dataDescriptor(value, "representation");
+    if (!isCompanionToken(id) || !representation) return null;
     return { id, representation: representation.value };
   } catch {
     return null;
@@ -98,15 +125,114 @@ function copyConversationInputs(
     if (!Array.isArray(value)) return null;
     const copied: SyntheticCompanionConversationInput[] = [];
     for (let index = 0; index < value.length; index += 1) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-      if (!descriptor || !("value" in descriptor) || descriptor.get || descriptor.set) {
-        return null;
-      }
+      const descriptor = dataDescriptor(value, String(index));
+      if (!descriptor) return null;
       const conversation = copyConversationInput(descriptor.value);
       if (!conversation) return null;
       copied.push(conversation);
     }
     return Object.freeze(copied);
+  } catch {
+    return null;
+  }
+}
+
+function copyPolicy(value: unknown): Partial<CompanionWorkingSetPolicy> | null {
+  try {
+    if (value === undefined) return Object.freeze({});
+    if (!plainRecord(value) || !exactOwnKeys(value, POLICY_KEYS)) return null;
+    const copied: Partial<CompanionWorkingSetPolicy> = {};
+    for (const key of Object.getOwnPropertyNames(value)) {
+      const descriptor = dataDescriptor(value, key);
+      if (
+        !descriptor ||
+        typeof descriptor.value !== "number" ||
+        !Number.isSafeInteger(descriptor.value) ||
+        descriptor.value < 1
+      ) {
+        return null;
+      }
+      (copied as Record<string, number>)[key] = descriptor.value;
+    }
+    return Object.freeze(copied);
+  } catch {
+    return null;
+  }
+}
+
+type NormalizedOptions = Readonly<{
+  sessionId: string;
+  conversations: readonly SyntheticCompanionConversationInput[];
+  acceptedAdapters?: readonly AdapterIdentity[];
+  policy: Partial<CompanionWorkingSetPolicy>;
+  now?: () => number;
+}>;
+
+function copyOptions(value: unknown): NormalizedOptions | null {
+  try {
+    if (
+      !plainRecord(value) ||
+      !exactOwnKeys(value, [
+        "sessionId",
+        "conversations",
+        "acceptedAdapters",
+        "policy",
+        "now",
+      ])
+    ) {
+      return null;
+    }
+    const sessionId = dataProperty(value, "sessionId");
+    const conversationsDescriptor = dataDescriptor(value, "conversations");
+    if (!isCompanionToken(sessionId) || !conversationsDescriptor) return null;
+    const conversations = copyConversationInputs(conversationsDescriptor.value);
+    if (!conversations) return null;
+
+    const acceptedDescriptor = Object.getOwnPropertyDescriptor(value, "acceptedAdapters");
+    const acceptedAdapters = acceptedDescriptor === undefined || acceptedDescriptor.value === undefined
+      ? undefined
+      : dataDescriptor(value, "acceptedAdapters")
+        ? copyAdapterIdentities(acceptedDescriptor.value)
+        : null;
+    if (acceptedAdapters === null) return null;
+
+    const policyDescriptor = Object.getOwnPropertyDescriptor(value, "policy");
+    const policy = policyDescriptor === undefined
+      ? copyPolicy(undefined)
+      : dataDescriptor(value, "policy")
+        ? copyPolicy(policyDescriptor.value)
+        : null;
+    if (!policy) return null;
+
+    const nowDescriptor = Object.getOwnPropertyDescriptor(value, "now");
+    const now = nowDescriptor === undefined || nowDescriptor.value === undefined
+      ? undefined
+      : dataDescriptor(value, "now") && typeof nowDescriptor.value === "function"
+        ? nowDescriptor.value as () => number
+        : null;
+    if (now === null) return null;
+
+    return Object.freeze({
+      sessionId,
+      conversations,
+      ...(acceptedAdapters ? { acceptedAdapters } : {}),
+      policy,
+      ...(now ? { now } : {}),
+    });
+  } catch {
+    return null;
+  }
+}
+
+function copyDispatchOptions(value: unknown): SyntheticCompanionDispatchOptions | null {
+  try {
+    if (!plainRecord(value) || !exactOwnKeys(value, ["beforeCommit"])) return null;
+    const descriptor = Object.getOwnPropertyDescriptor(value, "beforeCommit");
+    if (descriptor === undefined || descriptor.value === undefined) return Object.freeze({});
+    const data = dataDescriptor(value, "beforeCommit");
+    return data && typeof data.value === "function"
+      ? Object.freeze({ beforeCommit: data.value as () => Promise<void> })
+      : null;
   } catch {
     return null;
   }
@@ -126,7 +252,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 export class SyntheticCompanion extends UncheckedSyntheticCompanion {
   constructor(options: SyntheticCompanionOptions) {
-    const policy = resolveCompanionWorkingSetPolicy(options.policy);
+    const normalized = copyOptions(options);
+    if (!normalized) {
+      throw new TypeError("SyntheticCompanion options must be bounded own-data records.");
+    }
+    const policy = resolveCompanionWorkingSetPolicy(normalized.policy);
     const minimumResponseStringCodeUnits = Math.max(
       MAX_COMPANION_REFERENCE_CODE_UNITS,
       policy.maxPageEntryTextCodeUnits,
@@ -137,18 +267,8 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
         `maxCodeResponseCodeUnits must be at least ${minimumResponseStringCodeUnits} for serializable companion responses.`,
       );
     }
-    const acceptedAdapters = options.acceptedAdapters === undefined
-      ? undefined
-      : copyAdapterIdentities(options.acceptedAdapters);
-    if (options.acceptedAdapters !== undefined && !acceptedAdapters) {
-      throw new TypeError("acceptedAdapters must contain bounded adapter identities.");
-    }
-    const conversations = copyConversationInputs(options.conversations);
-    if (!conversations) {
-      throw new TypeError("conversations must contain bounded local source records.");
-    }
 
-    for (const input of conversations) {
+    for (const input of normalized.conversations) {
       const validated = validateAndMeasureReadOnlyRepresentation(input.representation);
       if (validated.ok) {
         if (validated.value.representation.provenance.synthetic !== true) {
@@ -166,10 +286,13 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
       }
     }
     super({
-      ...options,
-      ...(acceptedAdapters ? { acceptedAdapters } : {}),
+      sessionId: normalized.sessionId,
+      conversations: normalized.conversations,
+      ...(normalized.acceptedAdapters
+        ? { acceptedAdapters: normalized.acceptedAdapters }
+        : {}),
       policy,
-      conversations,
+      ...(normalized.now ? { now: normalized.now } : {}),
     });
   }
 
@@ -185,7 +308,11 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
     input: unknown,
     options: SyntheticCompanionDispatchOptions = {},
   ): Promise<CompanionResponseEnvelope> {
-    const response = await super.dispatch(input, options);
+    const copiedOptions = copyDispatchOptions(options);
+    if (!copiedOptions) {
+      throw new TypeError("dispatch options must be bounded own-data records.");
+    }
+    const response = await super.dispatch(input, copiedOptions);
     const settled = response.errorCode === "request-cancelled"
       ? { ...response, usage: this.usage }
       : response;
