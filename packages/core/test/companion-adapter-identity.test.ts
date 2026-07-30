@@ -118,6 +118,28 @@ describe("companion adapter identities", () => {
     expect(invoked).toBe(false);
   });
 
+  it("does not invoke overridden adapter-array methods", () => {
+    let invoked = false;
+    const identities = [ADAPTER];
+    Object.defineProperty(identities, "map", {
+      configurable: true,
+      get() {
+        invoked = true;
+        throw new Error("map must remain untouched");
+      },
+    });
+
+    expect(
+      () =>
+        new SyntheticCompanion({
+          sessionId: SESSION,
+          conversations: [],
+          acceptedAdapters: identities,
+        }),
+    ).not.toThrow();
+    expect(invoked).toBe(false);
+  });
+
   it("rejects malformed adapter updates before changing drift state", async () => {
     const companion = new SyntheticCompanion({
       sessionId: SESSION,
