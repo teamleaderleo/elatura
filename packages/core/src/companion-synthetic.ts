@@ -22,13 +22,13 @@ function dataProperty(value: object, key: string): unknown {
     : undefined;
 }
 
-function validAdapterIdentity(value: unknown): value is AdapterIdentity {
+function copyAdapterIdentity(value: unknown): AdapterIdentity | null {
   try {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
     const prototype = Object.getPrototypeOf(value);
-    if (prototype !== Object.prototype && prototype !== null) return false;
+    if (prototype !== Object.prototype && prototype !== null) return null;
     const keys = Object.keys(value);
-    if (keys.length !== 2 || !keys.includes("id") || !keys.includes("version")) return false;
+    if (keys.length !== 2 || !keys.includes("id") || !keys.includes("version")) return null;
     const id = dataProperty(value, "id");
     const version = dataProperty(value, "version");
     return (
@@ -36,25 +36,30 @@ function validAdapterIdentity(value: unknown): value is AdapterIdentity {
       ADAPTER_TOKEN.test(id) &&
       typeof version === "string" &&
       ADAPTER_TOKEN.test(version)
-    );
+    )
+      ? { id, version }
+      : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
-function validAdapterIdentities(value: unknown): value is readonly AdapterIdentity[] {
+function copyAdapterIdentities(value: unknown): readonly AdapterIdentity[] | null {
   try {
-    if (!Array.isArray(value)) return false;
+    if (!Array.isArray(value)) return null;
+    const copied: AdapterIdentity[] = [];
     for (let index = 0; index < value.length; index += 1) {
       const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
       if (!descriptor || !("value" in descriptor) || descriptor.get || descriptor.set) {
-        return false;
+        return null;
       }
-      if (!validAdapterIdentity(descriptor.value)) return false;
+      const identity = copyAdapterIdentity(descriptor.value);
+      if (!identity) return null;
+      copied.push(identity);
     }
-    return true;
+    return Object.freeze(copied);
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -83,10 +88,10 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
         `maxCodeResponseCodeUnits must be at least ${minimumResponseStringCodeUnits} for serializable companion responses.`,
       );
     }
-    if (
-      options.acceptedAdapters !== undefined &&
-      !validAdapterIdentities(options.acceptedAdapters)
-    ) {
+    const acceptedAdapters = options.acceptedAdapters === undefined
+      ? undefined
+      : copyAdapterIdentities(options.acceptedAdapters);
+    if (options.acceptedAdapters !== undefined && !acceptedAdapters) {
       throw new TypeError("acceptedAdapters must contain bounded adapter identities.");
     }
 
@@ -108,14 +113,20 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
       }
       return input;
     });
-    super({ ...options, policy, conversations });
+    super({
+      ...options,
+      ...(acceptedAdapters ? { acceptedAdapters } : {}),
+      policy,
+      conversations,
+    });
   }
 
   override updateAcceptedAdapters(identities: readonly AdapterIdentity[]): void {
-    if (!validAdapterIdentities(identities)) {
+    const copied = copyAdapterIdentities(identities);
+    if (!copied) {
       throw new TypeError("acceptedAdapters must contain bounded adapter identities.");
     }
-    super.updateAcceptedAdapters(identities);
+    super.updateAcceptedAdapters(copied);
   }
 
   override async dispatch(
