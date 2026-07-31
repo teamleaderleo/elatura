@@ -9,12 +9,29 @@ class EntryActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val manualState = SetupStateStore(applicationContext).snapshot()
-        val destination = if (manualState.hasOpenedGuide) {
-            MainActivity::class.java
+        if (manualState.hasOpenedGuide) {
+            openDashboard()
         } else {
-            SetupGuideActivity::class.java
+            @Suppress("DEPRECATION")
+            startActivityForResult(
+                Intent(this, SetupGuideActivity::class.java),
+                REQUEST_SETUP,
+            )
         }
-        startActivity(Intent(this, destination))
+    }
+
+    @Deprecated("Deprecated in Android")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_SETUP) openDashboard()
+    }
+
+    private fun openDashboard() {
+        startActivity(Intent(this, MainActivity::class.java))
         finish()
+    }
+
+    companion object {
+        private const val REQUEST_SETUP = 1001
     }
 }
