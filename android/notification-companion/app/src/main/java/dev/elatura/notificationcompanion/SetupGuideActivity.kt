@@ -121,8 +121,8 @@ class SetupGuideActivity : Activity() {
         root.addView(actionButton("Recheck setup") {
             render()
         }, matchWrap(bottom = 5))
-        root.addView(actionButton("Open diagnostic dashboard") {
-            startActivity(Intent(this, MainActivity::class.java))
+        root.addView(actionButton("Open signal inbox") {
+            startActivity(Intent(this, SignalInboxActivity::class.java))
             finish()
         }, matchWrap())
 
