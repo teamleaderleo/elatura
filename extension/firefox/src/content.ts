@@ -8,6 +8,8 @@ type ContentPageMetric = {
   recordedAt: string;
 };
 
+type SlimContentControllerModule = typeof import("./slim-content-controller.js");
+
 function emit(kind: ContentPageMetric["kind"]): void {
   const metric: ContentPageMetric = {
     kind,
@@ -27,11 +29,11 @@ function inspectForComposer(): void {
   if (composerRecorded || !findComposerLikeInput()) return;
   composerRecorded = true;
   emit("composer-like-input");
-  observer.disconnect();
+  composerObserver.disconnect();
 }
 
-const observer = new MutationObserver(inspectForComposer);
-observer.observe(document, { subtree: true, childList: true, attributes: true });
+const composerObserver = new MutationObserver(inspectForComposer);
+composerObserver.observe(document, { subtree: true, childList: true, attributes: true });
 
 addEventListener(
   "DOMContentLoaded",
@@ -41,3 +43,9 @@ addEventListener(
   },
   { once: true },
 );
+
+void (import(browser.runtime.getURL("slim-content-controller.js")) as Promise<SlimContentControllerModule>)
+  .then((controller) => controller.bootSlimContentController())
+  .catch(() => {
+    // The observer remains usable when the locked prototype module cannot load.
+  });
