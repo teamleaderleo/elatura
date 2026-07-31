@@ -28,6 +28,7 @@ describe("Firefox slim-mode prototype", () => {
           "slim-content-controller.js",
           "slim-discovery.js",
           "slim-live-discovery.js",
+          "slim-live-observation.js",
           "slim-window.js",
         ],
         matches: ["https://chatgpt.com/*"],
@@ -49,7 +50,8 @@ describe("Firefox slim-mode prototype", () => {
     const content = read("extension/firefox/src/content.ts");
     const controller = read("extension/firefox/src/slim-content-controller.ts");
     const discovery = read("extension/firefox/src/slim-live-discovery.ts");
-    const surface = `${content}\n${controller}\n${discovery}`;
+    const observation = read("extension/firefox/src/slim-live-observation.ts");
+    const surface = `${content}\n${controller}\n${discovery}\n${observation}`;
 
     expect(surface).not.toMatch(/\bbrowser\.storage\b/u);
     expect(surface).not.toMatch(/\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b/u);
@@ -62,10 +64,15 @@ describe("Firefox slim-mode prototype", () => {
     const content = read("extension/firefox/src/content.ts");
     const controller = read("extension/firefox/src/slim-content-controller.ts");
     const discovery = read("extension/firefox/src/slim-live-discovery.ts");
+    const observation = read("extension/firefox/src/slim-live-observation.ts");
     const background = read("extension/firefox/src/background.ts");
 
-    expect(`${content}\n${controller}\n${discovery}`).not.toContain("filterResponseData");
-    expect(`${content}\n${controller}\n${discovery}`).not.toContain("TextDecoder");
+    expect(`${content}\n${controller}\n${discovery}\n${observation}`).not.toContain(
+      "filterResponseData",
+    );
+    expect(`${content}\n${controller}\n${discovery}\n${observation}`).not.toContain(
+      "TextDecoder",
+    );
     expect(background).toContain("bytes += event.data.byteLength;");
     expect(background).toContain("filter.write(event.data);");
     expect(background).not.toContain("elatura:set-slim-mode");
@@ -131,13 +138,15 @@ describe("Firefox slim-mode prototype", () => {
   it("uses bounded live discovery and connected-element mounted counts", () => {
     const controller = read("extension/firefox/src/slim-content-controller.ts");
     const discovery = read("extension/firefox/src/slim-live-discovery.ts");
+    const observation = read("extension/firefox/src/slim-live-observation.ts");
     const policy = read("extension/firefox/src/slim-discovery.ts");
 
     expect(policy).toContain("MAX_SLIM_DISCOVERY_CANDIDATES = 10_000");
     expect(discovery).toContain("role-marker-budget-exceeded");
     expect(discovery).toContain("turn-container-budget-exceeded");
-    expect(discovery).toContain("ambiguous-role-markers");
-    expect(discovery).toContain("validateAndGroupSlimDiscovery(pureCandidates)");
+    expect(observation).toContain("ambiguous-role-markers");
+    expect(discovery).toContain("buildSlimLiveObservation(roleNodes.length, observations)");
+    expect(observation).toContain("validateAndGroupSlimDiscovery(pureCandidates)");
     expect(discovery).not.toMatch(/for \(let left[\s\S]*for \(let right/u);
     expect(controller).toContain("turn.element.isConnected");
     expect(controller).not.toContain("querySelectorAll('[data-testid^=\"conversation-turn-\"], article')");
