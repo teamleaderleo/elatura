@@ -17,6 +17,7 @@ import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
 import android.util.TypedValue
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.CheckBox
@@ -60,7 +61,7 @@ class SetupGuideActivity : Activity() {
 
         root.addView(heading("Set up the completion sensor", 27f), matchWrap())
         root.addView(TextView(this).apply {
-            text = "This guide checks the Android listener and records only your confirmation of settings that OriginOS does not expose to apps. A real ChatGPT notification is still required before background reliability is considered proven."
+            text = "This guide checks the Android listener and records only your confirmation of settings that Android does not expose to apps. A real ChatGPT notification is still required before background reliability is considered proven."
             textSize = 16f
             setLineSpacing(0f, 1.12f)
             setPadding(0, dp(6), 0, dp(14))
@@ -82,7 +83,7 @@ class SetupGuideActivity : Activity() {
             openAndroidSettings()
         }, matchWrap(bottom = 14))
 
-        root.addView(sectionHeading("OriginOS manual checks"), matchWrap(bottom = 4))
+        root.addView(sectionHeading("Device-specific checks"), matchWrap(bottom = 4))
         vendorInstructionsView = cardText(15f).apply {
             setTextIsSelectable(true)
             setLineSpacing(0f, 1.1f)
@@ -90,7 +91,7 @@ class SetupGuideActivity : Activity() {
         root.addView(vendorInstructionsView, matchWrap(bottom = 8))
 
         restrictedSettingsCheckBox = CheckBox(this).apply {
-            text = "I resolved the side-load restriction if OriginOS displayed one"
+            text = "I resolved the installation restriction if OriginOS displayed one"
             setPadding(dp(4), dp(4), dp(4), dp(4))
             setOnCheckedChangeListener { _, checked ->
                 if (!syncingChecks && !setupStore.setRestrictedSettingsResolved(checked)) {
@@ -114,7 +115,7 @@ class SetupGuideActivity : Activity() {
         root.addView(autoStartCheckBox, matchWrap(bottom = 10))
 
         root.addView(cardText(14f).apply {
-            text = "These confirmations are reminders, not system attestations. Recheck them after an OriginOS update, app reinstall, or if listener health stops recovering after reboot or screen-off time."
+            text = "Manual confirmations are reminders, not system attestations. Recheck them after an Android update, app reinstall, or if listener health stops recovering after reboot or screen-off time."
         }, matchWrap(bottom = 14))
 
         root.addView(actionButton("Recheck setup") {
@@ -168,6 +169,10 @@ class SetupGuideActivity : Activity() {
             brand = Build.BRAND,
             model = Build.MODEL,
         )
+        val usesOriginOsGuide = guideFamily == DeviceGuideFamily.VIVO_IQOO
+        restrictedSettingsCheckBox.visibility = if (usesOriginOsGuide) View.VISIBLE else View.GONE
+        autoStartCheckBox.visibility = if (usesOriginOsGuide) View.VISIBLE else View.GONE
+
         val evidence = SetupEvidence(
             chatGptInstalled = chatGptVersion != null,
             notificationAccessGranted = accessGranted,
@@ -176,22 +181,29 @@ class SetupGuideActivity : Activity() {
             restrictedSettingsResolved = manual.restrictedSettingsResolved,
             autoStartConfirmed = manual.autoStartConfirmed,
         )
-        val readiness = evaluateSetup(evidence)
+        val readiness = evaluateSetup(
+            evidence = evidence,
+            guideFamily = guideFamily,
+        )
         val headline = when {
             readiness.readyForBackgroundTrial -> "Ready for a background trial"
             readiness.readyForDiagnostic -> "Ready for a live diagnostic"
             else -> "Setup needed"
         }
+        val nextStep = readiness.missingAutomaticChecks.firstOrNull()
+            ?: readiness.missingManualChecks.firstOrNull()
 
         statusView.text = buildString {
             appendLine(headline)
             appendLine()
-            appendLine("Device guide: ${if (guideFamily == DeviceGuideFamily.VIVO_IQOO) "vivo / iQOO OriginOS" else "standard Android"}")
+            appendLine("Device guide: ${if (usesOriginOsGuide) "vivo / iQOO OriginOS" else "standard Android"}")
             appendLine("ChatGPT app: ${chatGptVersion ?: "not detected"}")
             appendLine("Notification access: ${yesNo(accessGranted)}")
             appendLine("Listener confirmed in this process: ${yesNo(listenerConfirmed)}")
             appendLine("First real ChatGPT hint captured: ${yesNo(snapshot.lastEventAt > 0L)}")
-            append("Standard battery exemption: ${batteryOptimizationExempt()?.let(::yesNo) ?: "unknown"}")
+            appendLine("Standard battery exemption: ${batteryOptimizationExempt()?.let(::yesNo) ?: "unknown"}")
+            if (nextStep != null) append("Next setup step: $nextStep")
+            else append("All checks for this device guide are complete")
         }
 
         automaticChecksView.text = buildString {
@@ -206,9 +218,9 @@ class SetupGuideActivity : Activity() {
             }
         }
 
-        vendorInstructionsView.text = if (guideFamily == DeviceGuideFamily.VIVO_IQOO) {
+        vendorInstructionsView.text = if (usesOriginOsGuide) {
             buildString {
-                appendLine("1. Side-loaded APK restriction")
+                appendLine("1. Installation restriction")
                 appendLine("If OriginOS blocks notification access for this APK, open Elatura app settings and use the system option to remove restrictions or allow restricted settings. The exact wording can vary by update.")
                 appendLine()
                 appendLine("2. Auto-start")
@@ -219,10 +231,11 @@ class SetupGuideActivity : Activity() {
             }
         } else {
             buildString {
-                appendLine("1. Grant notification access using the button above.")
-                appendLine("2. Resolve any restricted-settings warning shown for a side-loaded APK.")
-                appendLine("3. Allow the app to start in the background when your Android vendor provides such a control.")
-                append("4. Let one genuine ChatGPT task finish and return here to confirm the first hint.")
+                appendLine("This phone does not match the vivo/iQOO guide.")
+                appendLine()
+                appendLine("Grant notification access, resolve any restricted-settings warning shown by Android, and allow background start if your device vendor provides that control.")
+                appendLine()
+                append("Then let one genuine ChatGPT task finish so Elatura can verify a real notification signal.")
             }
         }
     }
