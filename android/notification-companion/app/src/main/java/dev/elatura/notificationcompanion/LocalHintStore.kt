@@ -341,6 +341,16 @@ private fun CompletionHintRecord.toJson(sequence: Long): JSONObject = JSONObject
     .put("isOngoing", isOngoing)
     .put("kind", kind)
     .put("confidence", confidence)
+    .put("notificationIdHash", notificationIdHash ?: JSONObject.NULL)
+    .put("tagHash", tagHash ?: JSONObject.NULL)
+    .put("channelIdHash", channelIdHash ?: JSONObject.NULL)
+    .put("shortcutIdHash", shortcutIdHash ?: JSONObject.NULL)
+    .put("isGroupSummary", isGroupSummary)
+    .put("isClearable", isClearable)
+    .put("hasProgress", hasProgress)
+    .put("isProgressIndeterminate", isProgressIndeterminate)
+    .put("removalReasonCode", removalReasonCode ?: JSONObject.NULL)
+    .put("removalReason", removalReason ?: JSONObject.NULL)
 
 private fun JSONObject.toStoredHint(): StoredCompletionHint = StoredCompletionHint(
     sequence = getLong("sequence").also { require(it >= 0L) },
@@ -357,6 +367,16 @@ private fun JSONObject.toStoredHint(): StoredCompletionHint = StoredCompletionHi
         isOngoing = getBoolean("isOngoing"),
         kind = getString("kind"),
         confidence = getString("confidence"),
+        notificationIdHash = nullableString("notificationIdHash"),
+        tagHash = nullableString("tagHash"),
+        channelIdHash = nullableString("channelIdHash"),
+        shortcutIdHash = nullableString("shortcutIdHash"),
+        isGroupSummary = optBoolean("isGroupSummary", false),
+        isClearable = optBoolean("isClearable", false),
+        hasProgress = optBoolean("hasProgress", false),
+        isProgressIndeterminate = optBoolean("isProgressIndeterminate", false),
+        removalReasonCode = nullableInt("removalReasonCode"),
+        removalReason = nullableString("removalReason"),
     ).validatePersisted(),
 )
 
@@ -379,6 +399,8 @@ private fun JSONObject.toVerifiedTestCase(): VerifiedTestCase {
 }
 
 private fun JSONObject.nullableString(key: String): String? = if (isNull(key)) null else getString(key)
+
+private fun JSONObject.nullableInt(key: String): Int? = if (isNull(key)) null else getInt(key)
 
 private fun saturatedIncrement(value: Long): Long = if (value == Long.MAX_VALUE) Long.MAX_VALUE else value + 1L
 
