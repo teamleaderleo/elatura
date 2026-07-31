@@ -43,6 +43,8 @@ describe("Android stable private signing", () => {
       expect(workflow).toContain(`secrets.${name}`);
     }
     expect(workflow).toContain('test -n "${!name:-}"');
+    expect(workflow).not.toContain("ELATURA_ANDROID_KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD}");
+    expect(workflow).not.toContain("ELATURA_ANDROID_KEY_PASSWORD=${KEY_PASSWORD}");
     expect(gradle).toContain('stableSigningRequested = elaturaSigningMode == "stable-private"');
     expect(gradle).toContain("requireNotNull(stableKeystorePath)");
     expect(gradle).toContain("require(file(stableKeystorePath).isFile)");
@@ -53,7 +55,7 @@ describe("Android stable private signing", () => {
 
   it("verifies the APK and exact signer before stable upload", () => {
     const workflow = read(".github/workflows/android-notification-companion-stable.yml");
-    const verifyIndex = workflow.indexOf("apksigner\" verify --verbose --print-certs");
+    const verifyIndex = workflow.indexOf('"${APKSIGNER}" verify --verbose --print-certs');
     const compareIndex = workflow.indexOf('test "${CERT_SHA256}" = "${EXPECTED_CERT_SHA256}"');
     const uploadIndex = workflow.indexOf("Upload stable signed APK bundle");
 
@@ -66,12 +68,15 @@ describe("Android stable private signing", () => {
     expect(workflow).toContain("app-release.apk.sha256");
   });
 
-  it("always removes the materialized private key", () => {
+  it("always removes the fixed-path materialized private key", () => {
     const workflow = read(".github/workflows/android-notification-companion-stable.yml");
     const cleanupIndex = workflow.indexOf("Remove private signing key");
 
     expect(cleanupIndex).toBeGreaterThanOrEqual(0);
     expect(workflow.slice(cleanupIndex)).toContain("if: always()");
+    expect(workflow.slice(cleanupIndex)).toContain(
+      'KEYSTORE_PATH="${RUNNER_TEMP}/elatura-android-signing.p12"',
+    );
     expect(workflow.slice(cleanupIndex)).toMatch(/shred -u[\s\S]*rm -f/u);
   });
 
