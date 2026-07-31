@@ -72,6 +72,11 @@ class DiagnosticsTest {
             serviceStartedAt = 2_500L,
             serviceStartedElapsedRealtime = 2_000L,
             serviceStartCount = 1L,
+            testStartedAt = 2_750L,
+            verifiedNotificationArrived = 8L,
+            verifiedNotificationMissed = 2L,
+            verifiedDeepLinkCorrect = 6L,
+            verifiedDeepLinkFailed = 1L,
         )
 
         val report = buildContentFreeReport(
@@ -84,6 +89,10 @@ class DiagnosticsTest {
         assertFalse(report.contains(token))
         assertFalse(report.contains(keyHash))
         assertTrue(report.contains("listenerConfirmedInCurrentProcess=true"))
+        assertTrue(report.contains("verifiedNotificationArrived=8"))
+        assertTrue(report.contains("verifiedNotificationMissed=2"))
+        assertTrue(report.contains("verifiedDeepLinkCorrect=6"))
+        assertTrue(report.contains("verifiedDeepLinkFailed=1"))
         assertTrue(report.contains("possibleCompletions=1"))
         assertTrue(report.contains("titleToken=true"))
         assertTrue(report.contains("latencyMs=500"))
