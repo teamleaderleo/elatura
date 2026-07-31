@@ -71,7 +71,9 @@ export function discoverLiveSlimTurns(): LiveSlimDiscovery {
   const candidates: HTMLElement[] = [];
   const seen = new Set<HTMLElement>();
   const roleMarkerCounts = new Map<HTMLElement, number>();
-  for (const roleNode of roleNodes) {
+  for (let index = 0; index < roleNodes.length; index += 1) {
+    const roleNode = roleNodes[index];
+    if (!roleNode) return { ok: false, reason: "no-role-markers" };
     const candidate =
       roleNode.closest<HTMLElement>('[data-testid^="conversation-turn-"]') ??
       roleNode.closest<HTMLElement>("article");
