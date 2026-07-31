@@ -133,7 +133,7 @@ internal class LocalHintStore(context: Context) {
 
     fun recordVerifiedTestCase(testCase: VerifiedTestCase): Boolean = synchronized(lock) {
         val updated = physicalTestTally().apply(testCase)
-        preferences.edit()
+        val editor = preferences.edit()
             .putLong(KEY_VERIFIED_COMPLETED_CASES, updated.completedCases)
             .putLong(KEY_VERIFIED_NOTIFICATION_ARRIVED, updated.notificationArrived)
             .putLong(KEY_VERIFIED_NOTIFICATION_MISSED, updated.notificationMissed)
@@ -141,7 +141,10 @@ internal class LocalHintStore(context: Context) {
             .putLong(KEY_VERIFIED_DEEP_LINK_FAILED, updated.deepLinkFailed)
             .putLong(KEY_VERIFIED_DEEP_LINK_NOT_TESTED, updated.deepLinkNotTested)
             .putString(KEY_LAST_VERIFIED_TEST_CASE, testCase.toJson().toString())
-            .commit()
+        if (timestamp(KEY_TEST_STARTED_AT) == 0L) {
+            editor.putLong(KEY_TEST_STARTED_AT, testCase.recordedAt)
+        }
+        editor.commit()
     }
 
     fun undoLastVerifiedTestCase(): Boolean = synchronized(lock) {
@@ -230,24 +233,24 @@ internal class LocalHintStore(context: Context) {
     private fun physicalTestTally(): PhysicalTestTally {
         val arrived = counter(KEY_VERIFIED_NOTIFICATION_ARRIVED)
         val missed = counter(KEY_VERIFIED_NOTIFICATION_MISSED)
-        val correct = counter(KEY_VERIFIED_DEEP_LINK_CORRECT)
-        val failed = counter(KEY_VERIFIED_DEEP_LINK_FAILED)
-        val inferredNotTested = (arrived - minOf(arrived, saturatedAdd(correct, failed))).coerceAtLeast(0L)
+        val correct = minOf(counter(KEY_VERIFIED_DEEP_LINK_CORRECT), arrived)
+        val remainingAfterCorrect = (arrived - correct).coerceAtLeast(0L)
+        val failed = minOf(counter(KEY_VERIFIED_DEEP_LINK_FAILED), remainingAfterCorrect)
+        val remainingAfterTested = (remainingAfterCorrect - failed).coerceAtLeast(0L)
+        val storedNotTested = if (preferences.contains(KEY_VERIFIED_DEEP_LINK_NOT_TESTED)) {
+            counter(KEY_VERIFIED_DEEP_LINK_NOT_TESTED)
+        } else {
+            remainingAfterTested
+        }
+        val notTested = minOf(storedNotTested, remainingAfterTested)
+        val unaccountedArrivals = (remainingAfterTested - notTested).coerceAtLeast(0L)
         return PhysicalTestTally(
-            completedCases = if (preferences.contains(KEY_VERIFIED_COMPLETED_CASES)) {
-                counter(KEY_VERIFIED_COMPLETED_CASES)
-            } else {
-                saturatedAdd(arrived, missed)
-            },
+            completedCases = saturatedAdd(arrived, missed),
             notificationArrived = arrived,
             notificationMissed = missed,
-            deepLinkCorrect = minOf(correct, arrived),
-            deepLinkFailed = minOf(failed, (arrived - minOf(correct, arrived)).coerceAtLeast(0L)),
-            deepLinkNotTested = if (preferences.contains(KEY_VERIFIED_DEEP_LINK_NOT_TESTED)) {
-                counter(KEY_VERIFIED_DEEP_LINK_NOT_TESTED)
-            } else {
-                inferredNotTested
-            },
+            deepLinkCorrect = correct,
+            deepLinkFailed = failed,
+            deepLinkNotTested = saturatedAdd(notTested, unaccountedArrivals),
         )
     }
 
