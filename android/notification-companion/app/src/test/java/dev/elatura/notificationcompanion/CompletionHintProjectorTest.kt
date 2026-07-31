@@ -6,6 +6,7 @@ import java.security.MessageDigest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -94,6 +95,27 @@ class CompletionHintProjectorTest {
             ),
         )
         assertEquals(128, hint.category?.length)
+    }
+
+    @Test
+    fun validatesEveryPersistedProtocolField() {
+        val valid = requireNotNull(
+            projector.project(fields(), HintKind.POSTED, observedAt = 2_000L),
+        )
+        assertEquals(valid, valid.validatePersisted())
+
+        assertThrows(IllegalArgumentException::class.java) {
+            valid.copy(sourcePackage = "com.example.other").validatePersisted()
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            valid.copy(notificationKeyHash = "raw-notification-key").validatePersisted()
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            valid.copy(titleToken = "raw notification title").validatePersisted()
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            valid.copy(kind = "unexpected").validatePersisted()
+        }
     }
 
     private fun fields(
