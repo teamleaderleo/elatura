@@ -4,7 +4,6 @@
   "version": "0.0.9",
   "description": "Observe content-free performance characteristics and prototype fail-open local slimming for oversized ChatGPT pages.",
   "permissions": [
-    "activeTab",
     "storage",
     "webRequest",
     "webRequestBlocking",
