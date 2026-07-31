@@ -2,4 +2,6 @@
 <resources>
     <string name="app_name">Elatura Companion</string>
     <string name="listener_name">Elatura ChatGPT completion listener</string>
+    <string name="setup_short_label">Setup</string>
+    <string name="setup_long_label">Open Elatura setup guide</string>
 </resources>
