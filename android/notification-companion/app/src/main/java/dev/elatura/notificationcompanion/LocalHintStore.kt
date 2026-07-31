@@ -15,6 +15,7 @@ internal class LocalHintStore(context: Context) {
     private val lock = PROCESS_LOCK
 
     fun append(hint: CompletionHintRecord): Long = synchronized(lock) {
+        val admittedHint = hint.validatePersisted()
         val loaded = loadArray()
         val sanitized = JSONArray()
         var newlyDetectedCorruptRecords = if (loaded.corruptContainer) 1L else 0L
@@ -39,14 +40,14 @@ internal class LocalHintStore(context: Context) {
 
         val observed = saturatedIncrement(counter(KEY_OBSERVED))
         val corruptRecords = saturatedAdd(counter(KEY_CORRUPT_RECORDS), newlyDetectedCorruptRecords)
-        val duplicate = containsRecentExactEvent(sanitized, hint)
+        val duplicate = containsRecentExactEvent(sanitized, admittedHint)
         if (duplicate) {
             val committed = preferences.edit()
                 .putString(KEY_HINTS, sanitized.toString())
                 .putLong(KEY_OBSERVED, observed)
                 .putLong(KEY_DUPLICATES, saturatedIncrement(counter(KEY_DUPLICATES)))
                 .putLong(KEY_CORRUPT_RECORDS, corruptRecords)
-                .putLong(KEY_LAST_EVENT_AT, hint.observedAt)
+                .putLong(KEY_LAST_EVENT_AT, admittedHint.observedAt)
                 .commit()
             check(committed) { "Unable to commit duplicate completion-hint accounting" }
             return@synchronized counter(KEY_SEQUENCE)
@@ -54,7 +55,7 @@ internal class LocalHintStore(context: Context) {
 
         val currentSequence = counter(KEY_SEQUENCE)
         val nextSequence = if (currentSequence == Long.MAX_VALUE) 1L else currentSequence + 1L
-        sanitized.put(hint.toJson(nextSequence))
+        sanitized.put(admittedHint.toJson(nextSequence))
         while (sanitized.length() > MAX_QUEUE_ENTRIES) sanitized.remove(0)
 
         val committed = preferences.edit()
@@ -63,7 +64,7 @@ internal class LocalHintStore(context: Context) {
             .putLong(KEY_OBSERVED, observed)
             .putLong(KEY_ACCEPTED, saturatedIncrement(counter(KEY_ACCEPTED)))
             .putLong(KEY_CORRUPT_RECORDS, corruptRecords)
-            .putLong(KEY_LAST_EVENT_AT, hint.observedAt)
+            .putLong(KEY_LAST_EVENT_AT, admittedHint.observedAt)
             .commit()
         check(committed) { "Unable to commit the bounded completion hint" }
         nextSequence
@@ -269,7 +270,7 @@ private fun CompletionHintRecord.toJson(sequence: Long): JSONObject = JSONObject
     .put("confidence", confidence)
 
 private fun JSONObject.toStoredHint(): StoredCompletionHint = StoredCompletionHint(
-    sequence = getLong("sequence"),
+    sequence = getLong("sequence").also { require(it >= 0L) },
     hint = CompletionHintRecord(
         protocolVersion = getInt("protocolVersion"),
         sourcePackage = getString("sourcePackage"),
@@ -283,7 +284,7 @@ private fun JSONObject.toStoredHint(): StoredCompletionHint = StoredCompletionHi
         isOngoing = getBoolean("isOngoing"),
         kind = getString("kind"),
         confidence = getString("confidence"),
-    ),
+    ).validatePersisted(),
 )
 
 private fun JSONObject.nullableString(key: String): String? = if (isNull(key)) null else getString(key)
