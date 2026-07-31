@@ -59,8 +59,15 @@ class ChatGptNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onDestroy() {
-        store.setListenerConnected(false, System.currentTimeMillis())
-        executor.shutdownNow()
+        if (::store.isInitialized) {
+            store.setListenerConnected(false, System.currentTimeMillis())
+        }
+        if (::executor.isInitialized) {
+            val discardedJobs = executor.shutdownNow().size
+            if (::store.isInitialized) {
+                repeat(discardedJobs) { store.recordDropped() }
+            }
+        }
         super.onDestroy()
     }
 
