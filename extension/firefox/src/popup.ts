@@ -127,6 +127,22 @@ function formatNodeCount(value: number, truncated: boolean): string {
   return `${truncated ? "≥" : ""}${value}`;
 }
 
+function liveSlimModeAuthorized(
+  safety: TransformSafetyState,
+  optIn: TransformOptInState,
+): boolean {
+  return safety.emergencyDisabled !== true && optIn.authorizesTransform === true;
+}
+
+function setApplyAvailability(
+  safety: TransformSafetyState,
+  optIn: TransformOptInState,
+): void {
+  const selected = selectedSlimMode();
+  document.querySelector<HTMLButtonElement>("#apply-slim")!.disabled =
+    selected !== "stock" && !liveSlimModeAuthorized(safety, optIn);
+}
+
 function updateSlimControls(
   slim: SlimRuntimeSnapshot | null,
   safety: TransformSafetyState,
@@ -163,9 +179,7 @@ function updateSlimControls(
     formatNodeCount(slim.metrics.elementNodesAfter, slim.metrics.nodeCountTruncatedAfter);
   document.querySelector("#slim-placeholders")!.textContent = String(slim.metrics.placeholderCount);
 
-  const selected = selectedSlimMode();
-  apply.disabled =
-    selected !== "stock" && (safety.emergencyDisabled === true || optIn.recorded !== true);
+  setApplyAvailability(safety, optIn);
   reveal.disabled = slim.mode === "stock" || slim.turnGroups >= MAX_SLIM_TURN_GROUPS;
   restore.disabled = slim.mode === "stock" && slim.status === "stock";
 }
@@ -193,10 +207,10 @@ async function render(
       : `${resolvedState.pageMarks.composerReadyMs.toFixed(0)} ms`;
   document.querySelector("#transform-safety")!.textContent = resolvedSafety.emergencyDisabled
     ? "emergency locked"
-    : "reviewed DOM modes available";
+    : "awaiting reviewed live authorization";
   document.querySelector("#transform-opt-in")!.textContent = resolvedOptIn.recorded
-    ? "authorized for this session"
-    : "not authorized";
+    ? "intent recorded; does not authorize"
+    : "not recorded";
   document.querySelector<HTMLButtonElement>("#export")!.disabled =
     !run || !hasObservationData(resolvedState);
   updateOptInControls(resolvedOptIn);
@@ -246,11 +260,21 @@ for (const id of OPT_IN_CHECKBOX_IDS) {
 }
 
 document.querySelector("#slim-mode")!.addEventListener("change", async () => {
-  await render();
+  const [safety, optIn] = await Promise.all([getTransformSafety(), getTransformOptIn()]);
+  setApplyAvailability(safety, optIn);
+  if (selectedSlimMode() !== "stock" && !liveSlimModeAuthorized(safety, optIn)) {
+    setStatus("Slim modes are implemented but locked until reviewed live authorization is connected.");
+  }
 });
 
 document.querySelector("#apply-slim")!.addEventListener("click", async () => {
   const mode = selectedSlimMode();
+  const [safety, optIn] = await Promise.all([getTransformSafety(), getTransformOptIn()]);
+  if (mode !== "stock" && !liveSlimModeAuthorized(safety, optIn)) {
+    setStatus("Slim modes remain locked. Recorded intent does not authorize a live page change.");
+    setApplyAvailability(safety, optIn);
+    return;
+  }
   const message =
     mode === "stock"
       ? { type: "elatura:restore-stock" }
@@ -287,14 +311,14 @@ document.querySelector("#restore-stock")!.addEventListener("click", async () => 
 
 document.querySelector("#record-opt-in")!.addEventListener("click", async () => {
   if (!allOptInAcknowledgementsChecked()) {
-    setStatus("Review every fixed acknowledgement before authorizing page modes.");
+    setStatus("Review every fixed acknowledgement before recording opt-in intent.");
     return;
   }
   const optIn = (await browser.runtime.sendMessage({
     type: "elatura:record-transform-opt-in",
     acknowledgements: [...TRANSFORM_OPT_IN_ACKNOWLEDGEMENTS],
   })) as TransformOptInState;
-  setStatus("Reviewed DOM and CSS page modes are authorized for this background session.");
+  setStatus("Opt-in intent recorded for this session. Live modes remain locked and unauthorized.");
   await render(undefined, undefined, optIn);
 });
 
@@ -305,7 +329,7 @@ document.querySelector("#revoke-opt-in")!.addEventListener("click", async () => 
   const slim = (await sendToActiveTab({ type: "elatura:restore-stock" })) as
     | SlimRuntimeSnapshot
     | null;
-  setStatus("Page-mode authorization revoked. The active ChatGPT page is returning to Stock.");
+  setStatus("Opt-in intent revoked. Stock restoration was requested for the active ChatGPT page.");
   await render(undefined, undefined, optIn, slim);
 });
 
@@ -316,7 +340,7 @@ document.querySelector("#emergency-disable")!.addEventListener("click", async ()
   const slim = (await sendToActiveTab({ type: "elatura:restore-stock" })) as
     | SlimRuntimeSnapshot
     | null;
-  setStatus("Transforms are locally locked, authorization was cleared, and Stock restoration was requested.");
+  setStatus("Transforms are locally locked, opt-in intent was cleared, and Stock restoration was requested.");
   await render(undefined, safety, undefined, slim);
 });
 
