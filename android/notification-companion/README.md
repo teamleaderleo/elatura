@@ -17,7 +17,32 @@ It is intentionally local-only:
 
 A notification is presented only as a **possible completion**. Missing, grouped, delayed, replaced, generic, or duplicated notifications remain expected.
 
-## What the screen shows
+## First-run setup
+
+The first launch opens a guided setup screen. Later launches open the diagnostic dashboard. Long-press the app icon and choose **Open setup guide** to return to setup at any time.
+
+The guide keeps three kinds of evidence separate:
+
+1. **Android-verified checks** — ChatGPT is installed, notification access is granted, and the listener has connected in the current process.
+2. **User-confirmed vendor checks** — settings such as OriginOS installation restrictions and iManager auto-start that ordinary apps cannot verify directly.
+3. **Observed signal** — at least one genuine ChatGPT notification reached the listener.
+
+The guide does not call the device ready for a background trial until the required checks for that detected device family are complete. Manual checkboxes are reminders rather than system attestations.
+
+### iQOO / vivo OriginOS
+
+On an iQOO or vivo phone:
+
+1. Open **Elatura app settings** from the guide.
+2. If OriginOS blocks notification access for the side-loaded APK, use the system option to remove restrictions or allow restricted settings. Exact wording may vary by OriginOS update.
+3. Open **iManager → App management → Permission management → Auto-start** and enable Elatura Companion.
+4. Return to Elatura and grant notification access.
+5. Wait for the listener status to become connected.
+6. Let one real ChatGPT task finish and confirm the first ChatGPT hint appears.
+
+Elatura reports Android's standard battery-optimization exemption status but does not request broad battery, accessibility, overlay, administrator, or arbitrary command authority. OriginOS controls remain separate from Android's standard Doze status.
+
+## What the diagnostic screen shows
 
 The phone UI redraws when the local store changes. It does not poll and rebuild the entire screen every second. Relative ages and notification-access health refresh on a lightweight 30-second timer while the activity is visible.
 
@@ -52,20 +77,19 @@ adb install -r android/notification-companion/app/build/outputs/apk/debug/app-de
 
 The `Android notification companion` GitHub Actions workflow also runs the unit tests, assembles the debug APK, embeds its commit/run identifiers, and uploads it as a seven-day artifact when the workflow succeeds.
 
-Launch **Elatura Companion**, tap **Open notification access**, and explicitly enable the listener. The app cannot grant this access itself. Android automatically requests a rebind when the system reports a listener disconnect.
-
 ## First physical-device diagnostic
 
-1. Open Elatura Companion and confirm the health card says **Listening**.
-2. Confirm **Test context** identifies the phone, Android version, ChatGPT version, Elatura version, and the expected build.
-3. Tap **Start or reset test session**.
-4. Run at least 30 ChatGPT completions across the job types you actually use.
-5. After independently confirming one task completed, tap **Record one completed test case**.
-6. Follow the guided questions:
+1. Complete the setup guide and open the diagnostic dashboard.
+2. Confirm the health card says **Listening**.
+3. Confirm **Test context** identifies the phone, Android version, ChatGPT version, Elatura version, and the expected build.
+4. Tap **Start or reset test session**.
+5. Run at least 30 ChatGPT completions across the job types you actually use.
+6. After independently confirming one task completed, tap **Record one completed test case**.
+7. Follow the guided questions:
    - notification arrived or missed;
    - when it arrived, correct chat, failed/wrong chat, or tap not tested.
-7. Use **Undo latest saved case** immediately after a mistaken entry.
-8. Use **Share content-free diagnostic report** and attach or paste the result into issue #96 or #99.
+8. Use **Undo latest saved case** immediately after a mistaken entry.
+9. Use **Share content-free diagnostic report** and attach or paste the result into issue #96 or #99.
 
 The report automatically records:
 
@@ -86,7 +110,7 @@ Describe only the broad job types tested when posting the report. Do not include
 
 ## Next packets
 
-- guided iQOO/OriginOS onboarding and listener survival checks;
 - expanded content-free notification metadata and removal reasons;
+- reboot, force-stop, permission-revoke, and OriginOS background-cleanup survival tests;
 - a compact everyday completion inbox with diagnostics moved behind an Advanced screen;
 - explicit device pairing and authenticated outbound relay only after physical evidence supports it.
