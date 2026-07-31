@@ -68,6 +68,42 @@ describe("Android notification companion safety boundary", () => {
     expect(model).not.toMatch(/CompletionHintRecord\([\s\S]*?val\s+(?:title|text):\s/u);
   });
 
+  it("renders on stored changes instead of polling the full screen every second", () => {
+    const activity = read(
+      "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/MainActivity.kt",
+    );
+    const store = read(
+      "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/LocalHintStore.kt",
+    );
+    expect(activity).toContain("OnSharedPreferenceChangeListener");
+    expect(activity).toContain("store.registerChangeListener(preferenceListener)");
+    expect(activity).toContain("store.unregisterChangeListener(preferenceListener)");
+    expect(activity).toContain("AGE_REFRESH_INTERVAL_MS = 30_000L");
+    expect(activity).not.toContain("REFRESH_INTERVAL_MS = 1_000L");
+    expect(store).toContain("registerOnSharedPreferenceChangeListener");
+    expect(store).toContain("unregisterOnSharedPreferenceChangeListener");
+  });
+
+  it("records one internally consistent guided test case with one-step undo", () => {
+    const activity = read(
+      "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/MainActivity.kt",
+    );
+    const store = read(
+      "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/LocalHintStore.kt",
+    );
+    const physicalTest = read(
+      "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/PhysicalTest.kt",
+    );
+    expect(activity).toContain("Record one completed test case");
+    expect(activity).toContain("beginGuidedTestCase");
+    expect(activity).toContain("Undo latest saved case");
+    expect(store).toContain("recordVerifiedTestCase");
+    expect(store).toContain("undoLastVerifiedTestCase");
+    expect(store).toContain("KEY_LAST_VERIFIED_TEST_CASE");
+    expect(physicalTest).toContain("notificationArrived == (deepLinkResult != null)");
+    expect(physicalTest).toContain('NOT_TESTED("not-tested")');
+  });
+
   it("keeps listener rebind and process-freshness checks in their intended layers", () => {
     const listener = read(
       "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/ChatGptNotificationListenerService.kt",
@@ -97,6 +133,7 @@ describe("Android notification companion safety boundary", () => {
     expect(diagnostics).toContain('appendLine("deviceModel=${environment.deviceModel}")');
     expect(diagnostics).toContain('appendLine("chatGptVersion=${environment.chatGptVersion}")');
     expect(diagnostics).toContain('appendLine("buildSha=${environment.buildSha}")');
+    expect(diagnostics).toContain('appendLine("verifiedCompletedCases=${snapshot.verifiedCompletedCases}")');
   });
 
   it("shares only content-free report fields", () => {
