@@ -23,10 +23,22 @@ internal data class HintStoreSnapshot(
     val serviceStartedElapsedRealtime: Long,
     val serviceStartCount: Long,
     val testStartedAt: Long,
+    val verifiedCompletedCases: Long,
     val verifiedNotificationArrived: Long,
     val verifiedNotificationMissed: Long,
     val verifiedDeepLinkCorrect: Long,
     val verifiedDeepLinkFailed: Long,
+    val verifiedDeepLinkNotTested: Long,
+    val lastVerifiedTestCase: VerifiedTestCase?,
+)
+
+internal fun HintStoreSnapshot.physicalTestTally(): PhysicalTestTally = PhysicalTestTally(
+    completedCases = verifiedCompletedCases,
+    notificationArrived = verifiedNotificationArrived,
+    notificationMissed = verifiedNotificationMissed,
+    deepLinkCorrect = verifiedDeepLinkCorrect,
+    deepLinkFailed = verifiedDeepLinkFailed,
+    deepLinkNotTested = verifiedDeepLinkNotTested,
 )
 
 internal data class DiagnosticEnvironment(
@@ -159,6 +171,7 @@ internal fun buildContentFreeReport(
     generatedAt: Long,
 ): String {
     val summary = summarizeHints(snapshot.hints)
+    val lastCase = snapshot.lastVerifiedTestCase
     return buildString {
         appendLine("Elatura Android notification diagnostic")
         appendLine("elaturaVersion=${environment.elaturaVersion}")
@@ -181,10 +194,15 @@ internal fun buildContentFreeReport(
         appendLine("serviceStartedElapsedRealtimeMs=${snapshot.serviceStartedElapsedRealtime}")
         appendLine("serviceStartCount=${snapshot.serviceStartCount}")
         appendLine("testStartedAtEpochMs=${snapshot.testStartedAt}")
+        appendLine("verifiedCompletedCases=${snapshot.verifiedCompletedCases}")
         appendLine("verifiedNotificationArrived=${snapshot.verifiedNotificationArrived}")
         appendLine("verifiedNotificationMissed=${snapshot.verifiedNotificationMissed}")
         appendLine("verifiedDeepLinkCorrect=${snapshot.verifiedDeepLinkCorrect}")
         appendLine("verifiedDeepLinkFailed=${snapshot.verifiedDeepLinkFailed}")
+        appendLine("verifiedDeepLinkNotTested=${snapshot.verifiedDeepLinkNotTested}")
+        appendLine("lastVerifiedCaseRecordedAtEpochMs=${lastCase?.recordedAt ?: 0L}")
+        appendLine("lastVerifiedCaseNotificationArrived=${lastCase?.notificationArrived ?: false}")
+        appendLine("lastVerifiedCaseDeepLinkResult=${lastCase?.deepLinkResult?.wireValue ?: "none"}")
         appendLine("observed=${snapshot.observed}")
         appendLine("accepted=${snapshot.accepted}")
         appendLine("duplicates=${snapshot.duplicates}")
