@@ -76,7 +76,7 @@ describe("Firefox slim-mode prototype", () => {
     expect(popup).toContain("optIn.authorizesTransform === true");
     expect(controller).toContain("optIn.authorizesTransform !== true");
     expect(controller).toContain("live-authorization-disconnected");
-    expect(popup).toContain("Slim modes remain locked");
+    expect(popup).toContain("Transforms remain locked and unauthorized");
     expect(popupHtml).toContain("Live slim modes remain locked in this build");
     expect(popupHtml).toContain("Recording intent does not authorize a live page change");
   });
