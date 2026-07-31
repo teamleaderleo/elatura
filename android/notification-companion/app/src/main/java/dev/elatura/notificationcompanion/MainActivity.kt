@@ -59,7 +59,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        title = getString(R.string.app_name)
+        title = "Elatura diagnostics"
         cachedEnvironment = diagnosticEnvironment()
 
         val root = LinearLayout(this).apply {
@@ -71,9 +71,9 @@ class MainActivity : Activity() {
             addView(root)
         }
 
-        root.addView(heading("Elatura completion sensor", 27f), matchWrap())
+        root.addView(heading("Advanced diagnostics", 27f), matchWrap())
         root.addView(TextView(this).apply {
-            text = "Uses Android's notification access to record local, tokenized completion hints from ChatGPT. It cannot read other apps through the network because this APK declares no internet permission."
+            text = "Detailed listener, signal-quality, build, and physical-test evidence. Normal use belongs in the signal inbox; this screen is for validation and troubleshooting."
             textSize = 16f
             setLineSpacing(0f, 1.12f)
             setPadding(0, dp(6), 0, dp(14))
@@ -82,7 +82,13 @@ class MainActivity : Activity() {
         healthView = cardText(16f)
         root.addView(healthView, matchWrap(bottom = 12))
 
-        root.addView(sectionHeading("Setup and recovery"), matchWrap(bottom = 4))
+        root.addView(sectionHeading("Navigation and recovery"), matchWrap(bottom = 4))
+        root.addView(actionButton("Open signal inbox") {
+            startActivity(Intent(this, SignalInboxActivity::class.java))
+        }, matchWrap(bottom = 6))
+        root.addView(actionButton("Open setup guide") {
+            startActivity(Intent(this, SetupGuideActivity::class.java))
+        }, matchWrap(bottom = 6))
         root.addView(actionButton("Open notification access") {
             openNotificationAccessSettings()
         }, matchWrap(bottom = 6))
