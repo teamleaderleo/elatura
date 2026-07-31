@@ -6,6 +6,7 @@ import android.content.ComponentName
 import android.os.Bundle
 import android.os.SystemClock
 import android.service.notification.NotificationListenerService
+import android.service.notification.NotificationListenerService.RankingMap
 import android.service.notification.StatusBarNotification
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.RejectedExecutionException
@@ -50,12 +51,16 @@ class ChatGptNotificationListenerService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         sbn ?: return
-        submit(sbn, HintKind.POSTED)
+        submit(sbn, HintKind.POSTED, removalReasonCode = null)
     }
 
-    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+    override fun onNotificationRemoved(
+        sbn: StatusBarNotification?,
+        rankingMap: RankingMap?,
+        reason: Int,
+    ) {
         sbn ?: return
-        submit(sbn, HintKind.REMOVED)
+        submit(sbn, HintKind.REMOVED, removalReasonCode = reason)
     }
 
     override fun onDestroy() {
@@ -71,10 +76,14 @@ class ChatGptNotificationListenerService : NotificationListenerService() {
         super.onDestroy()
     }
 
-    private fun submit(sbn: StatusBarNotification, kind: HintKind) {
+    private fun submit(
+        sbn: StatusBarNotification,
+        kind: HintKind,
+        removalReasonCode: Int?,
+    ) {
         if (sbn.packageName != CHATGPT_PACKAGE) return
         val fields = try {
-            extractFields(sbn)
+            extractFields(sbn, removalReasonCode)
         } catch (_: Exception) {
             store.recordError()
             return
@@ -94,13 +103,19 @@ class ChatGptNotificationListenerService : NotificationListenerService() {
         }
     }
 
-    private fun extractFields(sbn: StatusBarNotification): NotificationFields {
+    private fun extractFields(
+        sbn: StatusBarNotification,
+        removalReasonCode: Int?,
+    ): NotificationFields {
         val notification = requireNotNull(sbn.notification) { "Missing notification payload" }
         val notificationKey = requireNotNull(sbn.key)
             .take(MAX_EPHEMERAL_TEXT_CODE_UNITS)
             .takeIf(String::isNotBlank)
             ?: throw IllegalArgumentException("Missing notification key")
         val extras = notification.extras ?: Bundle.EMPTY
+        val hasProgress = extras.containsKey(Notification.EXTRA_PROGRESS) ||
+            extras.containsKey(Notification.EXTRA_PROGRESS_MAX) ||
+            extras.containsKey(Notification.EXTRA_PROGRESS_INDETERMINATE)
         return NotificationFields(
             sourcePackage = sbn.packageName,
             postedAt = sbn.postTime.coerceAtLeast(0L),
@@ -117,8 +132,19 @@ class ChatGptNotificationListenerService : NotificationListenerService() {
                 extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT),
             ),
             category = notification.category,
-            groupKey = sbn.groupKey?.take(MAX_EPHEMERAL_TEXT_CODE_UNITS),
+            groupKey = boundedString(sbn.groupKey),
             isOngoing = sbn.isOngoing,
+            notificationId = sbn.id,
+            tag = boundedString(sbn.tag),
+            channelId = boundedString(notification.channelId),
+            shortcutId = boundedString(notification.shortcutId),
+            isGroupSummary = notification.flags and Notification.FLAG_GROUP_SUMMARY != 0,
+            isClearable = sbn.isClearable,
+            hasProgress = hasProgress,
+            isProgressIndeterminate = hasProgress &&
+                extras.getBoolean(Notification.EXTRA_PROGRESS_INDETERMINATE, false),
+            removalReasonCode = removalReasonCode,
+            removalReason = removalReasonCode?.let(::removalReasonName),
         )
     }
 
@@ -138,7 +164,41 @@ class ChatGptNotificationListenerService : NotificationListenerService() {
             .takeIf(String::isNotEmpty)
     }
 
+    private fun boundedString(value: String?): String? {
+        return value
+            ?.take(MAX_EPHEMERAL_TEXT_CODE_UNITS)
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+    }
+
     companion object {
         private const val MAX_PENDING_PROJECTIONS = 16
     }
+}
+
+internal fun removalReasonName(code: Int): String = when (code) {
+    1 -> "click"
+    2 -> "cancel"
+    3 -> "cancel-all"
+    4 -> "error"
+    5 -> "package-changed"
+    6 -> "user-stopped"
+    7 -> "package-banned"
+    8 -> "app-cancel"
+    9 -> "app-cancel-all"
+    10 -> "listener-cancel"
+    11 -> "listener-cancel-all"
+    12 -> "group-summary-canceled"
+    13 -> "group-optimization"
+    14 -> "package-suspended"
+    15 -> "profile-turned-off"
+    16 -> "unautobundled"
+    17 -> "channel-banned"
+    18 -> "snoozed"
+    19 -> "timeout"
+    20 -> "channel-removed"
+    21 -> "clear-data"
+    22 -> "assistant-cancel"
+    23 -> "lockdown"
+    else -> "unknown"
 }
