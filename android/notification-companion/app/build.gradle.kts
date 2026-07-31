@@ -2,6 +2,9 @@ plugins {
     id("com.android.application")
 }
 
+val elaturaBuildSha = System.getenv("GITHUB_SHA")?.takeIf(String::isNotBlank) ?: "local"
+val elaturaBuildRunId = System.getenv("GITHUB_RUN_ID")?.takeIf(String::isNotBlank) ?: "local"
+
 android {
     namespace = "dev.elatura.notificationcompanion"
     compileSdk = 36
@@ -12,6 +15,12 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "ELATURA_BUILD_SHA", "\"$elaturaBuildSha\"")
+        buildConfigField("String", "ELATURA_BUILD_RUN_ID", "\"$elaturaBuildRunId\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     buildTypes {
