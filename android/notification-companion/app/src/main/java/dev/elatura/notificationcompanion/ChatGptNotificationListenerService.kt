@@ -4,6 +4,7 @@ package dev.elatura.notificationcompanion
 import android.app.Notification
 import android.content.ComponentName
 import android.os.Bundle
+import android.os.SystemClock
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import java.util.concurrent.ArrayBlockingQueue
@@ -19,7 +20,10 @@ class ChatGptNotificationListenerService : NotificationListenerService() {
     override fun onCreate() {
         super.onCreate()
         store = LocalHintStore(applicationContext)
-        store.markServiceStarted(System.currentTimeMillis())
+        store.markServiceStarted(
+            now = System.currentTimeMillis(),
+            elapsedRealtime = SystemClock.elapsedRealtime(),
+        )
         projector = CompletionHintProjector(AndroidKeystoreHmacSigner())
         executor = ThreadPoolExecutor(
             1,
@@ -39,7 +43,9 @@ class ChatGptNotificationListenerService : NotificationListenerService() {
     override fun onListenerDisconnected() {
         store.setListenerConnected(false, System.currentTimeMillis())
         super.onListenerDisconnected()
-        requestRebind(ComponentName(this, ChatGptNotificationListenerService::class.java))
+        NotificationListenerService.requestRebind(
+            ComponentName(this, ChatGptNotificationListenerService::class.java),
+        )
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
