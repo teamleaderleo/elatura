@@ -48,10 +48,12 @@ A concise phone checklist is available in `INSTALL-IQOO.md`.
 
 The normal-use screen groups recent events only by Android's keyed notification identity and classifies each group as:
 
-- **Possible completion** — a non-grouped posted notification with routing clues and no active progress signal;
-- **In progress** — an ongoing or incomplete-progress notification;
+- **Possible completion** — a non-grouped posted notification with routing clues and no active-state metadata;
+- **In progress** — an ongoing notification or any notification carrying progress metadata;
 - **Unknown signal** — insufficient evidence or a grouped summary;
 - **Removed** — Android reported that the notification disappeared.
+
+The stored metadata records whether progress exists, not a trustworthy completion percentage. Elatura therefore keeps every progress-bearing notification in **In progress** until physical-device evidence supports a narrower rule.
 
 Possible completion is deliberately not phrased as confirmed completion. The app does not claim that one notification identity equals one ChatGPT conversation, does not display HMAC values, and does not automatically refresh or submit anything to ChatGPT.
 
@@ -84,19 +86,19 @@ Open this directory as an Android Studio project, or build from a shell with a c
 gradle -p android/notification-companion :app:testDebugUnitTest :app:assembleDebug
 ```
 
-Install the debug APK on a connected user-owned phone:
+Install a locally built debug APK on a connected user-owned phone:
 
 ```sh
 adb install -r android/notification-companion/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The `Android notification companion` GitHub Actions workflow runs unit tests, assembles the debug APK, embeds its commit/run identifiers, and uploads a seven-day artifact bundle containing:
+The pull-request `Android notification companion` workflow runs unit tests, assembles a debug APK, embeds its commit/run/signing mode in the app version, and uploads a seven-day artifact named `elatura-notification-companion-ephemeral-debug` containing:
 
 - `app-debug.apk`;
 - `app-debug.apk.sha256`;
 - `BUILD-PROVENANCE.txt`.
 
-Use the provenance file and checksum from the exact workflow run named in the handoff before installing.
+The pull-request artifact is not the final continuing-test download. GitHub-hosted runs may use different debug certificates, so cross-run in-place updates are not guaranteed. Stable private signing and update verification are tracked in issue #104. Use the provenance file and checksum from the exact workflow run named in any one-off handoff.
 
 ## First physical-device diagnostic
 
@@ -104,7 +106,7 @@ Use the provenance file and checksum from the exact workflow run named in the ha
 2. Confirm the health card says **Listening**.
 3. Run one small ChatGPT completion and confirm a new signal appears.
 4. Open **Advanced diagnostics**.
-5. Confirm **Test context** identifies the phone, Android version, ChatGPT version, Elatura version, and the expected build.
+5. Confirm **Test context** identifies the phone, Android version, ChatGPT version, Elatura version/signing mode, and the expected build.
 6. Tap **Start or reset test session**.
 7. Run at least 30 ChatGPT completions across the job types you actually use.
 8. After independently confirming one task completed, tap **Record one completed test case**.
@@ -134,6 +136,7 @@ Describe only the broad job types tested when posting the report. Do not include
 
 ## Next packets
 
+- stable private signing and in-place update verification;
 - reboot, force-stop, permission-revoke, and OriginOS background-cleanup survival tests;
 - inbox acknowledgement/muting only after physical evidence clarifies notification identity stability;
 - explicit device pairing and authenticated outbound relay only after physical evidence supports it.
