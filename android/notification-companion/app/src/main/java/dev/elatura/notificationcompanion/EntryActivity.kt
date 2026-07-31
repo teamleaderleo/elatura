@@ -10,7 +10,7 @@ class EntryActivity : Activity() {
         super.onCreate(savedInstanceState)
         val manualState = SetupStateStore(applicationContext).snapshot()
         val destination = if (manualState.hasOpenedGuide) {
-            MainActivity::class.java
+            SignalInboxActivity::class.java
         } else {
             SetupGuideActivity::class.java
         }
