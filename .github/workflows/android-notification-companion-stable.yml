@@ -66,21 +66,20 @@ jobs:
           test -s "${KEYSTORE_PATH}"
           chmod 600 "${KEYSTORE_PATH}"
 
-          {
-            echo "keystore_path=${KEYSTORE_PATH}"
-            echo "expected_cert_sha256=$(printf '%s' "${EXPECTED_CERT_SHA256}" | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
-          } >> "${GITHUB_OUTPUT}"
-
-          {
-            echo "ELATURA_ANDROID_KEYSTORE_PATH=${KEYSTORE_PATH}"
-            echo "ELATURA_ANDROID_KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD}"
-            echo "ELATURA_ANDROID_KEY_ALIAS=${KEY_ALIAS}"
-            echo "ELATURA_ANDROID_KEY_PASSWORD=${KEY_PASSWORD}"
-            echo "ELATURA_SIGNING_MODE=stable-private"
-          } >> "${GITHUB_ENV}"
+          echo "expected_cert_sha256=$(
+            printf '%s' "${EXPECTED_CERT_SHA256}" |
+              tr -d ':[:space:]' |
+              tr '[:upper:]' '[:lower:]'
+          )" >> "${GITHUB_OUTPUT}"
 
       - name: Test and assemble stable release APK
         shell: bash
+        env:
+          ELATURA_SIGNING_MODE: stable-private
+          ELATURA_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/elatura-android-signing.p12
+          ELATURA_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ELATURA_ANDROID_KEYSTORE_PASSWORD }}
+          ELATURA_ANDROID_KEY_ALIAS: ${{ secrets.ELATURA_ANDROID_KEY_ALIAS }}
+          ELATURA_ANDROID_KEY_PASSWORD: ${{ secrets.ELATURA_ANDROID_KEY_PASSWORD }}
         run: >-
           gradle
           -p android/notification-companion
@@ -157,10 +156,9 @@ jobs:
       - name: Remove private signing key
         if: always()
         shell: bash
-        env:
-          KEYSTORE_PATH: ${{ steps.signing.outputs.keystore_path }}
         run: |
           set -euo pipefail
-          if [ -n "${KEYSTORE_PATH:-}" ] && [ -f "${KEYSTORE_PATH}" ]; then
+          KEYSTORE_PATH="${RUNNER_TEMP}/elatura-android-signing.p12"
+          if [ -f "${KEYSTORE_PATH}" ]; then
             shred -u "${KEYSTORE_PATH}" 2>/dev/null || rm -f "${KEYSTORE_PATH}"
           fi
