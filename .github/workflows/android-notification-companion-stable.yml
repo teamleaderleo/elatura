@@ -1,0 +1,166 @@
+name: Android notification companion stable build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-notification-companion-stable
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: android-signing
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@0f4528296b4bc09e8ae0fc7be30185a4ab435545 # v6.0.0
+        with:
+          gradle-version: "9.5.0"
+          cache-provider: basic
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          test -x "${SDKMANAGER}"
+          yes | "${SDKMANAGER}" --licenses >/dev/null || true
+          "${SDKMANAGER}" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Materialize private signing key
+        id: signing
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ELATURA_ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ELATURA_ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ELATURA_ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ELATURA_ANDROID_KEY_PASSWORD }}
+          EXPECTED_CERT_SHA256: ${{ secrets.ELATURA_ANDROID_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD EXPECTED_CERT_SHA256; do
+            test -n "${!name:-}" || {
+              echo "Required Android signing input ${name} is missing" >&2
+              exit 1
+            }
+          done
+
+          KEYSTORE_PATH="${RUNNER_TEMP}/elatura-android-signing.p12"
+          printf '%s' "${KEYSTORE_BASE64}" | base64 --decode > "${KEYSTORE_PATH}"
+          test -s "${KEYSTORE_PATH}"
+          chmod 600 "${KEYSTORE_PATH}"
+
+          {
+            echo "keystore_path=${KEYSTORE_PATH}"
+            echo "expected_cert_sha256=$(printf '%s' "${EXPECTED_CERT_SHA256}" | tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]')"
+          } >> "${GITHUB_OUTPUT}"
+
+          {
+            echo "ELATURA_ANDROID_KEYSTORE_PATH=${KEYSTORE_PATH}"
+            echo "ELATURA_ANDROID_KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD}"
+            echo "ELATURA_ANDROID_KEY_ALIAS=${KEY_ALIAS}"
+            echo "ELATURA_ANDROID_KEY_PASSWORD=${KEY_PASSWORD}"
+            echo "ELATURA_SIGNING_MODE=stable-private"
+          } >> "${GITHUB_ENV}"
+
+      - name: Test and assemble stable release APK
+        shell: bash
+        run: >-
+          gradle
+          -p android/notification-companion
+          :app:testDebugUnitTest
+          :app:assembleRelease
+          --no-daemon
+          --stacktrace
+
+      - name: Verify certificate and generate provenance
+        shell: bash
+        env:
+          EXPECTED_CERT_SHA256: ${{ steps.signing.outputs.expected_cert_sha256 }}
+          BUILD_SHA: ${{ github.sha }}
+          BUILD_RUN_ID: ${{ github.run_id }}
+          BUILD_RUN_NUMBER: ${{ github.run_number }}
+          BUILD_REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          OUTPUT="android/notification-companion/app/build/outputs/apk/release"
+          APK="${OUTPUT}/app-release.apk"
+          APKSIGNER="${ANDROID_HOME}/build-tools/36.0.0/apksigner"
+          AAPT2="${ANDROID_HOME}/build-tools/36.0.0/aapt2"
+          test -s "${APK}"
+          test -x "${APKSIGNER}"
+          test -x "${AAPT2}"
+
+          "${APKSIGNER}" verify --verbose --print-certs "${APK}" | tee "${OUTPUT}/APKSIGNER-REPORT.txt"
+          CERT_SHA256="$(
+            sed -n 's/^Signer #1 certificate SHA-256 digest: //p' "${OUTPUT}/APKSIGNER-REPORT.txt" |
+              head -n 1 |
+              tr -d ':[:space:]' |
+              tr '[:upper:]' '[:lower:]'
+          )"
+          test -n "${CERT_SHA256}"
+          test "${CERT_SHA256}" = "${EXPECTED_CERT_SHA256}" || {
+            echo "Signed APK certificate fingerprint does not match the protected expected fingerprint" >&2
+            exit 1
+          }
+
+          VERSION_LINE="$("${AAPT2}" dump badging "${APK}" | sed -n '1p')"
+          VERSION_CODE="$(printf '%s\n' "${VERSION_LINE}" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")"
+          VERSION_NAME="$(printf '%s\n' "${VERSION_LINE}" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")"
+          test -n "${VERSION_CODE}"
+          test -n "${VERSION_NAME}"
+
+          sha256sum "${APK}" > "${OUTPUT}/app-release.apk.sha256"
+          APK_SHA256="$(cut -d' ' -f1 "${OUTPUT}/app-release.apk.sha256")"
+          {
+            echo "artifact=app-release.apk"
+            echo "sha256=${APK_SHA256}"
+            echo "certificateSha256=${CERT_SHA256}"
+            echo "commit=${BUILD_SHA}"
+            echo "workflowRun=${BUILD_RUN_ID}"
+            echo "workflowRunNumber=${BUILD_RUN_NUMBER}"
+            echo "ref=${BUILD_REF}"
+            echo "versionCode=${VERSION_CODE}"
+            echo "versionName=${VERSION_NAME}"
+            echo "signingMode=stable-private"
+            echo "updateCompatibility=stable-for-this-certificate"
+          } > "${OUTPUT}/BUILD-PROVENANCE.txt"
+
+      - name: Upload stable signed APK bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: elatura-notification-companion-stable-v${{ github.run_number }}
+          path: |
+            android/notification-companion/app/build/outputs/apk/release/app-release.apk
+            android/notification-companion/app/build/outputs/apk/release/app-release.apk.sha256
+            android/notification-companion/app/build/outputs/apk/release/APKSIGNER-REPORT.txt
+            android/notification-companion/app/build/outputs/apk/release/BUILD-PROVENANCE.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove private signing key
+        if: always()
+        shell: bash
+        env:
+          KEYSTORE_PATH: ${{ steps.signing.outputs.keystore_path }}
+        run: |
+          set -euo pipefail
+          if [ -n "${KEYSTORE_PATH:-}" ] && [ -f "${KEYSTORE_PATH}" ]; then
+            shred -u "${KEYSTORE_PATH}" 2>/dev/null || rm -f "${KEYSTORE_PATH}"
+          fi
