@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "suite": "firefox-slim-dom-observations",
+  "contentPolicy": {
+    "messageText": false,
+    "titles": false,
+    "html": false,
+    "markdown": false,
+    "attachments": false,
+    "providerIds": false
+  },
+  "observationFields": [
+    "containerId",
+    "parentToken",
+    "documentOrder",
+    "roleValues",
+    "streaming",
+    "estimatedBlockSizePx"
+  ],
+  "fixtures": [
+    {
+      "name": "ordinary-five-pairs",
+      "expected": "latest-three-pairs-retained"
+    },
+    {
+      "name": "active-stream",
+      "expected": "streaming-group-retained"
+    },
+    {
+      "name": "provider-role-noise",
+      "expected": "unknown-role-normalized"
+    },
+    {
+      "name": "ignored-markers-outside-turns",
+      "expected": "bounded-unresolved-markers-ignored"
+    },
+    {
+      "name": "ambiguous-role-markers",
+      "expected": "fail-closed"
+    },
+    {
+      "name": "split-parent",
+      "expected": "fail-closed"
+    },
+    {
+      "name": "out-of-order",
+      "expected": "fail-closed"
+    },
+    {
+      "name": "missing-parent",
+      "expected": "fail-closed"
+    },
+    {
+      "name": "duplicate-container-id",
+      "expected": "fixture-rejected"
+    },
+    {
+      "name": "marker-count-mismatch",
+      "expected": "fixture-rejected"
+    }
+  ],
+  "authority": {
+    "liveAuthorization": "disconnected",
+    "responseMutation": false,
+    "networkRequests": false,
+    "extensionStorageWrites": false
+  }
+}

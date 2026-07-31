@@ -1,28 +1,20 @@
 // SPDX-License-Identifier: MPL-2.0
 
+import { MAX_SLIM_DISCOVERY_CANDIDATES, normalizeSlimObservedRole } from "./slim-discovery.js";
 import {
-  MAX_SLIM_DISCOVERY_CANDIDATES,
-  normalizeSlimObservedRole,
-  validateAndGroupSlimDiscovery,
-  type SlimDiscoveryCandidate,
-  type SlimDiscoveryFailureReason,
-  type SlimObservedRole,
-} from "./slim-discovery.js";
+  buildSlimLiveObservation,
+  driftReasonForSlimObservation,
+  type SlimLiveContainerObservation,
+  type SlimLiveObservationFailureReason,
+} from "./slim-live-observation.js";
 import type { SlimTurnDescriptor } from "./slim-window.js";
 
 export type LiveSlimDiscoveredTurn = SlimTurnDescriptor & {
-  role: SlimObservedRole;
+  role: "user" | "assistant" | "tool" | "system" | "unknown";
   element: HTMLElement;
 };
 
-export type LiveSlimDiscoveryFailureReason =
-  | SlimDiscoveryFailureReason
-  | "no-role-markers"
-  | "role-marker-budget-exceeded"
-  | "no-turn-containers"
-  | "turn-container-budget-exceeded"
-  | "turn-parent-missing"
-  | "ambiguous-role-markers";
+export type LiveSlimDiscoveryFailureReason = SlimLiveObservationFailureReason | "turn-order-ambiguous";
 
 export type LiveSlimDiscovery =
   | { ok: true; turns: LiveSlimDiscoveredTurn[] }
@@ -47,7 +39,7 @@ function parentTokenFor(
 
 function streamingState(
   element: HTMLElement,
-  role: SlimObservedRole,
+  role: LiveSlimDiscoveredTurn["role"],
   index: number,
   total: number,
   stopButtonPresent: boolean,
@@ -63,14 +55,13 @@ function streamingState(
 
 export function discoverLiveSlimTurns(): LiveSlimDiscovery {
   const roleNodes = document.querySelectorAll<HTMLElement>("[data-message-author-role]");
-  if (roleNodes.length === 0) return { ok: false, reason: "no-role-markers" };
   if (roleNodes.length > MAX_SLIM_DISCOVERY_CANDIDATES) {
     return { ok: false, reason: "role-marker-budget-exceeded" };
   }
 
   const candidates: HTMLElement[] = [];
   const seen = new Set<HTMLElement>();
-  const roleMarkerCounts = new Map<HTMLElement, number>();
+  const roleValues = new Map<HTMLElement, unknown[]>();
   for (let index = 0; index < roleNodes.length; index += 1) {
     const roleNode = roleNodes[index];
     if (!roleNode) return { ok: false, reason: "no-role-markers" };
@@ -78,7 +69,9 @@ export function discoverLiveSlimTurns(): LiveSlimDiscovery {
       roleNode.closest<HTMLElement>('[data-testid^="conversation-turn-"]') ??
       roleNode.closest<HTMLElement>("article");
     if (!candidate) continue;
-    roleMarkerCounts.set(candidate, (roleMarkerCounts.get(candidate) ?? 0) + 1);
+    const values = roleValues.get(candidate) ?? [];
+    values.push(roleNode.getAttribute("data-message-author-role"));
+    roleValues.set(candidate, values);
     if (seen.has(candidate)) continue;
     seen.add(candidate);
     candidates.push(candidate);
@@ -86,22 +79,15 @@ export function discoverLiveSlimTurns(): LiveSlimDiscovery {
       return { ok: false, reason: "turn-container-budget-exceeded" };
     }
   }
-  if (candidates.length === 0) return { ok: false, reason: "no-turn-containers" };
-  if (candidates.some((candidate) => roleMarkerCounts.get(candidate) !== 1)) {
-    return { ok: false, reason: "ambiguous-role-markers" };
-  }
 
-  const stopButtonPresent = document.querySelector('[data-testid="stop-button"]') !== null;
   const parentTokens = new Map<HTMLElement, string>();
-  const pureCandidates: SlimDiscoveryCandidate[] = [];
-  const elementsById = new Map<string, HTMLElement>();
-  const rolesById = new Map<string, SlimObservedRole>();
+  const elementsByContainerId = new Map<string, HTMLElement>();
+  const stopButtonPresent = document.querySelector('[data-testid="stop-button"]') !== null;
+  const observations: SlimLiveContainerObservation[] = [];
 
   for (let index = 0; index < candidates.length; index += 1) {
     const element = candidates[index];
     if (!element) return { ok: false, reason: "no-turn-containers" };
-    const parent = element.parentElement;
-    if (!parent) return { ok: false, reason: "turn-parent-missing" };
     if (index > 0) {
       const previous = candidates[index - 1];
       if (!previous) return { ok: false, reason: "turn-order-ambiguous" };
@@ -109,54 +95,42 @@ export function discoverLiveSlimTurns(): LiveSlimDiscovery {
         return { ok: false, reason: "turn-order-ambiguous" };
       }
     }
-
-    const roleMarker = element.querySelector<HTMLElement>("[data-message-author-role]");
-    const role = normalizeSlimObservedRole(
-      roleMarker?.getAttribute("data-message-author-role"),
-    );
-    const id = `turn-${index + 1}`;
-    pureCandidates.push({
-      id,
-      parentToken: parentTokenFor(parent, parentTokens),
+    const parent = element.parentElement;
+    const values = roleValues.get(element) ?? [];
+    const role = normalizeSlimObservedRole(values[0]);
+    const containerId = `container-${index + 1}`;
+    observations.push({
+      containerId,
+      parentToken: parent ? parentTokenFor(parent, parentTokens) : null,
       documentOrder: index,
-      role,
+      roleValues: values,
       streaming: streamingState(element, role, index, candidates.length, stopButtonPresent),
       estimatedBlockSizePx: boundedHeight(element),
     });
-    elementsById.set(id, element);
-    rolesById.set(id, role);
+    elementsByContainerId.set(containerId, element);
   }
 
-  const validated = validateAndGroupSlimDiscovery(pureCandidates);
-  if (!validated.ok) {
-    return { ok: false, reason: validated.issues[0]?.code ?? "no-turn-containers" };
-  }
+  const observed = buildSlimLiveObservation(roleNodes.length, observations);
+  if (!observed.ok) return observed;
 
   const turns: LiveSlimDiscoveredTurn[] = [];
-  for (const descriptor of validated.value.turns) {
-    const element = elementsById.get(descriptor.id);
-    const role = rolesById.get(descriptor.id);
-    if (!element || !role) return { ok: false, reason: "no-turn-containers" };
-    turns.push({ ...descriptor, role, element });
+  for (const descriptor of observed.turns) {
+    const element = elementsByContainerId.get(descriptor.containerId);
+    if (!element) return { ok: false, reason: "no-turn-containers" };
+    turns.push({
+      id: descriptor.id,
+      groupKey: descriptor.groupKey,
+      streaming: descriptor.streaming,
+      estimatedBlockSizePx: descriptor.estimatedBlockSizePx,
+      role: descriptor.role,
+      element,
+    });
   }
   return { ok: true, turns };
 }
 
 export function driftReasonForLiveDiscovery(
   reason: LiveSlimDiscoveryFailureReason,
-): SlimDiscoveryFailureReason {
-  switch (reason) {
-    case "no-role-markers":
-    case "no-turn-containers":
-      return "no-turn-candidates";
-    case "role-marker-budget-exceeded":
-    case "turn-container-budget-exceeded":
-      return "candidate-budget-exceeded";
-    case "turn-parent-missing":
-      return "turn-parent-mismatch";
-    case "ambiguous-role-markers":
-      return "invalid-role";
-    default:
-      return reason;
-  }
+): ReturnType<typeof driftReasonForSlimObservation> {
+  return driftReasonForSlimObservation(reason);
 }

@@ -29,6 +29,7 @@
         "slim-content-controller.js",
         "slim-discovery.js",
         "slim-live-discovery.js",
+        "slim-live-observation.js",
         "slim-window.js"
       ],
       "matches": ["https://chatgpt.com/*"]
