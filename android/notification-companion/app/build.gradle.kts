@@ -23,7 +23,7 @@ android {
         minSdk = 28
         targetSdk = 36
         versionCode = elaturaBuildRunNumber
-        versionName = "0.1.0-dev.$elaturaBuildRunNumber"
+        versionName = "0.1.0-dev.$elaturaBuildRunNumber-$elaturaSigningMode"
         buildConfigField("String", "ELATURA_BUILD_SHA", "\"$elaturaBuildSha\"")
         buildConfigField("String", "ELATURA_BUILD_RUN_ID", "\"$elaturaBuildRunId\"")
         buildConfigField("String", "ELATURA_SIGNING_MODE", "\"$elaturaSigningMode\"")
