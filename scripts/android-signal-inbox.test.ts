@@ -49,13 +49,18 @@ describe("Android signal inbox", () => {
     const model = read(
       "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/SignalInbox.kt",
     );
+    const itemStart = model.indexOf("internal data class SignalInboxItem");
+    const itemEnd = model.indexOf("internal fun buildSignalInbox");
+    const itemDeclaration = model.slice(itemStart, itemEnd);
 
-    expect(inbox).not.toContain("notificationKeyHash.take");
+    expect(itemStart).toBeGreaterThanOrEqual(0);
+    expect(itemEnd).toBeGreaterThan(itemStart);
+    expect(inbox).not.toContain("notificationKeyHash");
     expect(inbox).not.toContain("notificationIdHash");
-    expect(inbox).not.toContain("notificationTagHash");
+    expect(inbox).not.toContain("tagHash");
     expect(inbox).toContain("not a verified conversation state");
     expect(inbox).toContain("does not claim that a group equals one ChatGPT thread");
-    expect(model).not.toMatch(/SignalInboxItem\([\s\S]*notificationKeyHash/u);
+    expect(itemDeclaration).not.toContain("notificationKeyHash");
   });
 
   it("keeps uncertain and grouped events conservative", () => {
@@ -64,6 +69,7 @@ describe("Android signal inbox", () => {
     );
 
     expect(model).toContain("if (hint.isGroupSummary) return SignalInboxState.UNKNOWN");
+    expect(model).toContain("hint.isOngoing || hint.hasProgress || hint.isProgressIndeterminate");
     expect(model).toContain("SignalInboxState.POSSIBLE_COMPLETION");
     expect(model).toContain("SignalInboxState.IN_PROGRESS");
     expect(model).toContain("SignalInboxState.REMOVED");
