@@ -53,10 +53,6 @@ android {
                 storePassword = requireNotNull(stableKeystorePassword)
                 keyAlias = requireNotNull(stableKeyAlias)
                 keyPassword = requireNotNull(stableKeyPassword)
-                enableV1Signing = true
-                enableV2Signing = true
-                enableV3Signing = true
-                enableV4Signing = true
             }
         }
     }
