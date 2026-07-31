@@ -40,7 +40,7 @@ describe("Android notification companion safety boundary", () => {
     expect(listener).toContain("ArrayBlockingQueue(MAX_PENDING_PROJECTIONS)");
   });
 
-  it("keeps persisted records bounded and token-only", () => {
+  it("keeps persisted records bounded, deduplicated, and token-only", () => {
     const store = read(
       "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/LocalHintStore.kt",
     );
@@ -48,13 +48,41 @@ describe("Android notification companion safety boundary", () => {
       "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/CompletionHint.kt",
     );
     expect(store).toContain("MAX_QUEUE_ENTRIES = 64");
-    expect(store).toContain("while (array.length() > MAX_QUEUE_ENTRIES)");
+    expect(store).toContain("while (sanitized.length() > MAX_QUEUE_ENTRIES)");
+    expect(store).toContain("MAX_DEDUPE_WINDOW = 8");
+    expect(store).toContain("containsRecentExactEvent");
     expect(model).toContain("val titleToken: String?");
     expect(model).toContain("val textToken: String?");
     expect(model).not.toMatch(/CompletionHintRecord\([\s\S]*?val\s+(?:title|text):\s/u);
   });
 
-  it("contains no Android networking implementation in the first packet", () => {
+  it("keeps listener rebind and process-freshness checks in their intended layers", () => {
+    const listener = read(
+      "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/ChatGptNotificationListenerService.kt",
+    );
+    const activity = read(
+      "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/MainActivity.kt",
+    );
+    expect(listener).toContain("NotificationListenerService.requestRebind");
+    expect(activity).not.toContain("NotificationListenerService.requestRebind");
+    expect(activity).toContain("Process.getStartElapsedRealtime()");
+    expect(activity).toContain("listenerConfirmedInCurrentProcess");
+  });
+
+  it("shares only content-free report fields", () => {
+    const diagnostics = read(
+      "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/Diagnostics.kt",
+    );
+    const activity = read(
+      "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/MainActivity.kt",
+    );
+    expect(activity).toContain("Share content-free diagnostic report");
+    expect(diagnostics).toContain('append(" titleToken=${hint.titleToken != null}")');
+    expect(diagnostics).toContain('append(" textToken=${hint.textToken != null}")');
+    expect(diagnostics).not.toMatch(/append(?:Line)?\(hint\.(?:titleToken|textToken|notificationKeyHash|groupKeyHash)\)/u);
+  });
+
+  it("contains no Android networking implementation in the local-only packet", () => {
     const sourceFiles = walk(join(ANDROID_ROOT, "app/src/main"));
     const combined = sourceFiles.map((path) => readFileSync(path, "utf8")).join("\n");
     expect(combined).not.toMatch(/\b(?:HttpURLConnection|Socket|WebSocket|OkHttpClient)\b/u);
