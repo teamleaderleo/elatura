@@ -20,6 +20,7 @@ internal data class HintStoreSnapshot(
     val listenerDisconnectedAt: Long,
     val listenerConnectionCount: Long,
     val serviceStartedAt: Long,
+    val serviceStartedElapsedRealtime: Long,
     val serviceStartCount: Long,
 )
 
@@ -136,6 +137,7 @@ internal fun summarizeHints(hints: List<StoredCompletionHint>): HintDiagnosticsS
 internal fun buildContentFreeReport(
     snapshot: HintStoreSnapshot,
     accessGranted: Boolean,
+    listenerConfirmedInCurrentProcess: Boolean,
     generatedAt: Long,
     appVersion: String,
 ): String {
@@ -145,11 +147,13 @@ internal fun buildContentFreeReport(
         appendLine("version=$appVersion")
         appendLine("generatedAtEpochMs=$generatedAt")
         appendLine("notificationAccessGranted=$accessGranted")
+        appendLine("listenerConfirmedInCurrentProcess=$listenerConfirmedInCurrentProcess")
         appendLine("listenerLastCallbackConnected=${snapshot.listenerConnected}")
         appendLine("listenerConnectedAtEpochMs=${snapshot.listenerConnectedAt}")
         appendLine("listenerDisconnectedAtEpochMs=${snapshot.listenerDisconnectedAt}")
         appendLine("listenerConnectionCount=${snapshot.listenerConnectionCount}")
         appendLine("serviceStartedAtEpochMs=${snapshot.serviceStartedAt}")
+        appendLine("serviceStartedElapsedRealtimeMs=${snapshot.serviceStartedElapsedRealtime}")
         appendLine("serviceStartCount=${snapshot.serviceStartCount}")
         appendLine("observed=${snapshot.observed}")
         appendLine("accepted=${snapshot.accepted}")
