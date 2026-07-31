@@ -59,6 +59,14 @@ command -v unzip >/dev/null 2>&1 || {
   exit 1
 }
 
+while IFS= read -r entry; do
+  [[ -n "$entry" ]] || continue
+  if [[ "$entry" == /* || "$entry" == ../* || "$entry" == */../* || "$entry" == */.. || "$entry" == *\\* ]]; then
+    echo "Unsafe path in artifact ZIP: $entry" >&2
+    exit 1
+  fi
+done < <(unzip -Z1 "$archive")
+
 work_dir="$(mktemp -d "${TMPDIR:-/tmp}/elatura-artifact.XXXXXX")"
 cleanup() {
   rm -rf "$work_dir"
@@ -84,6 +92,10 @@ provenance="$(find_one BUILD-PROVENANCE.txt)"
 apk_name="$(awk -F= '$1 == "artifact" { print substr($0, index($0, "=") + 1); exit }' "$provenance")"
 [[ -n "$apk_name" ]] || {
   echo "Provenance does not name an artifact" >&2
+  exit 1
+}
+[[ "$apk_name" != */* && "$apk_name" != *\\* ]] || {
+  echo "Provenance artifact name must be a base filename" >&2
   exit 1
 }
 apk="$(find_one "$apk_name")"
@@ -136,7 +148,7 @@ find_apksigner() {
   fi
   local root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
   [[ -n "$root" && -d "$root/build-tools" ]] || return 1
-  find "$root/build-tools" -type f -name apksigner -perm -111 -print | sort -V | tail -n 1
+  find "$root/build-tools" -type f -name apksigner -perm -111 -print | sort | tail -n 1
 }
 
 if $require_stable; then
