@@ -71,8 +71,8 @@ private fun MutableSignalGroup.toInboxItem(): SignalInboxItem {
         hasChannelClue = hint.channelIdHash != null,
         hasShortcutClue = hint.shortcutIdHash != null,
         isGroupSummary = hint.isGroupSummary,
-        removalReasonName = hint.removalReasonName.takeIf {
-            state == SignalInboxState.REMOVED && it != "none"
+        removalReasonName = hint.removalReason.takeIf {
+            state == SignalInboxState.REMOVED
         },
     )
 }
@@ -81,8 +81,7 @@ private fun classifySignal(hint: CompletionHintRecord): SignalInboxState {
     if (hint.kind == HintKind.REMOVED.wireValue) return SignalInboxState.REMOVED
     if (hint.isGroupSummary) return SignalInboxState.UNKNOWN
 
-    val progressIncomplete = hint.progressMax > 0 && hint.progress < hint.progressMax
-    if (hint.isOngoing || hint.isProgressIndeterminate || progressIncomplete) {
+    if (hint.isOngoing || hint.hasProgress || hint.isProgressIndeterminate) {
         return SignalInboxState.IN_PROGRESS
     }
 
