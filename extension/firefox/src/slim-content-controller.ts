@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: MPL-2.0
 
 import {
+  applySlimBrowserRenderSuppression,
+  clearSlimBrowserSuppression,
+  countSlimBrowserNodes,
+  executeSlimBrowserLatestWindow,
+  removeSlimBrowserStatus,
+  removeSlimBrowserStyle,
+  renderSlimBrowserStatus,
+  slimBrowserHasPlaceholders,
+  slimBrowserPlaceholderCount,
+} from "./slim-browser-dom.js";
+import {
   initialSlimDriftState,
   reduceSlimDrift,
   type SlimDriftState,
@@ -15,7 +26,6 @@ import {
   planSlimWindow,
   revealPreviousTurnGroups,
   type SlimMode,
-  type SlimWindowPlan,
 } from "./slim-window.js";
 
 type SlimRuntimeStatus =
@@ -55,24 +65,16 @@ export type SlimRuntimeSnapshot = {
   metrics: SlimMetrics;
 };
 
-type NodeCount = {
-  elementNodes: number;
-  textNodes: number;
-  truncated: boolean;
-};
-
 type TransformSafetyState = { emergencyDisabled?: boolean };
 type TransformOptInState = { recorded?: boolean; authorizesTransform?: boolean };
 
 const DEFAULT_TURN_GROUPS = 3;
 const MAX_TURN_GROUPS = 8;
-const SESSION_CONFIG_KEY = "__elatura_slim_mode_v1";
-const STATUS_HOST_ID = "elatura-slim-status-host";
-const STYLE_ID = "elatura-slim-style";
 const MAX_NODE_COUNT = 100_000;
 const MAX_PLACEHOLDERS = 8;
 const APPLY_DELAY_MS = 180;
 const DRIFT_RETRY_MS = 500;
+const SESSION_CONFIG_KEY = "__elatura_slim_mode_v1";
 
 function initialMetrics(): SlimMetrics {
   return {
@@ -142,195 +144,6 @@ function clearSessionConfig(): void {
   }
 }
 
-function countDocumentNodes(): NodeCount {
-  const walker = document.createTreeWalker(
-    document,
-    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
-  );
-  let elementNodes = 0;
-  let textNodes = 0;
-  let visited = 0;
-  while (walker.nextNode()) {
-    visited += 1;
-    if (walker.currentNode.nodeType === Node.ELEMENT_NODE) elementNodes += 1;
-    else if (walker.currentNode.nodeType === Node.TEXT_NODE) textNodes += 1;
-    if (visited >= MAX_NODE_COUNT) return { elementNodes, textNodes, truncated: true };
-  }
-  return { elementNodes, textNodes, truncated: false };
-}
-
-function ensureSlimStyle(): void {
-  if (document.getElementById(STYLE_ID)) return;
-  const style = document.createElement("style");
-  style.id = STYLE_ID;
-  style.textContent = `
-    [data-elatura-render-suppressed="true"] {
-      content-visibility: auto !important;
-      contain: layout paint style !important;
-      contain-intrinsic-block-size: var(--elatura-intrinsic-size, 480px) !important;
-    }
-    [data-elatura-placeholder="true"] {
-      box-sizing: border-box !important;
-      display: flex !important;
-      align-items: flex-end !important;
-      justify-content: center !important;
-      min-block-size: var(--elatura-placeholder-size, 96px) !important;
-      padding: 12px !important;
-      contain: layout paint style !important;
-    }
-    [data-elatura-placeholder="true"] > button {
-      font: 600 13px/1.2 system-ui, sans-serif !important;
-      border: 1px solid currentColor !important;
-      border-radius: 999px !important;
-      padding: 8px 12px !important;
-      background: Canvas !important;
-      color: CanvasText !important;
-      cursor: pointer !important;
-    }
-  `;
-  (document.head ?? document.documentElement).append(style);
-}
-
-function clearSuppressionAttributes(): void {
-  for (const element of document.querySelectorAll<HTMLElement>(
-    '[data-elatura-render-suppressed="true"]',
-  )) {
-    element.removeAttribute("data-elatura-render-suppressed");
-    element.style.removeProperty("--elatura-intrinsic-size");
-  }
-}
-
-function removeStatusHost(): void {
-  document.getElementById(STATUS_HOST_ID)?.remove();
-}
-
-function createStatusHost(
-  revealPrevious: () => void,
-  restoreStock: () => void,
-): ShadowRoot {
-  const existing = document.getElementById(STATUS_HOST_ID) as HTMLElement | null;
-  if (existing?.shadowRoot) return existing.shadowRoot;
-  existing?.remove();
-  const host = document.createElement("aside");
-  host.id = STATUS_HOST_ID;
-  host.style.cssText =
-    "position:fixed;z-index:2147483647;right:12px;bottom:12px;max-width:min(360px,calc(100vw - 24px));";
-  const shadow = host.attachShadow({ mode: "open" });
-  shadow.innerHTML = `
-    <style>
-      :host { all: initial; }
-      .chip { font: 600 12px/1.3 system-ui,sans-serif; color: CanvasText; background: Canvas;
-        border: 1px solid currentColor; border-radius: 12px;
-        box-shadow: 0 8px 30px rgb(0 0 0 / .18); padding: 9px 10px; }
-      .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-      .reason { margin-top:5px; font-weight:400; opacity:.75; overflow-wrap:anywhere; }
-      button { font:inherit; border:1px solid currentColor; border-radius:999px; padding:4px 8px;
-        background:Canvas; color:CanvasText; cursor:pointer; }
-    </style>
-    <div class="chip">
-      <div class="row"><span id="token"></span><button id="previous">Previous</button><button id="stock">Stock</button></div>
-      <div class="reason" id="reason"></div>
-    </div>
-  `;
-  shadow.querySelector("#previous")?.addEventListener("click", revealPrevious);
-  shadow.querySelector("#stock")?.addEventListener("click", restoreStock);
-  document.documentElement.append(host);
-  return shadow;
-}
-
-function placeholderBlockSize(element: HTMLElement): number {
-  const raw = Number(element.dataset.elaturaBlockSize ?? "0");
-  return Number.isFinite(raw) && raw > 0 ? raw : 0;
-}
-
-function setPlaceholderBlockSize(element: HTMLElement, value: number): void {
-  const bounded = Math.min(2_000_000, Math.max(72, Math.round(value)));
-  element.dataset.elaturaBlockSize = String(bounded);
-  element.style.setProperty("--elatura-placeholder-size", `${bounded}px`);
-}
-
-function createPlaceholder(
-  turnCount: number,
-  blockSize: number,
-  revealPrevious: () => void,
-): HTMLElement {
-  const placeholder = document.createElement("section");
-  placeholder.setAttribute("data-elatura-placeholder", "true");
-  placeholder.dataset.elaturaTurnCount = String(turnCount);
-  setPlaceholderBlockSize(placeholder, blockSize);
-  const button = document.createElement("button");
-  button.type = "button";
-  button.textContent = `Reveal earlier messages (${turnCount} hidden turns)`;
-  button.addEventListener("click", revealPrevious);
-  placeholder.append(button);
-  return placeholder;
-}
-
-function mergePlaceholder(previous: HTMLElement, addedTurns: number, addedBlockSize: number): void {
-  const existingTurns = Number(previous.dataset.elaturaTurnCount ?? "0");
-  const turnCount = Math.max(0, Number.isFinite(existingTurns) ? existingTurns : 0) + addedTurns;
-  previous.dataset.elaturaTurnCount = String(turnCount);
-  setPlaceholderBlockSize(previous, placeholderBlockSize(previous) + addedBlockSize);
-  const button = previous.querySelector<HTMLButtonElement>("button");
-  if (button) button.textContent = `Reveal earlier messages (${turnCount} hidden turns)`;
-}
-
-function applyRenderSuppression(
-  discovery: Extract<LiveSlimDiscovery, { ok: true }>,
-  plan: SlimWindowPlan,
-): void {
-  ensureSlimStyle();
-  const suppressed = new Set(plan.suppressedTurnIds);
-  for (const turn of discovery.turns) {
-    if (suppressed.has(turn.id)) {
-      turn.element.setAttribute("data-elatura-render-suppressed", "true");
-      turn.element.style.setProperty(
-        "--elatura-intrinsic-size",
-        `${Math.max(1, turn.estimatedBlockSizePx)}px`,
-      );
-    } else {
-      turn.element.removeAttribute("data-elatura-render-suppressed");
-      turn.element.style.removeProperty("--elatura-intrinsic-size");
-    }
-  }
-}
-
-function applyLatestWindow(
-  discovery: Extract<LiveSlimDiscovery, { ok: true }>,
-  plan: SlimWindowPlan,
-  revealPrevious: () => void,
-): boolean {
-  ensureSlimStyle();
-  clearSuppressionAttributes();
-  const elementById = new Map(discovery.turns.map((turn) => [turn.id, turn.element]));
-  const scrollTop = window.scrollY;
-  let removedAny = false;
-
-  for (const range of plan.removalRanges) {
-    const elements = range.turnIds
-      .map((id) => elementById.get(id))
-      .filter((element): element is HTMLElement => element instanceof HTMLElement);
-    if (elements.length !== range.turnIds.length || elements.length === 0) {
-      throw new Error("window-range-drift");
-    }
-    const first = elements[0];
-    if (!first) throw new Error("window-range-empty");
-    const previous = first.previousElementSibling as HTMLElement | null;
-    if (previous?.hasAttribute("data-elatura-placeholder")) {
-      mergePlaceholder(previous, elements.length, range.estimatedBlockSizePx);
-    } else {
-      first.before(createPlaceholder(elements.length, range.estimatedBlockSizePx, revealPrevious));
-    }
-    for (const element of elements) element.remove();
-    removedAny = true;
-  }
-
-  const placeholders = document.querySelectorAll('[data-elatura-placeholder="true"]');
-  if (placeholders.length > MAX_PLACEHOLDERS) throw new Error("placeholder-budget-exceeded");
-  if (removedAny) requestAnimationFrame(() => window.scrollTo({ top: scrollTop }));
-  return removedAny;
-}
-
 function discoverySignature(
   mode: SlimMode,
   turnGroups: number,
@@ -382,24 +195,23 @@ export function bootSlimContentController(): void {
   }
 
   function renderStatus(): void {
-    if (runtimeState.status === "stock") {
-      removeStatusHost();
-      return;
-    }
-    const shadow = createStatusHost(
-      () => void revealPrevious(),
-      () => void restoreStock(),
+    renderSlimBrowserStatus(
+      {
+        status: runtimeState.status,
+        mode: runtimeState.mode,
+        turnGroups: runtimeState.turnGroups,
+        reason: runtimeState.reason,
+      },
+      {
+        revealPrevious() {
+          void revealPrevious();
+        },
+        restoreStock() {
+          void restoreStock();
+        },
+      },
+      MAX_TURN_GROUPS,
     );
-    const token = shadow.querySelector<HTMLElement>("#token");
-    const reason = shadow.querySelector<HTMLElement>("#reason");
-    const previous = shadow.querySelector<HTMLButtonElement>("#previous");
-    if (token) {
-      token.textContent = `Elatura · ${runtimeState.status} · ${runtimeState.mode} · ${runtimeState.turnGroups}`;
-    }
-    if (reason) reason.textContent = runtimeState.reason ?? "Content-free local mode";
-    if (previous) {
-      previous.hidden = runtimeState.mode === "stock" || runtimeState.turnGroups >= MAX_TURN_GROUPS;
-    }
   }
 
   function scheduleApply(delay = APPLY_DELAY_MS): void {
@@ -432,25 +244,32 @@ export function bootSlimContentController(): void {
     slimObserver = null;
   }
 
+  function clearApplyTimer(): void {
+    if (applyTimer === null) return;
+    window.clearTimeout(applyTimer);
+    applyTimer = null;
+  }
+
   async function failOpen(reason: string): Promise<SlimRuntimeSnapshot> {
     stopObserver();
-    if (applyTimer !== null) {
-      window.clearTimeout(applyTimer);
-      applyTimer = null;
-    }
+    clearApplyTimer();
     runtimeState.metrics.failOpenCount += 1;
     runtimeState.status = "failed-open";
     runtimeState.reason = reason;
     clearSessionConfig();
     driftState = initialSlimDriftState();
-    renderStatus();
+    lastAppliedSignature = null;
+
     if (runtimeState.destructiveApplied) {
+      renderStatus();
       window.setTimeout(() => location.reload(), 0);
       return snapshot();
     }
-    clearSuppressionAttributes();
+
+    clearSlimBrowserSuppression();
+    removeSlimBrowserStyle();
     runtimeState.mode = "stock";
-    lastAppliedSignature = null;
+    renderStatus();
     return snapshot();
   }
 
@@ -483,8 +302,7 @@ export function bootSlimContentController(): void {
       if (location.href !== currentUrl) {
         currentUrl = location.href;
         lastAppliedSignature = null;
-        runtimeState.destructiveApplied =
-          document.querySelector('[data-elatura-placeholder="true"]') !== null;
+        runtimeState.destructiveApplied = slimBrowserHasPlaceholders();
         driftState = reduceSlimDrift(driftState, {
           kind: "route-changed",
           atMs: performance.now(),
@@ -504,8 +322,9 @@ export function bootSlimContentController(): void {
         discovery.turns,
       );
       if (currentSignature === lastAppliedSignature) return snapshot();
-      const before = countDocumentNodes();
-      const result = planSlimWindow(
+
+      const before = countSlimBrowserNodes(MAX_NODE_COUNT);
+      const plan = planSlimWindow(
         discovery.turns.map(({ id, groupKey, streaming, estimatedBlockSizePx }) => ({
           id,
           groupKey,
@@ -515,22 +334,27 @@ export function bootSlimContentController(): void {
         runtimeState.mode,
         runtimeState.turnGroups,
       );
-      if (!result.ok) return await failOpen(result.issues[0]?.code ?? "window-plan-failed");
+      if (!plan.ok) return await failOpen(plan.issues[0]?.code ?? "window-plan-failed");
 
       if (runtimeState.mode === "render-suppressed") {
-        applyRenderSuppression(discovery, result.value);
+        applySlimBrowserRenderSuppression(discovery, plan.value);
       } else if (runtimeState.mode === "latest-window") {
         stopObserver();
-        try {
-          runtimeState.destructiveApplied =
-            applyLatestWindow(discovery, result.value, () => void revealPrevious()) ||
-            runtimeState.destructiveApplied;
-        } finally {
-          startObserver();
+        const execution = executeSlimBrowserLatestWindow(
+          discovery,
+          plan.value,
+          () => void revealPrevious(),
+          MAX_PLACEHOLDERS,
+        );
+        runtimeState.destructiveApplied =
+          runtimeState.destructiveApplied || execution.mutationStarted;
+        if (!execution.ok) {
+          return await failOpen(execution.issue.code);
         }
+        startObserver();
       }
 
-      const after = countDocumentNodes();
+      const after = countSlimBrowserNodes(MAX_NODE_COUNT);
       runtimeState.metrics = {
         ...runtimeState.metrics,
         applyCount: runtimeState.metrics.applyCount + 1,
@@ -540,10 +364,10 @@ export function bootSlimContentController(): void {
         elementNodesAfter: after.elementNodes,
         textNodesAfter: after.textNodes,
         nodeCountTruncatedAfter: after.truncated,
-        discoveredTurnsBefore: result.value.mountedTurnCountBefore,
+        discoveredTurnsBefore: plan.value.mountedTurnCountBefore,
         mountedTurnsAfter: discovery.turns.filter((turn) => turn.element.isConnected).length,
-        suppressedTurns: result.value.suppressedTurnIds.length,
-        placeholderCount: document.querySelectorAll('[data-elatura-placeholder="true"]').length,
+        suppressedTurns: plan.value.suppressedTurnIds.length,
+        placeholderCount: slimBrowserPlaceholderCount(),
       };
       runtimeState.status = "active";
       runtimeState.reason =
@@ -579,6 +403,7 @@ export function bootSlimContentController(): void {
       renderStatus();
       return snapshot();
     }
+
     const config = { mode, turnGroups: normalizedGroups } satisfies SlimConfig;
     if (!writeSessionConfig(config)) {
       runtimeState.status = "unsupported";
@@ -618,16 +443,14 @@ export function bootSlimContentController(): void {
   async function restoreStock(): Promise<SlimRuntimeSnapshot> {
     stopObserver();
     clearSessionConfig();
-    if (applyTimer !== null) {
-      window.clearTimeout(applyTimer);
-      applyTimer = null;
-    }
+    clearApplyTimer();
     if (runtimeState.destructiveApplied) {
       window.setTimeout(() => location.reload(), 0);
       return snapshot();
     }
-    clearSuppressionAttributes();
-    document.getElementById(STYLE_ID)?.remove();
+
+    clearSlimBrowserSuppression();
+    removeSlimBrowserStyle();
     runtimeState.mode = "stock";
     runtimeState.status = "stock";
     runtimeState.reason = null;
@@ -635,7 +458,7 @@ export function bootSlimContentController(): void {
     runtimeState.destructiveApplied = false;
     driftState = initialSlimDriftState();
     lastAppliedSignature = null;
-    removeStatusHost();
+    removeSlimBrowserStatus();
     return snapshot();
   }
 
