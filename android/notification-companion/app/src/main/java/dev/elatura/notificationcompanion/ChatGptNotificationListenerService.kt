@@ -77,7 +77,7 @@ class ChatGptNotificationListenerService : NotificationListenerService() {
         return NotificationFields(
             sourcePackage = sbn.packageName,
             postedAt = sbn.postTime.coerceAtLeast(0L),
-            notificationKey = sbn.key,
+            notificationKey = sbn.key.take(MAX_EPHEMERAL_TEXT_CODE_UNITS),
             title = firstText(
                 extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE),
                 extras.getCharSequence(Notification.EXTRA_TITLE_BIG),
@@ -90,7 +90,7 @@ class ChatGptNotificationListenerService : NotificationListenerService() {
                 extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT),
             ),
             category = notification.category,
-            groupKey = sbn.groupKey,
+            groupKey = sbn.groupKey?.take(MAX_EPHEMERAL_TEXT_CODE_UNITS),
             isOngoing = sbn.isOngoing,
         )
     }
@@ -98,15 +98,20 @@ class ChatGptNotificationListenerService : NotificationListenerService() {
     private fun firstText(vararg candidates: CharSequence?): String? {
         return candidates
             .asSequence()
-            .mapNotNull { candidate ->
-                candidate?.toString()?.trim()?.takeIf(String::isNotEmpty)
-            }
+            .mapNotNull(::boundedText)
             .firstOrNull()
-            ?.take(MAX_EPHEMERAL_FIELD_CODE_UNITS)
+    }
+
+    private fun boundedText(candidate: CharSequence?): String? {
+        candidate ?: return null
+        return candidate
+            .subSequence(0, minOf(candidate.length, MAX_EPHEMERAL_TEXT_CODE_UNITS))
+            .toString()
+            .trim()
+            .takeIf(String::isNotEmpty)
     }
 
     companion object {
         private const val MAX_PENDING_PROJECTIONS = 16
-        private const val MAX_EPHEMERAL_FIELD_CODE_UNITS = 4_096
     }
 }
