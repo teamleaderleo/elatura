@@ -25,7 +25,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["slim-window.js"],
+      "resources": ["slim-content-controller.js", "slim-window.js"],
       "matches": ["https://chatgpt.com/*"]
     }
   ],
