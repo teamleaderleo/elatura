@@ -23,6 +23,7 @@ describe("Android notification companion safety boundary", () => {
     expect(manifest).not.toContain("android.permission.INTERNET");
     expect(manifest).toContain('android:allowBackup="false"');
     expect(manifest).toContain('android:usesCleartextTraffic="false"');
+    expect(manifest).toContain('<package android:name="com.openai.chatgpt" />');
     expect(manifest).toMatch(
       /<service[\s\S]*?android:exported="false"[\s\S]*?android:permission="android\.permission\.BIND_NOTIFICATION_LISTENER_SERVICE"/u,
     );
@@ -51,6 +52,7 @@ describe("Android notification companion safety boundary", () => {
     expect(store).toContain("while (sanitized.length() > MAX_QUEUE_ENTRIES)");
     expect(store).toContain("MAX_DEDUPE_WINDOW = 8");
     expect(store).toContain("containsRecentExactEvent");
+    expect(store).toContain("private val PROCESS_LOCK = Any()");
     expect(model).toContain("val titleToken: String?");
     expect(model).toContain("val textToken: String?");
     expect(model).not.toMatch(/CompletionHintRecord\([\s\S]*?val\s+(?:title|text):\s/u);
@@ -67,6 +69,24 @@ describe("Android notification companion safety boundary", () => {
     expect(activity).not.toContain("NotificationListenerService.requestRebind");
     expect(activity).toContain("Process.getStartElapsedRealtime()");
     expect(activity).toContain("listenerConfirmedInCurrentProcess");
+  });
+
+  it("embeds and reports bounded build and device test context", () => {
+    const build = read("android/notification-companion/app/build.gradle.kts");
+    const activity = read(
+      "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/MainActivity.kt",
+    );
+    const diagnostics = read(
+      "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/Diagnostics.kt",
+    );
+    expect(build).toContain('buildConfigField("String", "ELATURA_BUILD_SHA"');
+    expect(build).toContain('buildConfigField("String", "ELATURA_BUILD_RUN_ID"');
+    expect(activity).toContain("DiagnosticEnvironment(");
+    expect(activity).toContain("BuildConfig.ELATURA_BUILD_SHA");
+    expect(activity).toContain("chatGptVersion()");
+    expect(diagnostics).toContain('appendLine("deviceModel=${environment.deviceModel}")');
+    expect(diagnostics).toContain('appendLine("chatGptVersion=${environment.chatGptVersion}")');
+    expect(diagnostics).toContain('appendLine("buildSha=${environment.buildSha}")');
   });
 
   it("shares only content-free report fields", () => {
