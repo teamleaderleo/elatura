@@ -104,6 +104,34 @@ describe("Android notification companion safety boundary", () => {
     expect(physicalTest).toContain('NOT_TESTED("not-tested")');
   });
 
+  it("routes first launch through vendor-aware setup without widening authority", () => {
+    const manifest = read("android/notification-companion/app/src/main/AndroidManifest.xml");
+    const entry = read(
+      "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/EntryActivity.kt",
+    );
+    const setup = read(
+      "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/SetupGuideActivity.kt",
+    );
+    const guide = read(
+      "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/SetupGuide.kt",
+    );
+    const shortcuts = read("android/notification-companion/app/src/main/res/xml/shortcuts.xml");
+
+    expect(manifest).toMatch(/<activity[\s\S]*?\.EntryActivity[\s\S]*?android\.intent\.action\.MAIN/u);
+    expect(manifest).toMatch(/<activity[\s\S]*?\.MainActivity[\s\S]*?android:exported="false"/u);
+    expect(entry).toContain("SetupStateStore(applicationContext).snapshot()")
+    expect(entry).toContain("SetupGuideActivity::class.java")
+    expect(setup).toContain("hintStore.registerChangeListener(hintPreferenceListener)");
+    expect(setup).toContain("hintStore.unregisterChangeListener(hintPreferenceListener)");
+    expect(setup).toContain("startActivity(Intent(this, MainActivity::class.java))");
+    expect(guide).toContain("guideFamily == DeviceGuideFamily.VIVO_IQOO");
+    expect(guide).toContain("evidence.firstChatGptHintCaptured");
+    expect(shortcuts).toContain("SetupGuideActivity");
+    expect(manifest).not.toContain("android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS");
+    expect(manifest).not.toContain("android.permission.SYSTEM_ALERT_WINDOW");
+    expect(manifest).not.toContain("android.permission.BIND_ACCESSIBILITY_SERVICE");
+  });
+
   it("keeps listener rebind and process-freshness checks in their intended layers", () => {
     const listener = read(
       "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/ChatGptNotificationListenerService.kt",
