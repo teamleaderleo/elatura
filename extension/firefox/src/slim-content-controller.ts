@@ -467,8 +467,8 @@ export function bootSlimContentController(): void {
     runtimeState.status =
       decision.status === "grace"
         ? "route-grace"
-        : decision.status === "failed-open"
-          ? "failed-open"
+        : decision.status === "stable"
+          ? "active"
           : decision.status;
     renderStatus();
     if (decision.shouldFailOpen) return failOpen(discovery.reason);
@@ -526,7 +526,7 @@ export function bootSlimContentController(): void {
             applyLatestWindow(discovery, result.value, () => void revealPrevious()) ||
             runtimeState.destructiveApplied;
         } finally {
-          if (runtimeState.mode !== "stock") startObserver();
+          startObserver();
         }
       }
 
