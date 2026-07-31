@@ -13,9 +13,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Process
 import android.provider.Settings
-import android.service.notification.NotificationListenerService
 import android.util.TypedValue
-import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
@@ -29,7 +27,6 @@ class MainActivity : Activity() {
     private lateinit var healthView: TextView
     private lateinit var metricsView: TextView
     private lateinit var eventsView: TextView
-    private lateinit var reconnectButton: Button
     private val store by lazy { LocalHintStore(applicationContext) }
     private val dateFormat by lazy {
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM)
@@ -70,18 +67,6 @@ class MainActivity : Activity() {
         root.addView(actionButton("Open notification access") {
             openNotificationAccessSettings()
         }, matchWrap(bottom = 6))
-
-        reconnectButton = actionButton("Reconnect listener") {
-            try {
-                NotificationListenerService.requestRebind(listenerComponent())
-                toast("Reconnect requested")
-            } catch (_: Exception) {
-                toast("Unable to request a reconnect")
-            }
-            render()
-        }
-        root.addView(reconnectButton, matchWrap(bottom = 6))
-
         root.addView(actionButton("Share content-free diagnostic report") {
             shareReport()
         }, matchWrap(bottom = 12))
@@ -148,9 +133,11 @@ class MainActivity : Activity() {
             appendLine("Last service start: ${formatOptionalTime(snapshot.serviceStartedAt)}")
             appendLine("Last connection: ${formatOptionalTime(snapshot.listenerConnectedAt)}")
             appendLine("Last disconnection: ${formatOptionalTime(snapshot.listenerDisconnectedAt)}")
-            append("Last captured event: ${lastEvent?.let { "${formatTime(it)} · ${formatAge(now - it)} ago" } ?: "none"}")
+            appendLine("Last captured event: ${lastEvent?.let { "${formatTime(it)} · ${formatAge(now - it)} ago" } ?: "none"}")
+            if (accessGranted && !listenerConfirmed) {
+                append("Recovery: open notification access and confirm Elatura is enabled. Android will request a rebind automatically after a disconnect.")
+            }
         }
-        reconnectButton.visibility = if (accessGranted && !listenerConfirmed) View.VISIBLE else View.GONE
 
         metricsView.text = buildString {
             appendLine("Projected events observed: ${snapshot.observed}")
