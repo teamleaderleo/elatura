@@ -29,6 +29,18 @@ internal data class HintStoreSnapshot(
     val verifiedDeepLinkFailed: Long,
 )
 
+internal data class DiagnosticEnvironment(
+    val deviceManufacturer: String,
+    val deviceModel: String,
+    val androidRelease: String,
+    val androidSdkInt: Int,
+    val chatGptVersion: String,
+    val elaturaVersion: String,
+    val buildSha: String,
+    val buildRunId: String,
+    val batteryOptimizationExempt: Boolean?,
+)
+
 internal data class HintDiagnosticsSummary(
     val retained: Int,
     val posted: Int,
@@ -141,15 +153,23 @@ internal fun summarizeHints(hints: List<StoredCompletionHint>): HintDiagnosticsS
 
 internal fun buildContentFreeReport(
     snapshot: HintStoreSnapshot,
+    environment: DiagnosticEnvironment,
     accessGranted: Boolean,
     listenerConfirmedInCurrentProcess: Boolean,
     generatedAt: Long,
-    appVersion: String,
 ): String {
     val summary = summarizeHints(snapshot.hints)
     return buildString {
         appendLine("Elatura Android notification diagnostic")
-        appendLine("version=$appVersion")
+        appendLine("elaturaVersion=${environment.elaturaVersion}")
+        appendLine("buildSha=${environment.buildSha}")
+        appendLine("buildRunId=${environment.buildRunId}")
+        appendLine("deviceManufacturer=${environment.deviceManufacturer}")
+        appendLine("deviceModel=${environment.deviceModel}")
+        appendLine("androidRelease=${environment.androidRelease}")
+        appendLine("androidSdkInt=${environment.androidSdkInt}")
+        appendLine("chatGptVersion=${environment.chatGptVersion}")
+        appendLine("batteryOptimizationExempt=${environment.batteryOptimizationExempt ?: "unknown"}")
         appendLine("generatedAtEpochMs=$generatedAt")
         appendLine("notificationAccessGranted=$accessGranted")
         appendLine("listenerConfirmedInCurrentProcess=$listenerConfirmedInCurrentProcess")
