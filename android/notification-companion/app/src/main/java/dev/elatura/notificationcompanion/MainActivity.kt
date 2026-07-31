@@ -8,9 +8,11 @@ import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
 import android.util.TypedValue
@@ -25,6 +27,7 @@ import java.util.Date
 
 class MainActivity : Activity() {
     private lateinit var healthView: TextView
+    private lateinit var contextView: TextView
     private lateinit var metricsView: TextView
     private lateinit var testView: TextView
     private lateinit var eventsView: TextView
@@ -72,6 +75,10 @@ class MainActivity : Activity() {
             shareReport()
         }, matchWrap(bottom = 12))
 
+        root.addView(sectionHeading("Test context"), matchWrap(bottom = 4))
+        contextView = cardText(15f).apply { setTextIsSelectable(true) }
+        root.addView(contextView, matchWrap(bottom = 14))
+
         root.addView(sectionHeading("Signal quality"), matchWrap(bottom = 4))
         metricsView = cardText(15f).apply { setTextIsSelectable(true) }
         root.addView(metricsView, matchWrap(bottom = 14))
@@ -112,7 +119,7 @@ class MainActivity : Activity() {
 
         root.addView(sectionHeading("Privacy and storage"), matchWrap(bottom = 4))
         root.addView(cardText(14f).apply {
-            text = "Raw notification titles and bodies are bounded in memory, converted to keyed HMAC tokens, and then discarded. The screen and shared report contain only timestamps, counters, booleans, latency measurements, manual test tallies, and opaque identifiers. At most ${LocalHintStore.MAX_QUEUE_ENTRIES} retained events are stored locally."
+            text = "Raw notification titles and bodies are bounded in memory, converted to keyed HMAC tokens, and then discarded. The screen and shared report contain only device/app versions, build identifiers, timestamps, counters, booleans, latency measurements, manual test tallies, and opaque event metadata. At most ${LocalHintStore.MAX_QUEUE_ENTRIES} retained events are stored locally."
         }, matchWrap(bottom = 14))
 
         root.addView(sectionHeading("Local data controls"), matchWrap(bottom = 4))
@@ -139,6 +146,7 @@ class MainActivity : Activity() {
 
     private fun render() {
         val snapshot = store.snapshot()
+        val environment = diagnosticEnvironment()
         val accessGranted = notificationAccessGranted()
         val listenerConfirmed = listenerConfirmedInCurrentProcess(snapshot, accessGranted)
         val summary = summarizeHints(snapshot.hints)
@@ -165,6 +173,16 @@ class MainActivity : Activity() {
             if (accessGranted && !listenerConfirmed) {
                 append("Recovery: open notification access and confirm Elatura is enabled. Android will request a rebind automatically after a disconnect.")
             }
+        }
+
+        contextView.text = buildString {
+            appendLine("Phone: ${environment.deviceManufacturer} ${environment.deviceModel}")
+            appendLine("Android: ${environment.androidRelease} · API ${environment.androidSdkInt}")
+            appendLine("ChatGPT app: ${environment.chatGptVersion}")
+            appendLine("Elatura app: ${environment.elaturaVersion}")
+            appendLine("Build commit: ${environment.buildSha.take(BUILD_SHA_DISPLAY_LENGTH)}")
+            appendLine("GitHub workflow run: ${environment.buildRunId}")
+            append("Battery-optimization exemption: ${environment.batteryOptimizationExempt?.let(::yesNo) ?: "unknown"}")
         }
 
         metricsView.text = buildString {
@@ -236,10 +254,10 @@ class MainActivity : Activity() {
         val accessGranted = notificationAccessGranted()
         val report = buildContentFreeReport(
             snapshot = snapshot,
+            environment = diagnosticEnvironment(),
             accessGranted = accessGranted,
             listenerConfirmedInCurrentProcess = listenerConfirmedInCurrentProcess(snapshot, accessGranted),
             generatedAt = System.currentTimeMillis(),
-            appVersion = appVersion(),
         )
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
@@ -252,6 +270,18 @@ class MainActivity : Activity() {
             toast("No app is available to share the report")
         }
     }
+
+    private fun diagnosticEnvironment(): DiagnosticEnvironment = DiagnosticEnvironment(
+        deviceManufacturer = boundedMetadata(Build.MANUFACTURER),
+        deviceModel = boundedMetadata(Build.MODEL),
+        androidRelease = boundedMetadata(Build.VERSION.RELEASE),
+        androidSdkInt = Build.VERSION.SDK_INT,
+        chatGptVersion = chatGptVersion(),
+        elaturaVersion = appVersion(),
+        buildSha = boundedMetadata(BuildConfig.ELATURA_BUILD_SHA, BUILD_IDENTIFIER_LIMIT),
+        buildRunId = boundedMetadata(BuildConfig.ELATURA_BUILD_RUN_ID, BUILD_IDENTIFIER_LIMIT),
+        batteryOptimizationExempt = batteryOptimizationExempt(),
+    )
 
     private fun confirmResetTestTally() {
         AlertDialog.Builder(this)
@@ -339,12 +369,36 @@ class MainActivity : Activity() {
     @Suppress("DEPRECATION")
     private fun appVersion(): String {
         return try {
-            packageManager.getPackageInfo(packageName, 0).versionName
-                ?.takeIf(String::isNotBlank)
-                ?: "unknown"
+            boundedMetadata(packageManager.getPackageInfo(packageName, 0).versionName)
         } catch (_: Exception) {
             "unknown"
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun chatGptVersion(): String {
+        return try {
+            boundedMetadata(packageManager.getPackageInfo(CHATGPT_PACKAGE, 0).versionName)
+        } catch (_: Exception) {
+            "unavailable"
+        }
+    }
+
+    private fun batteryOptimizationExempt(): Boolean? {
+        return try {
+            getSystemService(PowerManager::class.java)
+                .isIgnoringBatteryOptimizations(packageName)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun boundedMetadata(value: String?, limit: Int = METADATA_LIMIT): String {
+        return value
+            ?.trim()
+            ?.take(limit)
+            ?.takeIf(String::isNotEmpty)
+            ?: "unknown"
     }
 
     private fun heading(text: String, size: Float): TextView = TextView(this).apply {
@@ -433,5 +487,8 @@ class MainActivity : Activity() {
     companion object {
         private const val REFRESH_INTERVAL_MS = 1_000L
         private const val MAX_VISIBLE_EVENTS = 20
+        private const val METADATA_LIMIT = 128
+        private const val BUILD_IDENTIFIER_LIMIT = 64
+        private const val BUILD_SHA_DISPLAY_LENGTH = 12
     }
 }
