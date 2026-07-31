@@ -80,6 +80,22 @@ describe("Android stable private signing", () => {
     expect(workflow.slice(cleanupIndex)).toMatch(/shred -u[\s\S]*rm -f/u);
   });
 
+  it("locally verifies checksums and stable certificate identity without sourcing metadata", () => {
+    const verifier = read("android/notification-companion/verify-artifact.sh");
+
+    expect(verifier).toContain('unzip -Z1 "$archive"');
+    expect(verifier).toContain("Unsafe path in artifact ZIP");
+    expect(verifier).not.toMatch(/(?:^|\n)\s*(?:source|\.)\s+["$]/u);
+    expect(verifier).not.toContain("sort -V");
+    expect(verifier).toContain('actual_sha="$(sha256sum');
+    expect(verifier).toContain('actual_sha="$(shasum -a 256');
+    expect(verifier).toContain('[[ "$actual_sha" == "$provenance_sha" ]]');
+    expect(verifier).toContain('if $require_stable; then');
+    expect(verifier).toContain('"$apksigner_path" verify --verbose --print-certs');
+    expect(verifier).toContain('[[ "$actual_cert" == "$provenance_cert" ]]');
+    expect(verifier).toContain("APK signer certificate does not match the expected certificate");
+  });
+
   it("labels ordinary CI artifacts as ephemeral and non-updateable", () => {
     const workflow = read(".github/workflows/android-notification-companion.yml");
     const installGuide = read("android/notification-companion/INSTALL-IQOO.md");
