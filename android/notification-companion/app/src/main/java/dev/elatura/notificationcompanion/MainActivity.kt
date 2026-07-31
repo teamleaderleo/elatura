@@ -11,6 +11,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Process
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.util.TypedValue
@@ -71,9 +72,12 @@ class MainActivity : Activity() {
         }, matchWrap(bottom = 6))
 
         reconnectButton = actionButton("Reconnect listener") {
-            val component = listenerComponent()
-            NotificationListenerService.requestRebind(component)
-            toast("Reconnect requested")
+            try {
+                NotificationListenerService.requestRebind(listenerComponent())
+                toast("Reconnect requested")
+            } catch (_: Exception) {
+                toast("Unable to request a reconnect")
+            }
             render()
         }
         root.addView(reconnectButton, matchWrap(bottom = 6))
@@ -123,20 +127,22 @@ class MainActivity : Activity() {
     private fun render() {
         val snapshot = store.snapshot()
         val accessGranted = notificationAccessGranted()
+        val listenerConfirmed = listenerConfirmedInCurrentProcess(snapshot, accessGranted)
         val summary = summarizeHints(snapshot.hints)
         val now = System.currentTimeMillis()
         val lastEvent = snapshot.lastEventAt.takeIf { it > 0L }
 
         val healthLabel = when {
             !accessGranted -> "Permission needed"
-            snapshot.listenerConnected -> "Listening"
+            listenerConfirmed -> "Listening"
             else -> "Access granted · listener not yet confirmed"
         }
         healthView.text = buildString {
             appendLine(healthLabel)
             appendLine()
             appendLine("Notification access: ${yesNo(accessGranted)}")
-            appendLine("Latest listener callback: ${if (snapshot.listenerConnected) "connected" else "disconnected or unavailable"}")
+            appendLine("Listener confirmed in this app process: ${yesNo(listenerConfirmed)}")
+            appendLine("Latest persisted callback: ${if (snapshot.listenerConnected) "connected" else "disconnected or unavailable"}")
             appendLine("Service starts: ${snapshot.serviceStartCount}")
             appendLine("Listener connections: ${snapshot.listenerConnectionCount}")
             appendLine("Last service start: ${formatOptionalTime(snapshot.serviceStartedAt)}")
@@ -144,7 +150,7 @@ class MainActivity : Activity() {
             appendLine("Last disconnection: ${formatOptionalTime(snapshot.listenerDisconnectedAt)}")
             append("Last captured event: ${lastEvent?.let { "${formatTime(it)} · ${formatAge(now - it)} ago" } ?: "none"}")
         }
-        reconnectButton.visibility = if (accessGranted && !snapshot.listenerConnected) View.VISIBLE else View.GONE
+        reconnectButton.visibility = if (accessGranted && !listenerConfirmed) View.VISIBLE else View.GONE
 
         metricsView.text = buildString {
             appendLine("Projected events observed: ${snapshot.observed}")
@@ -193,9 +199,11 @@ class MainActivity : Activity() {
 
     private fun shareReport() {
         val snapshot = store.snapshot()
+        val accessGranted = notificationAccessGranted()
         val report = buildContentFreeReport(
             snapshot = snapshot,
-            accessGranted = notificationAccessGranted(),
+            accessGranted = accessGranted,
+            listenerConfirmedInCurrentProcess = listenerConfirmedInCurrentProcess(snapshot, accessGranted),
             generatedAt = System.currentTimeMillis(),
             appVersion = appVersion(),
         )
@@ -247,11 +255,14 @@ class MainActivity : Activity() {
     }
 
     private fun openNotificationAccessSettings() {
-        val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
         try {
-            startActivity(intent)
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         } catch (_: Exception) {
-            startActivity(Intent(Settings.ACTION_SETTINGS))
+            try {
+                startActivity(Intent(Settings.ACTION_SETTINGS))
+            } catch (_: Exception) {
+                toast("Unable to open Android settings")
+            }
         }
     }
 
@@ -264,6 +275,15 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun listenerConfirmedInCurrentProcess(
+        snapshot: HintStoreSnapshot,
+        accessGranted: Boolean,
+    ): Boolean {
+        return accessGranted &&
+            snapshot.listenerConnected &&
+            snapshot.serviceStartedElapsedRealtime >= Process.getStartElapsedRealtime()
+    }
+
     private fun listenerComponent(): ComponentName = ComponentName(
         this,
         ChatGptNotificationListenerService::class.java,
@@ -271,10 +291,13 @@ class MainActivity : Activity() {
 
     @Suppress("DEPRECATION")
     private fun appVersion(): String {
-        return runCatching { packageManager.getPackageInfo(packageName, 0).versionName }
-            .getOrNull()
-            ?.takeIf(String::isNotBlank)
-            ?: "unknown"
+        return try {
+            packageManager.getPackageInfo(packageName, 0).versionName
+                ?.takeIf(String::isNotBlank)
+                ?: "unknown"
+        } catch (_: Exception) {
+            "unknown"
+        }
     }
 
     private fun heading(text: String, size: Float): TextView = TextView(this).apply {
@@ -306,8 +329,12 @@ class MainActivity : Activity() {
 
     private fun resolveThemeColor(attribute: Int): Int {
         val typedValue = TypedValue()
-        theme.resolveAttribute(attribute, typedValue, true)
-        return typedValue.data
+        if (!theme.resolveAttribute(attribute, typedValue, true)) return 0x11000000
+        return if (typedValue.resourceId != 0) {
+            resources.getColor(typedValue.resourceId, theme)
+        } else {
+            typedValue.data
+        }
     }
 
     private fun formatTime(epochMillis: Long): String = dateFormat.format(Date(epochMillis))
