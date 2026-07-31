@@ -21,6 +21,10 @@
       "types": "./dist/companion.d.ts",
       "default": "./dist/companion.js"
     },
+    "./completion-hints": {
+      "types": "./dist/completion-hints.d.ts",
+      "default": "./dist/completion-hints.js"
+    },
     "./conformance": {
       "types": "./dist/conformance.d.ts",
       "default": "./dist/conformance.js"
