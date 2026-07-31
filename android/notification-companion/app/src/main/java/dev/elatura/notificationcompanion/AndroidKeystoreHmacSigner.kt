@@ -18,7 +18,7 @@ internal class AndroidKeystoreHmacSigner(
         val mac = Mac.getInstance(HMAC_ALGORITHM)
         mac.init(key)
         mac.update(label.toByteArray(StandardCharsets.UTF_8))
-        mac.update(0)
+        mac.update(0.toByte())
         val digest = mac.doFinal(value.toByteArray(StandardCharsets.UTF_8))
         return digest.toHex()
     }
