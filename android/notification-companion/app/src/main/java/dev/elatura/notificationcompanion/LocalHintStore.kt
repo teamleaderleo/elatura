@@ -12,7 +12,7 @@ internal class LocalHintStore(context: Context) {
         PREFERENCES_NAME,
         Context.MODE_PRIVATE,
     )
-    private val lock = Any()
+    private val lock = PROCESS_LOCK
 
     fun append(hint: CompletionHintRecord): Long = synchronized(lock) {
         val loaded = loadArray()
@@ -221,6 +221,7 @@ internal class LocalHintStore(context: Context) {
 
     companion object {
         const val MAX_QUEUE_ENTRIES = 64
+        private val PROCESS_LOCK = Any()
         private const val MAX_DEDUPE_WINDOW = 8
         private const val PREFERENCES_NAME = "completion-hints-v1"
         private const val KEY_HINTS = "hints"
