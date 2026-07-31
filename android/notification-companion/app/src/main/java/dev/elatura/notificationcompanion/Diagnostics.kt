@@ -22,6 +22,11 @@ internal data class HintStoreSnapshot(
     val serviceStartedAt: Long,
     val serviceStartedElapsedRealtime: Long,
     val serviceStartCount: Long,
+    val testStartedAt: Long,
+    val verifiedNotificationArrived: Long,
+    val verifiedNotificationMissed: Long,
+    val verifiedDeepLinkCorrect: Long,
+    val verifiedDeepLinkFailed: Long,
 )
 
 internal data class HintDiagnosticsSummary(
@@ -155,6 +160,11 @@ internal fun buildContentFreeReport(
         appendLine("serviceStartedAtEpochMs=${snapshot.serviceStartedAt}")
         appendLine("serviceStartedElapsedRealtimeMs=${snapshot.serviceStartedElapsedRealtime}")
         appendLine("serviceStartCount=${snapshot.serviceStartCount}")
+        appendLine("testStartedAtEpochMs=${snapshot.testStartedAt}")
+        appendLine("verifiedNotificationArrived=${snapshot.verifiedNotificationArrived}")
+        appendLine("verifiedNotificationMissed=${snapshot.verifiedNotificationMissed}")
+        appendLine("verifiedDeepLinkCorrect=${snapshot.verifiedDeepLinkCorrect}")
+        appendLine("verifiedDeepLinkFailed=${snapshot.verifiedDeepLinkFailed}")
         appendLine("observed=${snapshot.observed}")
         appendLine("accepted=${snapshot.accepted}")
         appendLine("duplicates=${snapshot.duplicates}")
