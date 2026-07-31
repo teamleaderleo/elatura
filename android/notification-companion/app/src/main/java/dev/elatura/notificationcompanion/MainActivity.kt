@@ -26,6 +26,7 @@ import java.util.Date
 class MainActivity : Activity() {
     private lateinit var healthView: TextView
     private lateinit var metricsView: TextView
+    private lateinit var testView: TextView
     private lateinit var eventsView: TextView
     private val store by lazy { LocalHintStore(applicationContext) }
     private val dateFormat by lazy {
@@ -75,6 +76,33 @@ class MainActivity : Activity() {
         metricsView = cardText(15f).apply { setTextIsSelectable(true) }
         root.addView(metricsView, matchWrap(bottom = 14))
 
+        root.addView(sectionHeading("Physical test tally"), matchWrap(bottom = 4))
+        testView = cardText(15f).apply { setTextIsSelectable(true) }
+        root.addView(testView, matchWrap(bottom = 8))
+        root.addView(actionButton("Mark notification arrived") {
+            store.recordVerifiedNotificationArrived()
+            toast("Recorded: notification arrived")
+            render()
+        }, matchWrap(bottom = 5))
+        root.addView(actionButton("Mark notification missed") {
+            store.recordVerifiedNotificationMissed()
+            toast("Recorded: notification missed")
+            render()
+        }, matchWrap(bottom = 5))
+        root.addView(actionButton("Mark notification tap opened correct chat") {
+            store.recordVerifiedDeepLinkCorrect()
+            toast("Recorded: correct chat opened")
+            render()
+        }, matchWrap(bottom = 5))
+        root.addView(actionButton("Mark tap failed or opened wrong chat") {
+            store.recordVerifiedDeepLinkFailed()
+            toast("Recorded: tap failure")
+            render()
+        }, matchWrap(bottom = 5))
+        root.addView(actionButton("Start or reset test tally") {
+            confirmResetTestTally()
+        }, matchWrap(bottom = 14))
+
         root.addView(sectionHeading("Latest tokenized events"), matchWrap(bottom = 4))
         eventsView = cardText(14f).apply {
             setTextIsSelectable(true)
@@ -84,7 +112,7 @@ class MainActivity : Activity() {
 
         root.addView(sectionHeading("Privacy and storage"), matchWrap(bottom = 4))
         root.addView(cardText(14f).apply {
-            text = "Raw notification titles and bodies are bounded in memory, converted to keyed HMAC tokens, and then discarded. The screen and shared report contain only timestamps, counters, booleans, latency measurements, and opaque identifiers. At most ${LocalHintStore.MAX_QUEUE_ENTRIES} retained events are stored locally."
+            text = "Raw notification titles and bodies are bounded in memory, converted to keyed HMAC tokens, and then discarded. The screen and shared report contain only timestamps, counters, booleans, latency measurements, manual test tallies, and opaque identifiers. At most ${LocalHintStore.MAX_QUEUE_ENTRIES} retained events are stored locally."
         }, matchWrap(bottom = 14))
 
         root.addView(sectionHeading("Local data controls"), matchWrap(bottom = 4))
@@ -160,6 +188,25 @@ class MainActivity : Activity() {
             append("Malformed local records detected: ${snapshot.corruptRecords}")
         }
 
+        val notificationChecks = safeTotal(
+            snapshot.verifiedNotificationArrived,
+            snapshot.verifiedNotificationMissed,
+        )
+        val deepLinkChecks = safeTotal(
+            snapshot.verifiedDeepLinkCorrect,
+            snapshot.verifiedDeepLinkFailed,
+        )
+        testView.text = buildString {
+            appendLine("Test started: ${formatOptionalTime(snapshot.testStartedAt)}")
+            appendLine("Verified notification arrivals: ${snapshot.verifiedNotificationArrived}")
+            appendLine("Verified notification misses: ${snapshot.verifiedNotificationMissed}")
+            appendLine("Arrival coverage: ${formatRatio(snapshot.verifiedNotificationArrived, notificationChecks)}")
+            appendLine("Correct notification deep links: ${snapshot.verifiedDeepLinkCorrect}")
+            appendLine("Failed or wrong deep links: ${snapshot.verifiedDeepLinkFailed}")
+            appendLine("Deep-link accuracy: ${formatRatio(snapshot.verifiedDeepLinkCorrect, deepLinkChecks)}")
+            append("Use these buttons only after independently checking whether ChatGPT completed the task and what its notification tap did.")
+        }
+
         eventsView.text = if (snapshot.hints.isEmpty()) {
             "No ChatGPT notification hints captured yet. Complete a ChatGPT task after granting notification access, then return here."
         } else {
@@ -206,10 +253,23 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun confirmResetTestTally() {
+        AlertDialog.Builder(this)
+            .setTitle("Start a fresh physical test tally?")
+            .setMessage("This resets only the four manual verification counters and records a new test start time. Captured notification hints remain intact.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Start") { _, _ ->
+                if (store.startTestTally(System.currentTimeMillis())) toast("Fresh test tally started")
+                else toast("Unable to reset the test tally")
+                render()
+            }
+            .show()
+    }
+
     private fun confirmClearHints() {
         AlertDialog.Builder(this)
             .setTitle("Clear captured hints?")
-            .setMessage("This removes the tokenized event ring and event counters. Listener and service lifecycle evidence remains available.")
+            .setMessage("This removes the tokenized event ring and event counters. Listener, service, and manual test evidence remains available.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Clear") { _, _ ->
                 if (store.clearHints()) toast("Captured hints cleared")
@@ -344,6 +404,15 @@ class MainActivity : Activity() {
         value < 1_000L -> "${value}ms"
         value < 60_000L -> String.format("%.1fs", value / 1_000.0)
         else -> String.format("%.1fm", value / 60_000.0)
+    }
+
+    private fun formatRatio(success: Long, total: Long): String {
+        if (total <= 0L) return "n/a"
+        return String.format("%.1f%% (%d/%d)", success * 100.0 / total, success, total)
+    }
+
+    private fun safeTotal(left: Long, right: Long): Long {
+        return if (left > Long.MAX_VALUE - right) Long.MAX_VALUE else left + right
     }
 
     private fun yesNo(value: Boolean): String = if (value) "yes" else "no"
