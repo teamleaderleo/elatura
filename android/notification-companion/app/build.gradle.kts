@@ -13,6 +13,19 @@ val elaturaSigningMode = System.getenv("ELATURA_SIGNING_MODE")
     ?.take(64)
     ?.takeIf(String::isNotEmpty)
     ?: "local-debug"
+val stableSigningRequested = elaturaSigningMode == "stable-private"
+val stableKeystorePath = System.getenv("ELATURA_ANDROID_KEYSTORE_PATH")?.takeIf(String::isNotBlank)
+val stableKeystorePassword = System.getenv("ELATURA_ANDROID_KEYSTORE_PASSWORD")?.takeIf(String::isNotBlank)
+val stableKeyAlias = System.getenv("ELATURA_ANDROID_KEY_ALIAS")?.takeIf(String::isNotBlank)
+val stableKeyPassword = System.getenv("ELATURA_ANDROID_KEY_PASSWORD")?.takeIf(String::isNotBlank)
+
+if (stableSigningRequested) {
+    requireNotNull(stableKeystorePath) { "Stable signing requires ELATURA_ANDROID_KEYSTORE_PATH" }
+    requireNotNull(stableKeystorePassword) { "Stable signing requires ELATURA_ANDROID_KEYSTORE_PASSWORD" }
+    requireNotNull(stableKeyAlias) { "Stable signing requires ELATURA_ANDROID_KEY_ALIAS" }
+    requireNotNull(stableKeyPassword) { "Stable signing requires ELATURA_ANDROID_KEY_PASSWORD" }
+    require(file(stableKeystorePath).isFile) { "Stable Android keystore file is missing" }
+}
 
 android {
     namespace = "dev.elatura.notificationcompanion"
@@ -33,6 +46,21 @@ android {
         buildConfig = true
     }
 
+    signingConfigs {
+        if (stableSigningRequested) {
+            create("stable") {
+                storeFile = file(requireNotNull(stableKeystorePath))
+                storePassword = requireNotNull(stableKeystorePassword)
+                keyAlias = requireNotNull(stableKeyAlias)
+                keyPassword = requireNotNull(stableKeyPassword)
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -40,6 +68,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            if (stableSigningRequested) {
+                signingConfig = signingConfigs.getByName("stable")
+            }
         }
     }
 
