@@ -13,6 +13,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.Process
 import android.util.TypedValue
+import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
@@ -132,7 +133,7 @@ class SignalInboxActivity : Activity() {
         }
 
         val items = buildSignalInbox(snapshot.hints)
-        emptyView.visibility = if (items.isEmpty()) TextView.VISIBLE else TextView.GONE
+        emptyView.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
         inboxContainer.removeAllViews()
         items.forEachIndexed { index, item ->
             inboxContainer.addView(signalCard(index + 1, item, now), matchWrap(bottom = 8))
