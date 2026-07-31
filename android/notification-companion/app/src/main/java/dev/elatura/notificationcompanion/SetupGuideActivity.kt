@@ -5,11 +5,14 @@ import android.app.Activity
 import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Intent
+import android.content.SharedPreferences
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
@@ -29,9 +32,18 @@ class SetupGuideActivity : Activity() {
     private lateinit var restrictedSettingsCheckBox: CheckBox
     private lateinit var autoStartCheckBox: CheckBox
     private var syncingChecks = false
+    private var renderScheduled = false
 
     private val hintStore by lazy { LocalHintStore(applicationContext) }
     private val setupStore by lazy { SetupStateStore(applicationContext) }
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val renderTask = Runnable {
+        renderScheduled = false
+        if (!isFinishing && !isDestroyed) render()
+    }
+    private val hintPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        scheduleRender()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -109,16 +121,35 @@ class SetupGuideActivity : Activity() {
             render()
         }, matchWrap(bottom = 5))
         root.addView(actionButton("Open diagnostic dashboard") {
+            startActivity(Intent(this, MainActivity::class.java))
             finish()
         }, matchWrap())
 
         setContentView(scroll)
     }
 
+    override fun onStart() {
+        super.onStart()
+        hintStore.registerChangeListener(hintPreferenceListener)
+    }
+
     override fun onResume() {
         super.onResume()
         setupStore.markGuideOpened()
         render()
+    }
+
+    override fun onStop() {
+        hintStore.unregisterChangeListener(hintPreferenceListener)
+        mainHandler.removeCallbacks(renderTask)
+        renderScheduled = false
+        super.onStop()
+    }
+
+    private fun scheduleRender() {
+        if (renderScheduled) return
+        renderScheduled = true
+        mainHandler.post(renderTask)
     }
 
     private fun render() {
