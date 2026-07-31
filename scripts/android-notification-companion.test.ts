@@ -41,6 +41,16 @@ describe("Android notification companion safety boundary", () => {
     expect(listener).toContain("ArrayBlockingQueue(MAX_PENDING_PROJECTIONS)");
   });
 
+  it("accounts for bounded work discarded during listener teardown", () => {
+    const listener = read(
+      "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/ChatGptNotificationListenerService.kt",
+    );
+    expect(listener).toContain("if (::store.isInitialized)");
+    expect(listener).toContain("if (::executor.isInitialized)");
+    expect(listener).toContain("val discardedJobs = executor.shutdownNow().size");
+    expect(listener).toContain("repeat(discardedJobs) { store.recordDropped() }");
+  });
+
   it("keeps persisted records bounded, deduplicated, and token-only", () => {
     const store = read(
       "android/notification-companion/app/src/main/java/dev/elatura/notificationcompanion/LocalHintStore.kt",
