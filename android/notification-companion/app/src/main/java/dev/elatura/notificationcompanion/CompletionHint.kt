@@ -3,7 +3,7 @@ package dev.elatura.notificationcompanion
 
 internal const val CHATGPT_PACKAGE = "com.openai.chatgpt"
 internal const val COMPLETION_HINT_PROTOCOL_VERSION = 1
-private const val MAX_EPHEMERAL_TEXT_CODE_UNITS = 4_096
+internal const val MAX_EPHEMERAL_TEXT_CODE_UNITS = 4_096
 private const val MAX_CATEGORY_CODE_UNITS = 128
 private const val DISPLAY_DIGEST_HEX = 24
 
@@ -72,12 +72,16 @@ internal class CompletionHintProjector(
             sourcePackage = fields.sourcePackage,
             observedAt = observedAt,
             postedAt = fields.postedAt,
-            notificationKeyHash = requiredHash("notification-key", fields.notificationKey),
+            notificationKeyHash = requiredHash(
+                "notification-key",
+                fields.notificationKey.take(MAX_EPHEMERAL_TEXT_CODE_UNITS),
+            ),
             titleToken = titleToken,
             textToken = textToken,
             category = fields.category?.take(MAX_CATEGORY_CODE_UNITS),
             groupKeyHash = fields.groupKey
                 ?.takeIf { it.isNotBlank() }
+                ?.take(MAX_EPHEMERAL_TEXT_CODE_UNITS)
                 ?.let { requiredHash("group-key", it) },
             isOngoing = fields.isOngoing,
             kind = kind.wireValue,
@@ -86,10 +90,16 @@ internal class CompletionHintProjector(
     }
 
     private fun textToken(label: String, input: CharSequence?): String? {
-        val raw = input?.toString()?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        val bounded = raw.take(MAX_EPHEMERAL_TEXT_CODE_UNITS)
+        input ?: return null
+        val originalLength = input.length
+        val bounded = input
+            .subSequence(0, minOf(originalLength, MAX_EPHEMERAL_TEXT_CODE_UNITS))
+            .toString()
+            .trim()
+            .takeIf(String::isNotEmpty)
+            ?: return null
         val digest = signer.hmacSha256Hex(label, bounded)
-        return "$label:length=${raw.length}:h=${digest.take(DISPLAY_DIGEST_HEX)}"
+        return "$label:length=$originalLength:h=${digest.take(DISPLAY_DIGEST_HEX)}"
     }
 
     private fun requiredHash(label: String, input: String): String {
