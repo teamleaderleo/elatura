@@ -26,7 +26,7 @@ class SetupGuideTest {
     @Test
     fun diagnosticReadinessRequiresTheInstalledAppAccessAndListener() {
         val readiness = evaluateSetup(
-            SetupEvidence(
+            evidence = SetupEvidence(
                 chatGptInstalled = true,
                 notificationAccessGranted = true,
                 listenerConfirmed = true,
@@ -34,6 +34,7 @@ class SetupGuideTest {
                 restrictedSettingsResolved = false,
                 autoStartConfirmed = false,
             ),
+            guideFamily = DeviceGuideFamily.VIVO_IQOO,
         )
 
         assertTrue(readiness.readyForDiagnostic)
@@ -42,21 +43,53 @@ class SetupGuideTest {
     }
 
     @Test
-    fun backgroundTrialRequiresARealHintAndBothManualConfirmations() {
-        val readiness = evaluateSetup(
-            SetupEvidence(
-                chatGptInstalled = true,
-                notificationAccessGranted = true,
-                listenerConfirmed = true,
-                firstChatGptHintCaptured = true,
+    fun iqooBackgroundTrialRequiresARealHintAndBothManualConfirmations() {
+        val incomplete = evaluateSetup(
+            evidence = completeEvidence(
+                restrictedSettingsResolved = false,
+                autoStartConfirmed = false,
+            ),
+            guideFamily = DeviceGuideFamily.VIVO_IQOO,
+        )
+        assertFalse(incomplete.readyForBackgroundTrial)
+        assertEquals(2, incomplete.missingManualChecks.size)
+
+        val complete = evaluateSetup(
+            evidence = completeEvidence(
                 restrictedSettingsResolved = true,
                 autoStartConfirmed = true,
             ),
+            guideFamily = DeviceGuideFamily.VIVO_IQOO,
+        )
+        assertTrue(complete.readyForDiagnostic)
+        assertTrue(complete.readyForBackgroundTrial)
+        assertTrue(complete.missingAutomaticChecks.isEmpty())
+        assertTrue(complete.missingManualChecks.isEmpty())
+    }
+
+    @Test
+    fun standardAndroidDoesNotRequireIqooSpecificConfirmations() {
+        val readiness = evaluateSetup(
+            evidence = completeEvidence(
+                restrictedSettingsResolved = false,
+                autoStartConfirmed = false,
+            ),
+            guideFamily = DeviceGuideFamily.STANDARD_ANDROID,
         )
 
-        assertTrue(readiness.readyForDiagnostic)
         assertTrue(readiness.readyForBackgroundTrial)
-        assertTrue(readiness.missingAutomaticChecks.isEmpty())
         assertTrue(readiness.missingManualChecks.isEmpty())
     }
+
+    private fun completeEvidence(
+        restrictedSettingsResolved: Boolean,
+        autoStartConfirmed: Boolean,
+    ): SetupEvidence = SetupEvidence(
+        chatGptInstalled = true,
+        notificationAccessGranted = true,
+        listenerConfirmed = true,
+        firstChatGptHintCaptured = true,
+        restrictedSettingsResolved = restrictedSettingsResolved,
+        autoStartConfirmed = autoStartConfirmed,
+    )
 }
