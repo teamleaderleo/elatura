@@ -37,7 +37,10 @@ internal fun detectDeviceGuideFamily(
     }
 }
 
-internal fun evaluateSetup(evidence: SetupEvidence): SetupReadiness {
+internal fun evaluateSetup(
+    evidence: SetupEvidence,
+    guideFamily: DeviceGuideFamily,
+): SetupReadiness {
     val missingAutomatic = buildList {
         if (!evidence.chatGptInstalled) add("Install or update the ChatGPT Android app")
         if (!evidence.notificationAccessGranted) add("Grant Elatura notification access")
@@ -45,8 +48,14 @@ internal fun evaluateSetup(evidence: SetupEvidence): SetupReadiness {
         if (!evidence.firstChatGptHintCaptured) add("Capture one real ChatGPT notification")
     }
     val missingManual = buildList {
-        if (!evidence.restrictedSettingsResolved) add("Resolve side-load restrictions if OriginOS shows them")
-        if (!evidence.autoStartConfirmed) add("Allow Elatura auto-start in iManager")
+        if (guideFamily == DeviceGuideFamily.VIVO_IQOO) {
+            if (!evidence.restrictedSettingsResolved) {
+                add("Resolve the installation restriction if OriginOS shows it")
+            }
+            if (!evidence.autoStartConfirmed) {
+                add("Allow Elatura auto-start in iManager")
+            }
+        }
     }
     val readyForDiagnostic = evidence.chatGptInstalled &&
         evidence.notificationAccessGranted &&
