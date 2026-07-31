@@ -36,7 +36,7 @@ class SignalInboxTest {
     }
 
     @Test
-    fun distinguishesIncompleteProgressFromPossibleCompletion() {
+    fun keepsAnyProgressMetadataInProgress() {
         val inProgress = buildSignalInbox(
             listOf(
                 stored(
@@ -44,28 +44,17 @@ class SignalInboxTest {
                     hint(
                         key = KEY_A,
                         observedAt = 1_000L,
-                        progressMax = 100,
-                        progress = 40,
+                        hasProgress = true,
                     ),
                 ),
             ),
         ).single()
-        val completed = buildSignalInbox(
-            listOf(
-                stored(
-                    1L,
-                    hint(
-                        key = KEY_A,
-                        observedAt = 1_000L,
-                        progressMax = 100,
-                        progress = 100,
-                    ),
-                ),
-            ),
+        val noProgress = buildSignalInbox(
+            listOf(stored(1L, hint(key = KEY_A, observedAt = 1_000L))),
         ).single()
 
         assertEquals(SignalInboxState.IN_PROGRESS, inProgress.state)
-        assertEquals(SignalInboxState.POSSIBLE_COMPLETION, completed.state)
+        assertEquals(SignalInboxState.POSSIBLE_COMPLETION, noProgress.state)
     }
 
     @Test
@@ -79,7 +68,7 @@ class SignalInboxTest {
                         observedAt = 1_000L,
                         kind = HintKind.REMOVED.wireValue,
                         removalReasonCode = 8,
-                        removalReasonName = "app-cancel",
+                        removalReason = "app-cancel",
                     ),
                 ),
             ),
@@ -141,36 +130,34 @@ class SignalInboxTest {
         kind: String = HintKind.POSTED.wireValue,
         isOngoing: Boolean = false,
         isGroupSummary: Boolean = false,
-        progressMax: Int = 0,
-        progress: Int = 0,
+        hasProgress: Boolean = false,
         titleToken: String? = "title:length=8:h=abcdef0123456789abcdef01",
         textToken: String? = "text:length=12:h=abcdef0123456789abcdef01",
         confidence: String = HintConfidence.PROBABLE.wireValue,
         removalReasonCode: Int? = null,
-        removalReasonName: String = "none",
+        removalReason: String? = null,
     ): CompletionHintRecord = CompletionHintRecord(
         sourcePackage = CHATGPT_PACKAGE,
         observedAt = observedAt,
         postedAt = observedAt,
         notificationKeyHash = key,
-        notificationIdHash = null,
-        notificationTagHash = null,
         titleToken = titleToken,
         textToken = textToken,
         category = "message",
         groupKeyHash = null,
-        channelIdHash = null,
-        shortcutIdHash = null,
         isOngoing = isOngoing,
-        isGroupSummary = isGroupSummary,
-        isClearable = true,
-        progressMax = progressMax,
-        progress = progress,
-        isProgressIndeterminate = false,
-        removalReasonCode = removalReasonCode,
-        removalReasonName = removalReasonName,
         kind = kind,
         confidence = confidence,
+        notificationIdHash = null,
+        tagHash = null,
+        channelIdHash = null,
+        shortcutIdHash = null,
+        isGroupSummary = isGroupSummary,
+        isClearable = true,
+        hasProgress = hasProgress,
+        isProgressIndeterminate = false,
+        removalReasonCode = removalReasonCode,
+        removalReason = removalReason,
     )
 
     companion object {
