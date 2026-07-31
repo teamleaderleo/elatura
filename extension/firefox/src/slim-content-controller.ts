@@ -1,14 +1,30 @@
 // SPDX-License-Identifier: MPL-2.0
 
 import {
+  initialSlimDriftState,
+  reduceSlimDrift,
+  type SlimDriftState,
+} from "./slim-discovery.js";
+import {
+  discoverLiveSlimTurns,
+  driftReasonForLiveDiscovery,
+  type LiveSlimDiscoveredTurn,
+  type LiveSlimDiscovery,
+} from "./slim-live-discovery.js";
+import {
   planSlimWindow,
   revealPreviousTurnGroups,
   type SlimMode,
-  type SlimTurnDescriptor,
   type SlimWindowPlan,
 } from "./slim-window.js";
 
-type SlimRuntimeStatus = "stock" | "active" | "unsupported" | "drifted" | "failed-open";
+type SlimRuntimeStatus =
+  | "stock"
+  | "active"
+  | "unsupported"
+  | "route-grace"
+  | "drifted"
+  | "failed-open";
 
 type SlimConfig = {
   mode: SlimMode;
@@ -39,15 +55,6 @@ export type SlimRuntimeSnapshot = {
   metrics: SlimMetrics;
 };
 
-type DiscoveredTurn = SlimTurnDescriptor & {
-  role: string;
-  element: HTMLElement;
-};
-
-type TurnDiscovery =
-  | { ok: true; turns: DiscoveredTurn[]; parent: HTMLElement }
-  | { ok: false; reason: string };
-
 type NodeCount = {
   elementNodes: number;
   textNodes: number;
@@ -59,7 +66,6 @@ type TransformOptInState = { recorded?: boolean; authorizesTransform?: boolean }
 
 const DEFAULT_TURN_GROUPS = 3;
 const MAX_TURN_GROUPS = 8;
-const MAX_TURN_CANDIDATES = 10_000;
 const SESSION_CONFIG_KEY = "__elatura_slim_mode_v1";
 const STATUS_HOST_ID = "elatura-slim-status-host";
 const STYLE_ID = "elatura-slim-style";
@@ -67,7 +73,6 @@ const MAX_NODE_COUNT = 100_000;
 const MAX_PLACEHOLDERS = 8;
 const APPLY_DELAY_MS = 180;
 const DRIFT_RETRY_MS = 500;
-const DRIFT_FAILURE_LIMIT = 3;
 
 function initialMetrics(): SlimMetrics {
   return {
@@ -135,84 +140,6 @@ function clearSessionConfig(): void {
   } catch {
     // Blocked page storage must not prevent fail-open cleanup.
   }
-}
-
-function boundedHeight(element: HTMLElement): number {
-  const rectHeight = element.getBoundingClientRect().height;
-  const candidate = Number.isFinite(rectHeight) && rectHeight > 0 ? rectHeight : element.offsetHeight;
-  return Math.min(1_000_000, Math.max(1, Math.round(candidate || 320)));
-}
-
-function discoverTurns(): TurnDiscovery {
-  const roleNodeList = document.querySelectorAll<HTMLElement>("[data-message-author-role]");
-  if (roleNodeList.length === 0) return { ok: false, reason: "no-role-markers" };
-  if (roleNodeList.length > MAX_TURN_CANDIDATES) {
-    return { ok: false, reason: "role-marker-budget-exceeded" };
-  }
-
-  const candidates: HTMLElement[] = [];
-  const seen = new Set<HTMLElement>();
-  for (const roleNode of roleNodeList) {
-    const candidate =
-      roleNode.closest<HTMLElement>('[data-testid^="conversation-turn-"]') ??
-      roleNode.closest<HTMLElement>("article");
-    if (!candidate || seen.has(candidate)) continue;
-    seen.add(candidate);
-    candidates.push(candidate);
-    if (candidates.length > MAX_TURN_CANDIDATES) {
-      return { ok: false, reason: "turn-container-budget-exceeded" };
-    }
-  }
-  if (candidates.length === 0) return { ok: false, reason: "no-turn-containers" };
-
-  const parent = candidates[0]?.parentElement;
-  if (!parent) return { ok: false, reason: "turn-parent-missing" };
-  for (let index = 0; index < candidates.length; index += 1) {
-    const candidate = candidates[index];
-    if (!candidate) return { ok: false, reason: "turn-candidate-missing" };
-    if (candidate.parentElement !== parent) return { ok: false, reason: "turn-parent-mismatch" };
-    if (index === 0) continue;
-    const previous = candidates[index - 1];
-    if (!previous) return { ok: false, reason: "turn-order-missing" };
-    if (!(previous.compareDocumentPosition(candidate) & Node.DOCUMENT_POSITION_FOLLOWING)) {
-      return { ok: false, reason: "turn-order-ambiguous" };
-    }
-  }
-
-  const stopButtonPresent = document.querySelector('[data-testid="stop-button"]') !== null;
-  let groupIndex = 0;
-  let supportedRoleCount = 0;
-  const turns: DiscoveredTurn[] = [];
-
-  for (let index = 0; index < candidates.length; index += 1) {
-    const element = candidates[index];
-    if (!element) return { ok: false, reason: "turn-candidate-missing" };
-    const role =
-      element
-        .querySelector<HTMLElement>("[data-message-author-role]")
-        ?.getAttribute("data-message-author-role")
-        ?.trim()
-        .toLowerCase() ?? "unknown";
-    if (role === "user") groupIndex += 1;
-    if (role === "user" || role === "assistant") supportedRoleCount += 1;
-    const lastAssistantStreaming =
-      stopButtonPresent && role === "assistant" && index === candidates.length - 1;
-    const streaming =
-      lastAssistantStreaming ||
-      element.matches('[aria-busy="true"], [data-is-streaming="true"]') ||
-      element.querySelector('[aria-busy="true"], [data-is-streaming="true"]') !== null;
-    turns.push({
-      id: `turn-${index + 1}`,
-      groupKey: `group-${groupIndex}`,
-      role,
-      streaming,
-      estimatedBlockSizePx: boundedHeight(element),
-      element,
-    });
-  }
-
-  if (supportedRoleCount === 0) return { ok: false, reason: "unsupported-role-set" };
-  return { ok: true, turns, parent };
 }
 
 function countDocumentNodes(): NodeCount {
@@ -348,7 +275,10 @@ function mergePlaceholder(previous: HTMLElement, addedTurns: number, addedBlockS
   if (button) button.textContent = `Reveal earlier messages (${turnCount} hidden turns)`;
 }
 
-function applyRenderSuppression(discovery: Extract<TurnDiscovery, { ok: true }>, plan: SlimWindowPlan): void {
+function applyRenderSuppression(
+  discovery: Extract<LiveSlimDiscovery, { ok: true }>,
+  plan: SlimWindowPlan,
+): void {
   ensureSlimStyle();
   const suppressed = new Set(plan.suppressedTurnIds);
   for (const turn of discovery.turns) {
@@ -366,7 +296,7 @@ function applyRenderSuppression(discovery: Extract<TurnDiscovery, { ok: true }>,
 }
 
 function applyLatestWindow(
-  discovery: Extract<TurnDiscovery, { ok: true }>,
+  discovery: Extract<LiveSlimDiscovery, { ok: true }>,
   plan: SlimWindowPlan,
   revealPrevious: () => void,
 ): boolean {
@@ -401,16 +331,16 @@ function applyLatestWindow(
   return removedAny;
 }
 
-function signature(
+function discoverySignature(
   mode: SlimMode,
   turnGroups: number,
-  discovery: Extract<TurnDiscovery, { ok: true }>,
+  turns: readonly LiveSlimDiscoveredTurn[],
 ): string {
   return [
     mode,
     turnGroups,
-    discovery.turns.length,
-    discovery.turns.map((turn) => `${turn.role}:${turn.groupKey}:${turn.streaming ? 1 : 0}`).join(","),
+    turns.length,
+    turns.map((turn) => `${turn.role}:${turn.groupKey}:${turn.streaming ? 1 : 0}`).join(","),
   ].join("|");
 }
 
@@ -442,14 +372,16 @@ export function bootSlimContentController(): void {
   };
   let applyTimer: number | null = null;
   let applying = false;
-  let everApplied = false;
-  let driftFailures = 0;
   let lastAppliedSignature: string | null = null;
   let currentUrl = location.href;
+  let driftState: SlimDriftState = initialSlimDriftState();
+  let slimObserver: MutationObserver | null = null;
 
-  const snapshot = (): SlimRuntimeSnapshot => structuredClone(runtimeState);
+  function snapshot(): SlimRuntimeSnapshot {
+    return structuredClone(runtimeState);
+  }
 
-  const renderStatus = (): void => {
+  function renderStatus(): void {
     if (runtimeState.status === "stock") {
       removeStatusHost();
       return;
@@ -468,22 +400,49 @@ export function bootSlimContentController(): void {
     if (previous) {
       previous.hidden = runtimeState.mode === "stock" || runtimeState.turnGroups >= MAX_TURN_GROUPS;
     }
-  };
+  }
 
-  const scheduleApply = (delay = APPLY_DELAY_MS): void => {
+  function scheduleApply(delay = APPLY_DELAY_MS): void {
     if (runtimeState.mode === "stock") return;
     if (applyTimer !== null) window.clearTimeout(applyTimer);
     applyTimer = window.setTimeout(() => {
       applyTimer = null;
       void applySlimMode();
     }, delay);
-  };
+  }
 
-  const failOpen = async (reason: string): Promise<SlimRuntimeSnapshot> => {
+  function startObserver(): void {
+    if (slimObserver !== null) return;
+    slimObserver = new MutationObserver(() => scheduleApply());
+    slimObserver.observe(document, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: [
+        "aria-busy",
+        "data-is-streaming",
+        "data-message-author-role",
+        "data-testid",
+      ],
+    });
+  }
+
+  function stopObserver(): void {
+    slimObserver?.disconnect();
+    slimObserver = null;
+  }
+
+  async function failOpen(reason: string): Promise<SlimRuntimeSnapshot> {
+    stopObserver();
+    if (applyTimer !== null) {
+      window.clearTimeout(applyTimer);
+      applyTimer = null;
+    }
     runtimeState.metrics.failOpenCount += 1;
     runtimeState.status = "failed-open";
     runtimeState.reason = reason;
     clearSessionConfig();
+    driftState = initialSlimDriftState();
     renderStatus();
     if (runtimeState.destructiveApplied) {
       window.setTimeout(() => location.reload(), 0);
@@ -493,38 +452,57 @@ export function bootSlimContentController(): void {
     runtimeState.mode = "stock";
     lastAppliedSignature = null;
     return snapshot();
-  };
+  }
 
-  const applySlimMode = async (): Promise<SlimRuntimeSnapshot> => {
+  async function handleDiscoveryFailure(
+    discovery: Extract<LiveSlimDiscovery, { ok: false }>,
+  ): Promise<SlimRuntimeSnapshot> {
+    const decision = reduceSlimDrift(driftState, {
+      kind: "discovery-failed",
+      atMs: performance.now(),
+      reason: driftReasonForLiveDiscovery(discovery.reason),
+    });
+    driftState = decision.state;
+    runtimeState.reason = discovery.reason;
+    runtimeState.status =
+      decision.status === "grace"
+        ? "route-grace"
+        : decision.status === "failed-open"
+          ? "failed-open"
+          : decision.status;
+    renderStatus();
+    if (decision.shouldFailOpen) return failOpen(discovery.reason);
+    if (decision.shouldRetry) scheduleApply(DRIFT_RETRY_MS);
+    return snapshot();
+  }
+
+  async function applySlimMode(): Promise<SlimRuntimeSnapshot> {
     if (runtimeState.mode === "stock" || applying) return snapshot();
     applying = true;
     try {
       if (location.href !== currentUrl) {
         currentUrl = location.href;
         lastAppliedSignature = null;
-        driftFailures = 0;
         runtimeState.destructiveApplied =
           document.querySelector('[data-elatura-placeholder="true"]') !== null;
+        driftState = reduceSlimDrift(driftState, {
+          kind: "route-changed",
+          atMs: performance.now(),
+        }).state;
       }
 
-      const discovery = discoverTurns();
-      if (!discovery.ok) {
-        runtimeState.reason = discovery.reason;
-        if (everApplied) {
-          driftFailures += 1;
-          runtimeState.status = "drifted";
-          renderStatus();
-          if (driftFailures >= DRIFT_FAILURE_LIMIT) return await failOpen(discovery.reason);
-          scheduleApply(DRIFT_RETRY_MS);
-        } else {
-          runtimeState.status = "unsupported";
-          renderStatus();
-        }
-        return snapshot();
-      }
+      const discovery = discoverLiveSlimTurns();
+      if (!discovery.ok) return await handleDiscoveryFailure(discovery);
+      driftState = reduceSlimDrift(driftState, {
+        kind: "discovery-succeeded",
+        atMs: performance.now(),
+      }).state;
 
-      driftFailures = 0;
-      const currentSignature = signature(runtimeState.mode, runtimeState.turnGroups, discovery);
+      const currentSignature = discoverySignature(
+        runtimeState.mode,
+        runtimeState.turnGroups,
+        discovery.turns,
+      );
       if (currentSignature === lastAppliedSignature) return snapshot();
       const before = countDocumentNodes();
       const result = planSlimWindow(
@@ -542,9 +520,14 @@ export function bootSlimContentController(): void {
       if (runtimeState.mode === "render-suppressed") {
         applyRenderSuppression(discovery, result.value);
       } else if (runtimeState.mode === "latest-window") {
-        runtimeState.destructiveApplied =
-          applyLatestWindow(discovery, result.value, () => void revealPrevious()) ||
-          runtimeState.destructiveApplied;
+        stopObserver();
+        try {
+          runtimeState.destructiveApplied =
+            applyLatestWindow(discovery, result.value, () => void revealPrevious()) ||
+            runtimeState.destructiveApplied;
+        } finally {
+          if (runtimeState.mode !== "stock") startObserver();
+        }
       }
 
       const after = countDocumentNodes();
@@ -567,7 +550,10 @@ export function bootSlimContentController(): void {
         runtimeState.mode === "render-suppressed"
           ? "layout and paint suppression only; network and application state unchanged"
           : "older mounted turns replaced; stock restoration reloads the genuine page";
-      everApplied = true;
+      driftState = reduceSlimDrift(driftState, {
+        kind: "mode-applied",
+        atMs: performance.now(),
+      }).state;
       lastAppliedSignature = currentSignature;
       renderStatus();
       return snapshot();
@@ -576,9 +562,9 @@ export function bootSlimContentController(): void {
     } finally {
       applying = false;
     }
-  };
+  }
 
-  const setSlimMode = async (mode: SlimMode, turnGroups: number): Promise<SlimRuntimeSnapshot> => {
+  async function setSlimMode(mode: SlimMode, turnGroups: number): Promise<SlimRuntimeSnapshot> {
     const normalizedGroups = normalizeTurnGroups(turnGroups);
     if (!isSlimMode(mode) || normalizedGroups === null) {
       runtimeState.reason = "invalid-mode-request";
@@ -605,6 +591,7 @@ export function bootSlimContentController(): void {
       runtimeState.destructiveApplied &&
       (runtimeState.mode !== mode || runtimeState.turnGroups !== normalizedGroups)
     ) {
+      stopObserver();
       window.setTimeout(() => location.reload(), 0);
       return snapshot();
     }
@@ -613,20 +600,23 @@ export function bootSlimContentController(): void {
     runtimeState.turnGroups = normalizedGroups;
     runtimeState.status = "unsupported";
     runtimeState.reason = "waiting-for-supported-turn-layout";
+    driftState = initialSlimDriftState();
     lastAppliedSignature = null;
+    startObserver();
     renderStatus();
     scheduleApply(0);
     return snapshot();
-  };
+  }
 
-  const revealPrevious = async (): Promise<SlimRuntimeSnapshot> => {
+  async function revealPrevious(): Promise<SlimRuntimeSnapshot> {
     if (runtimeState.mode === "stock") return snapshot();
     const nextGroups = revealPreviousTurnGroups(runtimeState.turnGroups);
     if (nextGroups === runtimeState.turnGroups) return snapshot();
     return setSlimMode(runtimeState.mode, nextGroups);
-  };
+  }
 
-  const restoreStock = async (): Promise<SlimRuntimeSnapshot> => {
+  async function restoreStock(): Promise<SlimRuntimeSnapshot> {
+    stopObserver();
     clearSessionConfig();
     if (applyTimer !== null) {
       window.clearTimeout(applyTimer);
@@ -643,24 +633,11 @@ export function bootSlimContentController(): void {
     runtimeState.reason = null;
     runtimeState.turnGroups = DEFAULT_TURN_GROUPS;
     runtimeState.destructiveApplied = false;
-    driftFailures = 0;
+    driftState = initialSlimDriftState();
     lastAppliedSignature = null;
     removeStatusHost();
     return snapshot();
-  };
-
-  const slimObserver = new MutationObserver(() => scheduleApply());
-  slimObserver.observe(document, {
-    subtree: true,
-    childList: true,
-    attributes: true,
-    attributeFilter: [
-      "aria-busy",
-      "data-is-streaming",
-      "data-message-author-role",
-      "data-testid",
-    ],
-  });
+  }
 
   browser.runtime.onMessage.addListener((message) => {
     if (!message || typeof message !== "object") return undefined;
@@ -689,6 +666,7 @@ export function bootSlimContentController(): void {
         void failOpen(authorization.reason);
         return;
       }
+      startObserver();
       scheduleApply(0);
     });
   }
