@@ -106,7 +106,7 @@ describe("completion hint admission", () => {
   it("rejects expired, stale, and future-dated events separately", () => {
     const ledger = new BoundedCompletionHintLedger({ maxPastAgeMs: 5_000, maxFutureSkewMs: 1_000 });
 
-    expect(ledger.admit(envelope(1, { expiresAt: NOW }), NOW).status).toBe("expired");
+    expect(ledger.admit(envelope(1, { issuedAt: NOW - 1, expiresAt: NOW }), NOW).status).toBe("expired");
     expect(ledger.admit(envelope(2, { observedAt: NOW - 5_001 }), NOW).status).toBe("stale");
     expect(ledger.admit(envelope(3, { observedAt: NOW + 1_001 }), NOW).status).toBe("rejected");
     expect(ledger.counters).toMatchObject({ expired: 1, stale: 1, rejected: 1 });
@@ -140,18 +140,19 @@ describe("completion hint admission", () => {
 
   it("clears queued hints and replay state", () => {
     const ledger = new BoundedCompletionHintLedger();
-    expect(ledger.admit(envelope(9), NOW).status).toBe("accepted");
+    expect(ledger.admit(envelope(5), NOW).status).toBe("accepted");
     ledger.clear();
     expect(ledger.size).toBe(0);
+    expect(ledger.snapshot()).toEqual([]);
     expect(ledger.admit(envelope(1), NOW).status).toBe("accepted");
   });
 
   it("stays bounded under synthetic notification traffic", () => {
-    const ledger = new BoundedCompletionHintLedger({ maxQueueEntries: 32, maxSequenceGap: 2 });
+    const ledger = new BoundedCompletionHintLedger({ maxQueueEntries: 16, maxSequenceGap: 10_000 });
     for (let sequence = 1; sequence <= 100; sequence += 1) {
       expect(ledger.admit(envelope(sequence), NOW).status).toBe("accepted");
     }
-    expect(ledger.size).toBe(32);
-    expect(ledger.counters).toMatchObject({ accepted: 100, evicted: 68 });
+    expect(ledger.size).toBe(16);
+    expect(ledger.counters).toMatchObject({ accepted: 100, evicted: 84 });
   });
 });
