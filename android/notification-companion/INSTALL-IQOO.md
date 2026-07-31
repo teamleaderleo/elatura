@@ -1,6 +1,14 @@
 # Install Elatura Companion on iQOO / OriginOS
 
-Use only the APK bundle produced by the `Android notification companion` GitHub Actions workflow for the exact commit being tested.
+## Download status
+
+Do not treat a pull-request artifact named `elatura-notification-companion-ephemeral-debug` as the final updateable package.
+
+That artifact is useful for compilation evidence and a disposable first install, but its signing certificate can change across GitHub-hosted workflow runs. A later build may require uninstalling the earlier app, which clears local setup state, the HMAC identity, captured hints, and guided test totals.
+
+Wait for an explicit handoff naming a **stable signed** artifact before beginning the continuing physical-phone test. Stable signing is tracked in issue #104.
+
+When an explicit one-off debug test is requested, use only the APK bundle produced by the `Android notification companion` workflow for the exact commit being tested.
 
 The artifact ZIP must contain:
 
@@ -11,13 +19,14 @@ The artifact ZIP must contain:
 ## Before installation
 
 1. Open `BUILD-PROVENANCE.txt` and confirm the commit and workflow run match the handoff you received.
-2. Verify the APK checksum against `app-debug.apk.sha256` on a computer when practical.
-3. Keep the ChatGPT Android app installed and signed in.
+2. Confirm `signingMode` and `updateCompatibility` match the stated purpose of the handoff.
+3. Verify the APK checksum against `app-debug.apk.sha256` on a computer when practical.
+4. Keep the ChatGPT Android app installed and signed in.
 
 ## Install
 
 1. Download and extract the workflow artifact ZIP.
-2. Transfer `app-debug.apk` to the iQOO phone or download it directly on the phone.
+2. Transfer the named APK to the iQOO phone or download it directly on the phone.
 3. Open the APK and approve installation from the selected file/browser app when OriginOS asks.
 4. Launch **Elatura Companion**.
 
