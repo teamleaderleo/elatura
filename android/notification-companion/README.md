@@ -19,13 +19,14 @@ A notification is presented only as a **possible completion**. Missing, grouped,
 
 ## What the screen shows
 
-The phone UI refreshes while it is open and separates three kinds of evidence:
+The phone UI refreshes while it is open and separates four kinds of evidence:
 
 1. **Listener health** — notification-access grant, service starts, connection callbacks, current-process confirmation, and the latest captured event.
-2. **Signal quality** — observed/retained/duplicate counts, posted and removed events, routing-token availability, grouping, latency percentiles, worker drops, errors, and malformed-record counts.
-3. **Physical test tally** — user-verified notification arrivals, misses, correct deep links, and failed or wrong deep links.
+2. **Test context** — phone model, Android version/API, ChatGPT and Elatura app versions, CI build commit/run, and Elatura's battery-optimization exemption status.
+3. **Signal quality** — observed/retained/duplicate counts, posted and removed events, routing-token availability, grouping, latency percentiles, worker drops, errors, and malformed-record counts.
+4. **Physical test tally** — user-verified notification arrivals, misses, correct deep links, and failed or wrong deep links.
 
-The shared diagnostic report contains timestamps, counters, booleans, latency values, manual tallies, and event metadata. It intentionally omits notification title/body text and all HMAC token values.
+The shared diagnostic report contains device/app/build context, timestamps, counters, booleans, latency values, manual tallies, and bounded event metadata. It intentionally omits notification title/body text and all HMAC token values. Sharing requires an explicit user-selected target app.
 
 ## Toolchain
 
@@ -47,34 +48,30 @@ Install the debug APK on a connected user-owned phone:
 adb install -r android/notification-companion/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The `Android notification companion` GitHub Actions workflow also runs the unit tests, assembles the debug APK, and uploads it as a seven-day artifact when the workflow succeeds.
+The `Android notification companion` GitHub Actions workflow also runs the unit tests, assembles the debug APK, embeds its commit/run identifiers, and uploads it as a seven-day artifact when the workflow succeeds.
 
 Launch **Elatura Companion**, tap **Open notification access**, and explicitly enable the listener. The app cannot grant this access itself. Android automatically requests a rebind when the system reports a listener disconnect.
 
 ## First physical-device diagnostic
 
 1. Open Elatura Companion and confirm the health card says **Listening**.
-2. Tap **Start or reset test tally**.
-3. Run at least 30 ChatGPT completions across the job types you actually use.
-4. After independently confirming each completion:
+2. Confirm **Test context** identifies the phone, Android version, ChatGPT version, Elatura version, and the expected build.
+3. Tap **Start or reset test tally**.
+4. Run at least 30 ChatGPT completions across the job types you actually use.
+5. After independently confirming each completion:
    - tap **Mark notification arrived** when Android delivered a ChatGPT notification;
    - tap **Mark notification missed** when the task completed without one.
-5. For notifications you tap:
+6. For notifications you tap:
    - record whether the intended chat opened;
    - record a failure when nothing useful opened or the wrong chat opened.
-6. Use **Share content-free diagnostic report** and attach or paste the result into issue #96.
+7. Use **Share content-free diagnostic report** and attach or paste the result into issue #96.
 
-Include these non-content details beside the report:
+The report automatically records:
 
-- phone model;
-- Android version;
-- ChatGPT app version;
-- Elatura APK commit or workflow run;
-- whether battery optimization was left at its default;
-- broad job types tested, without conversation titles or text.
-
-The report already records:
-
+- phone manufacturer/model and Android version/API;
+- ChatGPT and Elatura app versions;
+- Elatura build commit and GitHub workflow run;
+- Elatura battery-optimization exemption status;
 - notification received/missed tally;
 - posted-to-observed latency distribution;
 - title/text routing-token availability;
@@ -83,6 +80,8 @@ The report already records:
 - listener restarts/disconnects;
 - deep-link success/failure tally;
 - bounded queue drops, duplicates, local corruption, and processing errors.
+
+Describe only the broad job types tested when posting the report. Do not include conversation titles or message text.
 
 ## Next packet
 
