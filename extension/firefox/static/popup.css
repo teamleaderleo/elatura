@@ -9,10 +9,10 @@ dl.compact { margin: 10px 0; gap: 5px; }
 dl div { display: flex; justify-content: space-between; gap: 16px; }
 dt { opacity: .72; }
 dd { margin: 0; max-width: 210px; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
-fieldset { display: grid; gap: 8px; margin: 14px 0 0; padding: 12px; border: 1px solid color-mix(in srgb, currentColor 28%, transparent); border-radius: 10px; }
+fieldset { display: grid; gap: 8px; margin: 14px 0 0; padding: 12px; border: 1px solid currentColor; border-radius: 10px; }
 legend { font-weight: 700; padding: 0 5px; }
 fieldset label { display: block; }
-fieldset label:has(input[type="checkbox"]) { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 8px; }
+fieldset label input[type="checkbox"] { margin-right: 7px; vertical-align: top; }
 select, input[type="number"] { box-sizing: border-box; width: 100%; padding: 7px 8px; }
 .note { margin: 2px 0 0; font-size: 12px; }
 .actions { display: grid; gap: 8px; margin-top: 14px; }
