@@ -57,6 +57,19 @@ class CompletionHintProjectorTest {
     }
 
     @Test
+    fun slicesACharSequenceBeforeConvertingItToString() {
+        val source = NoWholeValueToStringCharSequence("x".repeat(20_000))
+        val hint = requireNotNull(
+            projector.project(
+                fields(title = source, text = null),
+                HintKind.POSTED,
+                observedAt = 2_000L,
+            ),
+        )
+        assertTrue(hint.titleToken!!.startsWith("title:length=20000:h="))
+    }
+
+    @Test
     fun keepsUnknownConfidenceWhenNoRoutingTextExists() {
         val hint = requireNotNull(
             projector.project(
@@ -98,4 +111,17 @@ class CompletionHintProjectorTest {
         groupKey = "0|$sourcePackage|g:summary",
         isOngoing = false,
     )
+}
+
+private class NoWholeValueToStringCharSequence(
+    private val value: String,
+) : CharSequence {
+    override val length: Int
+        get() = value.length
+
+    override fun get(index: Int): Char = value[index]
+
+    override fun subSequence(startIndex: Int, endIndex: Int): CharSequence = value.substring(startIndex, endIndex)
+
+    override fun toString(): String = error("The full CharSequence must not be materialized")
 }
