@@ -28,6 +28,7 @@ export type SlimLiveObservationFailureReason =
   | "marker-count-mismatch"
   | "invalid-container-id"
   | "duplicate-container-id"
+  | "observation-alignment-failed"
   | "no-role-markers"
   | "role-marker-budget-exceeded"
   | "no-turn-containers"
@@ -115,15 +116,24 @@ export function buildSlimLiveObservation(
   if (!validated.ok) {
     return { ok: false, reason: validated.issues[0]?.code ?? "no-turn-containers" };
   }
+  if (
+    validated.value.turns.length !== containerIds.length ||
+    validated.value.turns.length !== roles.length
+  ) {
+    return { ok: false, reason: "observation-alignment-failed" };
+  }
 
-  return {
-    ok: true,
-    turns: validated.value.turns.map((descriptor, index) => ({
-      ...descriptor,
-      containerId: containerIds[index] ?? `missing-${index}`,
-      role: roles[index] ?? "unknown",
-    })),
-  };
+  const turns: SlimObservedTurn[] = [];
+  for (let index = 0; index < validated.value.turns.length; index += 1) {
+    const descriptor = validated.value.turns[index];
+    const containerId = containerIds[index];
+    const role = roles[index];
+    if (!descriptor || !containerId || !role) {
+      return { ok: false, reason: "observation-alignment-failed" };
+    }
+    turns.push({ ...descriptor, containerId, role });
+  }
+  return { ok: true, turns };
 }
 
 export function driftReasonForSlimObservation(
@@ -144,6 +154,7 @@ export function driftReasonForSlimObservation(
     case "marker-count-mismatch":
     case "invalid-container-id":
     case "duplicate-container-id":
+    case "observation-alignment-failed":
       return "invalid-candidate-id";
     default:
       return reason;
