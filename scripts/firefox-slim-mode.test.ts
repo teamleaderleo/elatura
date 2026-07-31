@@ -24,29 +24,41 @@ describe("Firefox slim-mode prototype", () => {
     expect(manifest.host_permissions).toEqual(["https://chatgpt.com/*"]);
     expect(manifest.web_accessible_resources).toEqual([
       {
-        resources: ["slim-window.js"],
+        resources: ["slim-content-controller.js", "slim-window.js"],
         matches: ["https://chatgpt.com/*"],
       },
     ]);
   });
 
-  it("keeps page content out of storage, logs, and network sinks", () => {
+  it("keeps the classic content script small and fail-open", () => {
     const content = read("extension/firefox/src/content.ts");
 
-    expect(content).not.toMatch(/\bbrowser\.storage\b/u);
-    expect(content).not.toMatch(/\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b/u);
-    expect(content).not.toMatch(/\bconsole\.(?:debug|error|info|log|trace|warn)\s*\(/u);
-    expect(content).not.toMatch(/(?:roleNode|candidate|turn\.element)\.textContent/u);
-    expect(content).not.toMatch(/\.(?:innerText|outerHTML)\b/u);
-    expect(content).toContain('import(browser.runtime.getURL("slim-window.js"))');
+    expect(content).toContain('import(browser.runtime.getURL("slim-content-controller.js"))');
+    expect(content).toContain("controller.bootSlimContentController()");
+    expect(content).toContain("The observer remains usable");
+    expect(content).not.toContain("element.remove()");
+    expect(content).not.toContain("sessionStorage");
+  });
+
+  it("keeps page content out of storage, logs, and network sinks", () => {
+    const content = read("extension/firefox/src/content.ts");
+    const controller = read("extension/firefox/src/slim-content-controller.ts");
+    const surface = `${content}\n${controller}`;
+
+    expect(surface).not.toMatch(/\bbrowser\.storage\b/u);
+    expect(surface).not.toMatch(/\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b/u);
+    expect(surface).not.toMatch(/\bconsole\.(?:debug|error|info|log|trace|warn)\s*\(/u);
+    expect(surface).not.toMatch(/(?:roleNode|candidate|turn\.element)\.textContent/u);
+    expect(surface).not.toMatch(/\.(?:innerText|outerHTML)\b/u);
   });
 
   it("does not add any response-transform path", () => {
     const content = read("extension/firefox/src/content.ts");
+    const controller = read("extension/firefox/src/slim-content-controller.ts");
     const background = read("extension/firefox/src/background.ts");
 
-    expect(content).not.toContain("filterResponseData");
-    expect(content).not.toContain("TextDecoder");
+    expect(`${content}\n${controller}`).not.toContain("filterResponseData");
+    expect(`${content}\n${controller}`).not.toContain("TextDecoder");
     expect(background).toContain("bytes += event.data.byteLength;");
     expect(background).toContain("filter.write(event.data);");
     expect(background).not.toContain("elatura:set-slim-mode");
@@ -56,47 +68,61 @@ describe("Firefox slim-mode prototype", () => {
     const safety = read("extension/firefox/src/transform-safety.ts");
     const optIn = read("extension/firefox/src/transform-opt-in.ts");
     const popup = read("extension/firefox/src/popup.ts");
+    const controller = read("extension/firefox/src/slim-content-controller.ts");
     const popupHtml = read("extension/firefox/static/popup.html");
 
     expect(safety).toContain("emergencyDisabled: true");
     expect(optIn).toContain("authorizesTransform: false");
     expect(popup).toContain("optIn.authorizesTransform === true");
+    expect(controller).toContain("optIn.authorizesTransform !== true");
+    expect(controller).toContain("live-authorization-disconnected");
     expect(popup).toContain("Slim modes remain locked");
     expect(popupHtml).toContain("Live slim modes remain locked in this build");
     expect(popupHtml).toContain("Recording intent does not authorize a live page change");
   });
 
   it("writes recovery configuration before any destructive mode can run", () => {
-    const content = read("extension/firefox/src/content.ts");
-    const setModeStart = content.indexOf("async function setSlimMode");
-    const writeIndex = content.indexOf("writeSessionConfig(config)", setModeStart);
-    const modeIndex = content.indexOf("runtimeState.mode = mode", setModeStart);
-    const scheduleIndex = content.indexOf("scheduleApply(0)", setModeStart);
+    const controller = read("extension/firefox/src/slim-content-controller.ts");
+    const setModeStart = controller.indexOf("const setSlimMode");
+    const writeIndex = controller.indexOf("writeSessionConfig(config)", setModeStart);
+    const modeIndex = controller.indexOf("runtimeState.mode = mode", setModeStart);
+    const scheduleIndex = controller.indexOf("scheduleApply(0)", setModeStart);
 
     expect(setModeStart).toBeGreaterThanOrEqual(0);
     expect(writeIndex).toBeGreaterThan(setModeStart);
     expect(modeIndex).toBeGreaterThan(writeIndex);
     expect(scheduleIndex).toBeGreaterThan(modeIndex);
-    expect(content).toContain("for (const element of elements) element.remove();");
-    expect(content).not.toContain("DocumentFragment");
-    expect(content).not.toContain("cloneNode");
+    expect(controller).toContain("for (const element of elements) element.remove();");
+    expect(controller).not.toContain("DocumentFragment");
+    expect(controller).not.toContain("cloneNode");
   });
 
   it("clears recovery state before fail-open and Stock reloads", () => {
-    const content = read("extension/firefox/src/content.ts");
-    const failOpenStart = content.indexOf("async function failOpen");
-    const failOpenClear = content.indexOf("clearSessionConfig();", failOpenStart);
-    const failOpenReload = content.indexOf("location.reload()", failOpenStart);
-    const stockStart = content.indexOf("async function restoreStock");
-    const stockClear = content.indexOf("clearSessionConfig();", stockStart);
-    const stockReload = content.indexOf("location.reload()", stockStart);
+    const controller = read("extension/firefox/src/slim-content-controller.ts");
+    const failOpenStart = controller.indexOf("const failOpen");
+    const failOpenClear = controller.indexOf("clearSessionConfig();", failOpenStart);
+    const failOpenReload = controller.indexOf("location.reload()", failOpenStart);
+    const stockStart = controller.indexOf("const restoreStock");
+    const stockClear = controller.indexOf("clearSessionConfig();", stockStart);
+    const stockReload = controller.indexOf("location.reload()", stockStart);
 
     expect(failOpenClear).toBeGreaterThan(failOpenStart);
     expect(failOpenReload).toBeGreaterThan(failOpenClear);
     expect(stockClear).toBeGreaterThan(stockStart);
     expect(stockReload).toBeGreaterThan(stockClear);
-    expect(content).toContain("placeholder-budget-exceeded");
-    expect(content).toContain("DRIFT_FAILURE_LIMIT = 3");
+    expect(controller).toContain("placeholder-budget-exceeded");
+    expect(controller).toContain("DRIFT_FAILURE_LIMIT = 3");
+  });
+
+  it("uses bounded linear discovery and connected-element mounted counts", () => {
+    const controller = read("extension/firefox/src/slim-content-controller.ts");
+
+    expect(controller).toContain("MAX_TURN_CANDIDATES = 10_000");
+    expect(controller).toContain("role-marker-budget-exceeded");
+    expect(controller).toContain("turn-container-budget-exceeded");
+    expect(controller).not.toMatch(/for \(let left[\s\S]*for \(let right/u);
+    expect(controller).toContain("turn.element.isConnected");
+    expect(controller).not.toContain("querySelectorAll('[data-testid^=\"conversation-turn-\"], article')");
   });
 
   it("makes revocation and emergency disable request Stock restoration", () => {
