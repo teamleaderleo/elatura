@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Elatura Companion</string>
+    <string name="listener_name">Elatura ChatGPT completion listener</string>
+</resources>
