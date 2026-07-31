@@ -14,6 +14,14 @@ internal class LocalHintStore(context: Context) {
     )
     private val lock = PROCESS_LOCK
 
+    fun registerChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        preferences.registerOnSharedPreferenceChangeListener(listener)
+    }
+
+    fun unregisterChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        preferences.unregisterOnSharedPreferenceChangeListener(listener)
+    }
+
     fun append(hint: CompletionHintRecord): Long = synchronized(lock) {
         val admittedHint = hint.validatePersisted()
         val loaded = loadArray()
@@ -112,21 +120,46 @@ internal class LocalHintStore(context: Context) {
         return synchronized(lock) {
             preferences.edit()
                 .putLong(KEY_TEST_STARTED_AT, now)
+                .remove(KEY_VERIFIED_COMPLETED_CASES)
                 .remove(KEY_VERIFIED_NOTIFICATION_ARRIVED)
                 .remove(KEY_VERIFIED_NOTIFICATION_MISSED)
                 .remove(KEY_VERIFIED_DEEP_LINK_CORRECT)
                 .remove(KEY_VERIFIED_DEEP_LINK_FAILED)
+                .remove(KEY_VERIFIED_DEEP_LINK_NOT_TESTED)
+                .remove(KEY_LAST_VERIFIED_TEST_CASE)
                 .commit()
         }
     }
 
-    fun recordVerifiedNotificationArrived() = increment(KEY_VERIFIED_NOTIFICATION_ARRIVED)
+    fun recordVerifiedTestCase(testCase: VerifiedTestCase): Boolean = synchronized(lock) {
+        val updated = physicalTestTally().apply(testCase)
+        val editor = preferences.edit()
+            .putLong(KEY_VERIFIED_COMPLETED_CASES, updated.completedCases)
+            .putLong(KEY_VERIFIED_NOTIFICATION_ARRIVED, updated.notificationArrived)
+            .putLong(KEY_VERIFIED_NOTIFICATION_MISSED, updated.notificationMissed)
+            .putLong(KEY_VERIFIED_DEEP_LINK_CORRECT, updated.deepLinkCorrect)
+            .putLong(KEY_VERIFIED_DEEP_LINK_FAILED, updated.deepLinkFailed)
+            .putLong(KEY_VERIFIED_DEEP_LINK_NOT_TESTED, updated.deepLinkNotTested)
+            .putString(KEY_LAST_VERIFIED_TEST_CASE, testCase.toJson().toString())
+        if (timestamp(KEY_TEST_STARTED_AT) == 0L) {
+            editor.putLong(KEY_TEST_STARTED_AT, testCase.recordedAt)
+        }
+        editor.commit()
+    }
 
-    fun recordVerifiedNotificationMissed() = increment(KEY_VERIFIED_NOTIFICATION_MISSED)
-
-    fun recordVerifiedDeepLinkCorrect() = increment(KEY_VERIFIED_DEEP_LINK_CORRECT)
-
-    fun recordVerifiedDeepLinkFailed() = increment(KEY_VERIFIED_DEEP_LINK_FAILED)
+    fun undoLastVerifiedTestCase(): Boolean = synchronized(lock) {
+        val lastCase = lastVerifiedTestCase() ?: return@synchronized false
+        val updated = physicalTestTally().undo(lastCase)
+        preferences.edit()
+            .putLong(KEY_VERIFIED_COMPLETED_CASES, updated.completedCases)
+            .putLong(KEY_VERIFIED_NOTIFICATION_ARRIVED, updated.notificationArrived)
+            .putLong(KEY_VERIFIED_NOTIFICATION_MISSED, updated.notificationMissed)
+            .putLong(KEY_VERIFIED_DEEP_LINK_CORRECT, updated.deepLinkCorrect)
+            .putLong(KEY_VERIFIED_DEEP_LINK_FAILED, updated.deepLinkFailed)
+            .putLong(KEY_VERIFIED_DEEP_LINK_NOT_TESTED, updated.deepLinkNotTested)
+            .remove(KEY_LAST_VERIFIED_TEST_CASE)
+            .commit()
+    }
 
     fun snapshot(limit: Int = MAX_QUEUE_ENTRIES): HintStoreSnapshot = synchronized(lock) {
         require(limit in 1..MAX_QUEUE_ENTRIES)
@@ -143,6 +176,7 @@ internal class LocalHintStore(context: Context) {
             else hints.add(stored)
         }
         hints.reverse()
+        val tally = physicalTestTally()
         HintStoreSnapshot(
             hints = hints,
             observed = counter(KEY_OBSERVED),
@@ -160,10 +194,13 @@ internal class LocalHintStore(context: Context) {
             serviceStartedElapsedRealtime = timestamp(KEY_SERVICE_STARTED_ELAPSED_REALTIME),
             serviceStartCount = counter(KEY_SERVICE_START_COUNT),
             testStartedAt = timestamp(KEY_TEST_STARTED_AT),
-            verifiedNotificationArrived = counter(KEY_VERIFIED_NOTIFICATION_ARRIVED),
-            verifiedNotificationMissed = counter(KEY_VERIFIED_NOTIFICATION_MISSED),
-            verifiedDeepLinkCorrect = counter(KEY_VERIFIED_DEEP_LINK_CORRECT),
-            verifiedDeepLinkFailed = counter(KEY_VERIFIED_DEEP_LINK_FAILED),
+            verifiedCompletedCases = tally.completedCases,
+            verifiedNotificationArrived = tally.notificationArrived,
+            verifiedNotificationMissed = tally.notificationMissed,
+            verifiedDeepLinkCorrect = tally.deepLinkCorrect,
+            verifiedDeepLinkFailed = tally.deepLinkFailed,
+            verifiedDeepLinkNotTested = tally.deepLinkNotTested,
+            lastVerifiedTestCase = lastVerifiedTestCase(),
         )
     }
 
@@ -190,6 +227,39 @@ internal class LocalHintStore(context: Context) {
             preferences.edit()
                 .putLong(key, saturatedIncrement(counter(key)))
                 .commit()
+        }
+    }
+
+    private fun physicalTestTally(): PhysicalTestTally {
+        val arrived = counter(KEY_VERIFIED_NOTIFICATION_ARRIVED)
+        val missed = counter(KEY_VERIFIED_NOTIFICATION_MISSED)
+        val correct = minOf(counter(KEY_VERIFIED_DEEP_LINK_CORRECT), arrived)
+        val remainingAfterCorrect = (arrived - correct).coerceAtLeast(0L)
+        val failed = minOf(counter(KEY_VERIFIED_DEEP_LINK_FAILED), remainingAfterCorrect)
+        val remainingAfterTested = (remainingAfterCorrect - failed).coerceAtLeast(0L)
+        val storedNotTested = if (preferences.contains(KEY_VERIFIED_DEEP_LINK_NOT_TESTED)) {
+            counter(KEY_VERIFIED_DEEP_LINK_NOT_TESTED)
+        } else {
+            remainingAfterTested
+        }
+        val notTested = minOf(storedNotTested, remainingAfterTested)
+        val unaccountedArrivals = (remainingAfterTested - notTested).coerceAtLeast(0L)
+        return PhysicalTestTally(
+            completedCases = saturatedAdd(arrived, missed),
+            notificationArrived = arrived,
+            notificationMissed = missed,
+            deepLinkCorrect = correct,
+            deepLinkFailed = failed,
+            deepLinkNotTested = saturatedAdd(notTested, unaccountedArrivals),
+        )
+    }
+
+    private fun lastVerifiedTestCase(): VerifiedTestCase? {
+        val encoded = preferences.getString(KEY_LAST_VERIFIED_TEST_CASE, null) ?: return null
+        return try {
+            JSONObject(encoded).toVerifiedTestCase()
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -242,10 +312,13 @@ internal class LocalHintStore(context: Context) {
         private const val KEY_SERVICE_STARTED_ELAPSED_REALTIME = "service-started-elapsed-realtime"
         private const val KEY_SERVICE_START_COUNT = "service-start-count"
         private const val KEY_TEST_STARTED_AT = "test-started-at"
+        private const val KEY_VERIFIED_COMPLETED_CASES = "verified-completed-cases"
         private const val KEY_VERIFIED_NOTIFICATION_ARRIVED = "verified-notification-arrived"
         private const val KEY_VERIFIED_NOTIFICATION_MISSED = "verified-notification-missed"
         private const val KEY_VERIFIED_DEEP_LINK_CORRECT = "verified-deep-link-correct"
         private const val KEY_VERIFIED_DEEP_LINK_FAILED = "verified-deep-link-failed"
+        private const val KEY_VERIFIED_DEEP_LINK_NOT_TESTED = "verified-deep-link-not-tested"
+        private const val KEY_LAST_VERIFIED_TEST_CASE = "last-verified-test-case"
     }
 }
 
@@ -286,6 +359,24 @@ private fun JSONObject.toStoredHint(): StoredCompletionHint = StoredCompletionHi
         confidence = getString("confidence"),
     ).validatePersisted(),
 )
+
+private fun VerifiedTestCase.toJson(): JSONObject = JSONObject()
+    .put("recordedAt", recordedAt)
+    .put("notificationArrived", notificationArrived)
+    .put("deepLinkResult", deepLinkResult?.wireValue ?: JSONObject.NULL)
+
+private fun JSONObject.toVerifiedTestCase(): VerifiedTestCase {
+    val deepLinkValue = nullableString("deepLinkResult")
+    val deepLinkResult = deepLinkValue?.let { value ->
+        DeepLinkResult.entries.firstOrNull { it.wireValue == value }
+            ?: throw IllegalArgumentException("Invalid deep-link result")
+    }
+    return VerifiedTestCase(
+        recordedAt = getLong("recordedAt"),
+        notificationArrived = getBoolean("notificationArrived"),
+        deepLinkResult = deepLinkResult,
+    )
+}
 
 private fun JSONObject.nullableString(key: String): String? = if (isNull(key)) null else getString(key)
 
