@@ -10,6 +10,9 @@ import {
 } from "./slim-discovery.js";
 import type { SlimTurnDescriptor } from "./slim-window.js";
 
+const MAX_OBSERVATION_TOKEN_LENGTH = 128;
+const TOKEN_PATTERN = /^[0-9A-Za-z:_-]+$/u;
+
 export type SlimLiveContainerObservation = {
   containerId: string;
   parentToken: string | null;
@@ -21,6 +24,10 @@ export type SlimLiveContainerObservation = {
 
 export type SlimLiveObservationFailureReason =
   | SlimDiscoveryFailureReason
+  | "invalid-marker-count"
+  | "marker-count-mismatch"
+  | "invalid-container-id"
+  | "duplicate-container-id"
   | "no-role-markers"
   | "role-marker-budget-exceeded"
   | "no-turn-containers"
@@ -37,12 +44,21 @@ export type SlimLiveObservationResult =
   | { ok: true; turns: SlimObservedTurn[] }
   | { ok: false; reason: SlimLiveObservationFailureReason };
 
+function validToken(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= MAX_OBSERVATION_TOKEN_LENGTH &&
+    TOKEN_PATTERN.test(value)
+  );
+}
+
 export function buildSlimLiveObservation(
   roleMarkerCount: number,
   containers: readonly SlimLiveContainerObservation[],
 ): SlimLiveObservationResult {
   if (!Number.isInteger(roleMarkerCount) || roleMarkerCount < 0) {
-    return { ok: false, reason: "invalid-document-order" };
+    return { ok: false, reason: "invalid-marker-count" };
   }
   if (roleMarkerCount === 0) return { ok: false, reason: "no-role-markers" };
   if (roleMarkerCount > MAX_SLIM_DISCOVERY_CANDIDATES) {
@@ -53,12 +69,28 @@ export function buildSlimLiveObservation(
     return { ok: false, reason: "turn-container-budget-exceeded" };
   }
 
+  const assignedMarkerCount = containers.reduce(
+    (total, container) => total + container.roleValues.length,
+    0,
+  );
+  if (assignedMarkerCount > roleMarkerCount) {
+    return { ok: false, reason: "marker-count-mismatch" };
+  }
+
   const pureCandidates: SlimDiscoveryCandidate[] = [];
   const containerIds: string[] = [];
   const roles: SlimObservedRole[] = [];
+  const seenContainerIds = new Set<string>();
   for (let index = 0; index < containers.length; index += 1) {
     const container = containers[index];
     if (!container) return { ok: false, reason: "no-turn-containers" };
+    if (!validToken(container.containerId)) {
+      return { ok: false, reason: "invalid-container-id" };
+    }
+    if (seenContainerIds.has(container.containerId)) {
+      return { ok: false, reason: "duplicate-container-id" };
+    }
+    seenContainerIds.add(container.containerId);
     if (container.roleValues.length !== 1) {
       return { ok: false, reason: "ambiguous-role-markers" };
     }
@@ -108,6 +140,11 @@ export function driftReasonForSlimObservation(
       return "turn-parent-mismatch";
     case "ambiguous-role-markers":
       return "invalid-role";
+    case "invalid-marker-count":
+    case "marker-count-mismatch":
+    case "invalid-container-id":
+    case "duplicate-container-id":
+      return "invalid-candidate-id";
     default:
       return reason;
   }
