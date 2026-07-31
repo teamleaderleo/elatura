@@ -49,12 +49,16 @@ describe("Firefox slim discovery hardening", () => {
     expect(policy).toContain('status: shouldFailOpen ? "failed-open" : "drifted"');
   });
 
-  it("does not alter the locked live-authority boundary", () => {
+  it("integrates policy without altering the locked live-authority boundary", () => {
     const controller = read("extension/firefox/src/slim-content-controller.ts");
+    const adapter = read("extension/firefox/src/slim-live-discovery.ts");
     const safety = read("extension/firefox/src/transform-safety.ts");
     const optIn = read("extension/firefox/src/transform-opt-in.ts");
 
-    expect(controller).not.toContain('from "./slim-discovery.js"');
+    expect(controller).toContain('from "./slim-discovery.js"');
+    expect(controller).toContain('from "./slim-live-discovery.js"');
+    expect(adapter).toContain("validateAndGroupSlimDiscovery(pureCandidates)");
+    expect(controller).toContain("optIn.authorizesTransform !== true");
     expect(safety).toContain("emergencyDisabled: true");
     expect(optIn).toContain("authorizesTransform: false");
   });
