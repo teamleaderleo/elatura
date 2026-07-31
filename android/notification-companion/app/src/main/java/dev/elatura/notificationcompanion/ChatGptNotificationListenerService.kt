@@ -2,6 +2,8 @@
 package dev.elatura.notificationcompanion
 
 import android.app.Notification
+import android.content.ComponentName
+import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import java.util.concurrent.ArrayBlockingQueue
@@ -17,6 +19,7 @@ class ChatGptNotificationListenerService : NotificationListenerService() {
     override fun onCreate() {
         super.onCreate()
         store = LocalHintStore(applicationContext)
+        store.markServiceStarted(System.currentTimeMillis())
         projector = CompletionHintProjector(AndroidKeystoreHmacSigner())
         executor = ThreadPoolExecutor(
             1,
@@ -30,12 +33,13 @@ class ChatGptNotificationListenerService : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
-        store.setListenerConnected(true)
+        store.setListenerConnected(true, System.currentTimeMillis())
     }
 
     override fun onListenerDisconnected() {
-        store.setListenerConnected(false)
+        store.setListenerConnected(false, System.currentTimeMillis())
         super.onListenerDisconnected()
+        requestRebind(ComponentName(this, ChatGptNotificationListenerService::class.java))
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
@@ -49,20 +53,26 @@ class ChatGptNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onDestroy() {
-        store.setListenerConnected(false)
+        store.setListenerConnected(false, System.currentTimeMillis())
         executor.shutdownNow()
         super.onDestroy()
     }
 
     private fun submit(sbn: StatusBarNotification, kind: HintKind) {
         if (sbn.packageName != CHATGPT_PACKAGE) return
-        val fields = extractFields(sbn)
+        val fields = try {
+            extractFields(sbn)
+        } catch (_: Exception) {
+            store.recordError()
+            return
+        }
+
         try {
             executor.execute {
-                runCatching {
+                try {
                     projector.project(fields, kind, System.currentTimeMillis())
                         ?.let(store::append)
-                }.onFailure {
+                } catch (_: Exception) {
                     store.recordError()
                 }
             }
@@ -72,12 +82,16 @@ class ChatGptNotificationListenerService : NotificationListenerService() {
     }
 
     private fun extractFields(sbn: StatusBarNotification): NotificationFields {
-        val notification = sbn.notification
-        val extras = notification.extras
+        val notification = requireNotNull(sbn.notification) { "Missing notification payload" }
+        val notificationKey = requireNotNull(sbn.key)
+            .take(MAX_EPHEMERAL_TEXT_CODE_UNITS)
+            .takeIf(String::isNotBlank)
+            ?: throw IllegalArgumentException("Missing notification key")
+        val extras = notification.extras ?: Bundle.EMPTY
         return NotificationFields(
             sourcePackage = sbn.packageName,
             postedAt = sbn.postTime.coerceAtLeast(0L),
-            notificationKey = sbn.key.take(MAX_EPHEMERAL_TEXT_CODE_UNITS),
+            notificationKey = notificationKey,
             title = firstText(
                 extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE),
                 extras.getCharSequence(Notification.EXTRA_TITLE_BIG),
