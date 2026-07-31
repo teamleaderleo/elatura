@@ -70,12 +70,20 @@ class DiagnosticsTest {
             listenerDisconnectedAt = 0L,
             listenerConnectionCount = 1L,
             serviceStartedAt = 2_500L,
+            serviceStartedElapsedRealtime = 2_000L,
             serviceStartCount = 1L,
         )
 
-        val report = buildContentFreeReport(snapshot, accessGranted = true, generatedAt = 5_000L, appVersion = "0.1.0")
+        val report = buildContentFreeReport(
+            snapshot = snapshot,
+            accessGranted = true,
+            listenerConfirmedInCurrentProcess = true,
+            generatedAt = 5_000L,
+            appVersion = "0.1.0",
+        )
         assertFalse(report.contains(token))
         assertFalse(report.contains(keyHash))
+        assertTrue(report.contains("listenerConfirmedInCurrentProcess=true"))
         assertTrue(report.contains("possibleCompletions=1"))
         assertTrue(report.contains("titleToken=true"))
         assertTrue(report.contains("latencyMs=500"))
