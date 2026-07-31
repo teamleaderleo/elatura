@@ -271,7 +271,7 @@ document.querySelector("#apply-slim")!.addEventListener("click", async () => {
   const mode = selectedSlimMode();
   const [safety, optIn] = await Promise.all([getTransformSafety(), getTransformOptIn()]);
   if (mode !== "stock" && !liveSlimModeAuthorized(safety, optIn)) {
-    setStatus("Slim modes remain locked. Recorded intent does not authorize a live page change.");
+    setStatus("Transforms remain locked and unauthorized. Recorded intent does not authorize a live page change.");
     setApplyAvailability(safety, optIn);
     return;
   }
@@ -318,7 +318,7 @@ document.querySelector("#record-opt-in")!.addEventListener("click", async () => 
     type: "elatura:record-transform-opt-in",
     acknowledgements: [...TRANSFORM_OPT_IN_ACKNOWLEDGEMENTS],
   })) as TransformOptInState;
-  setStatus("Opt-in intent recorded for this session. Live modes remain locked and unauthorized.");
+  setStatus("Transforms remain locked and unauthorized. Opt-in intent was recorded for this session.");
   await render(undefined, undefined, optIn);
 });
 
