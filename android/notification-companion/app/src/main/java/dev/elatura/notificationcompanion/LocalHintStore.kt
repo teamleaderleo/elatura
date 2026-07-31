@@ -106,6 +106,27 @@ internal class LocalHintStore(context: Context) {
         }
     }
 
+    fun startTestTally(now: Long): Boolean {
+        require(now >= 0L)
+        return synchronized(lock) {
+            preferences.edit()
+                .putLong(KEY_TEST_STARTED_AT, now)
+                .remove(KEY_VERIFIED_NOTIFICATION_ARRIVED)
+                .remove(KEY_VERIFIED_NOTIFICATION_MISSED)
+                .remove(KEY_VERIFIED_DEEP_LINK_CORRECT)
+                .remove(KEY_VERIFIED_DEEP_LINK_FAILED)
+                .commit()
+        }
+    }
+
+    fun recordVerifiedNotificationArrived() = increment(KEY_VERIFIED_NOTIFICATION_ARRIVED)
+
+    fun recordVerifiedNotificationMissed() = increment(KEY_VERIFIED_NOTIFICATION_MISSED)
+
+    fun recordVerifiedDeepLinkCorrect() = increment(KEY_VERIFIED_DEEP_LINK_CORRECT)
+
+    fun recordVerifiedDeepLinkFailed() = increment(KEY_VERIFIED_DEEP_LINK_FAILED)
+
     fun snapshot(limit: Int = MAX_QUEUE_ENTRIES): HintStoreSnapshot = synchronized(lock) {
         require(limit in 1..MAX_QUEUE_ENTRIES)
         val loaded = loadArray()
@@ -137,6 +158,11 @@ internal class LocalHintStore(context: Context) {
             serviceStartedAt = timestamp(KEY_SERVICE_STARTED_AT),
             serviceStartedElapsedRealtime = timestamp(KEY_SERVICE_STARTED_ELAPSED_REALTIME),
             serviceStartCount = counter(KEY_SERVICE_START_COUNT),
+            testStartedAt = timestamp(KEY_TEST_STARTED_AT),
+            verifiedNotificationArrived = counter(KEY_VERIFIED_NOTIFICATION_ARRIVED),
+            verifiedNotificationMissed = counter(KEY_VERIFIED_NOTIFICATION_MISSED),
+            verifiedDeepLinkCorrect = counter(KEY_VERIFIED_DEEP_LINK_CORRECT),
+            verifiedDeepLinkFailed = counter(KEY_VERIFIED_DEEP_LINK_FAILED),
         )
     }
 
@@ -213,6 +239,11 @@ internal class LocalHintStore(context: Context) {
         private const val KEY_SERVICE_STARTED_AT = "service-started-at"
         private const val KEY_SERVICE_STARTED_ELAPSED_REALTIME = "service-started-elapsed-realtime"
         private const val KEY_SERVICE_START_COUNT = "service-start-count"
+        private const val KEY_TEST_STARTED_AT = "test-started-at"
+        private const val KEY_VERIFIED_NOTIFICATION_ARRIVED = "verified-notification-arrived"
+        private const val KEY_VERIFIED_NOTIFICATION_MISSED = "verified-notification-missed"
+        private const val KEY_VERIFIED_DEEP_LINK_CORRECT = "verified-deep-link-correct"
+        private const val KEY_VERIFIED_DEEP_LINK_FAILED = "verified-deep-link-failed"
     }
 }
 
