@@ -78,16 +78,32 @@ class DiagnosticsTest {
             verifiedDeepLinkCorrect = 6L,
             verifiedDeepLinkFailed = 1L,
         )
+        val environment = DiagnosticEnvironment(
+            deviceManufacturer = "Example",
+            deviceModel = "Phone 1",
+            androidRelease = "16",
+            androidSdkInt = 36,
+            chatGptVersion = "1.2026.200",
+            elaturaVersion = "0.1.0",
+            buildSha = "abcdef1234567890",
+            buildRunId = "123456",
+            batteryOptimizationExempt = false,
+        )
 
         val report = buildContentFreeReport(
             snapshot = snapshot,
+            environment = environment,
             accessGranted = true,
             listenerConfirmedInCurrentProcess = true,
             generatedAt = 5_000L,
-            appVersion = "0.1.0",
         )
         assertFalse(report.contains(token))
         assertFalse(report.contains(keyHash))
+        assertTrue(report.contains("elaturaVersion=0.1.0"))
+        assertTrue(report.contains("buildSha=abcdef1234567890"))
+        assertTrue(report.contains("deviceModel=Phone 1"))
+        assertTrue(report.contains("chatGptVersion=1.2026.200"))
+        assertTrue(report.contains("batteryOptimizationExempt=false"))
         assertTrue(report.contains("listenerConfirmedInCurrentProcess=true"))
         assertTrue(report.contains("verifiedNotificationArrived=8"))
         assertTrue(report.contains("verifiedNotificationMissed=2"))
