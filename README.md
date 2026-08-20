@@ -73,7 +73,6 @@ See `docs/offline-development.md` for the boundary between safe synthetic work a
 
 ```text
 extension/firefox/        Firefox observation, slim-mode, reports, and locked safety controls
-android/                  local completion-hint sensor and phone-side experiments where present
 packages/core/            generic runtime, orchestration, adapter, cache, provenance, representation, fingerprint, and selection contracts
 packages/adapter-chatgpt/ ChatGPT-specific graph inspection, synthetic transformation, and representation work
 packages/fixtures/        deterministic synthetic and malformed graph workloads
