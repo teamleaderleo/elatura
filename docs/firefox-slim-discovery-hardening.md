@@ -1,6 +1,6 @@
 # Firefox slim discovery hardening
 
-This packet prepares the locked slim-mode prototype for a later live-adapter refactor. It does not enable page changes and does not alter the response observer.
+This packet hardens the locked slim-mode prototype without enabling page changes or altering the response observer.
 
 ## Pure discovery contract
 
@@ -28,6 +28,21 @@ Provider role strings are normalized into the fixed local vocabulary. Arbitrary 
 
 The candidate validation and grouping pass is linear in the candidate count and stops before iteration when the 10,000-candidate limit is exceeded.
 
+## Live adapter
+
+`slim-live-discovery.ts` is the only module that reads provider DOM markers. It:
+
+- caps role markers and resolved turn containers at 10,000;
+- resolves only conversation-turn test containers or article fallbacks;
+- rejects a resolved container with more than one role marker;
+- assigns opaque parent and turn tokens;
+- verifies actual adjacent document order;
+- normalizes roles before they reach the pure policy;
+- sends only role, streaming state, order, parent token, and bounded geometry to the pure validator;
+- retains element references only for the immediate local DOM operation.
+
+It does not read message text, serialize DOM, write extension storage, log content, or make a network request.
+
 ## Grouping
 
 A user turn starts a new group. Following assistant, tool, system, or unknown turns remain in that group until the next user turn. Provider content is never needed for grouping.
@@ -46,18 +61,18 @@ The pure drift reducer separates:
 
 A route change starts a 1.5-second grace period. Discovery failures inside that period do not consume the consecutive-failure budget. Outside grace, a previously applied mode fails open after three consecutive discovery failures.
 
-This is intentionally time-based rather than mutation-count-based. A single-page navigation can generate many mutations before the new conversation DOM settles.
+This is time-based rather than mutation-count-based. A single-page navigation can generate many mutations before the new conversation DOM settles.
 
-## Integration status
+## Controller lifecycle
 
-The current controller in PR #106 remains locked and does not import this module. The next adapter-refactor packet should:
+The locked controller now consumes both the live adapter and the pure drift reducer.
 
-1. collect role markers with an explicit traversal/candidate budget;
-2. assign opaque parent and order tokens;
-3. pass candidates through `validateAndGroupSlimDiscovery`;
-4. use the returned descriptors with `planSlimWindow`;
-5. replace the ad hoc drift counters with `reduceSlimDrift`;
-6. derive mounted-turn counts from a second successful bounded discovery rather than broad selectors;
-7. retain the same session-recovery and Stock fail-open behavior.
+- Stock and the current locked build install no full-page slim-mode mutation observer.
+- A future successfully authorized non-stock mode writes recovery configuration first, then starts the observer.
+- Latest-window DOM changes temporarily disconnect the observer so the extension does not react to its own removals.
+- A latest-window application that fails partway is still treated as destructive and reloads the genuine page, because destructive state is marked before the first removal.
+- Stock, fail-open, revocation, emergency disable, and destructive reload paths disconnect the observer.
+- Mounted-turn metrics count only discovered elements that remain connected after application.
+- SPA route changes enter the tested grace state before failures consume the drift budget.
 
-Live authorization remains a separate reviewed gate after this integration is compiled, linted, and manually inspected.
+Live authorization remains disconnected: transform safety starts emergency-disabled and recorded intent still carries `authorizesTransform: false`. Response-body handling remains byte-for-byte pass-through.

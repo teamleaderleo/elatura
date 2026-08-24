@@ -24,7 +24,12 @@ describe("Firefox slim-mode prototype", () => {
     expect(manifest.host_permissions).toEqual(["https://chatgpt.com/*"]);
     expect(manifest.web_accessible_resources).toEqual([
       {
-        resources: ["slim-content-controller.js", "slim-window.js"],
+        resources: [
+          "slim-content-controller.js",
+          "slim-discovery.js",
+          "slim-live-discovery.js",
+          "slim-window.js",
+        ],
         matches: ["https://chatgpt.com/*"],
       },
     ]);
@@ -43,7 +48,8 @@ describe("Firefox slim-mode prototype", () => {
   it("keeps page content out of storage, logs, and network sinks", () => {
     const content = read("extension/firefox/src/content.ts");
     const controller = read("extension/firefox/src/slim-content-controller.ts");
-    const surface = `${content}\n${controller}`;
+    const discovery = read("extension/firefox/src/slim-live-discovery.ts");
+    const surface = `${content}\n${controller}\n${discovery}`;
 
     expect(surface).not.toMatch(/\bbrowser\.storage\b/u);
     expect(surface).not.toMatch(/\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b/u);
@@ -55,10 +61,11 @@ describe("Firefox slim-mode prototype", () => {
   it("does not add any response-transform path", () => {
     const content = read("extension/firefox/src/content.ts");
     const controller = read("extension/firefox/src/slim-content-controller.ts");
+    const discovery = read("extension/firefox/src/slim-live-discovery.ts");
     const background = read("extension/firefox/src/background.ts");
 
-    expect(`${content}\n${controller}`).not.toContain("filterResponseData");
-    expect(`${content}\n${controller}`).not.toContain("TextDecoder");
+    expect(`${content}\n${controller}\n${discovery}`).not.toContain("filterResponseData");
+    expect(`${content}\n${controller}\n${discovery}`).not.toContain("TextDecoder");
     expect(background).toContain("bytes += event.data.byteLength;");
     expect(background).toContain("filter.write(event.data);");
     expect(background).not.toContain("elatura:set-slim-mode");
@@ -83,46 +90,97 @@ describe("Firefox slim-mode prototype", () => {
 
   it("writes recovery configuration before any destructive mode can run", () => {
     const controller = read("extension/firefox/src/slim-content-controller.ts");
-    const setModeStart = controller.indexOf("const setSlimMode");
+    const setModeStart = controller.indexOf("async function setSlimMode");
     const writeIndex = controller.indexOf("writeSessionConfig(config)", setModeStart);
     const modeIndex = controller.indexOf("runtimeState.mode = mode", setModeStart);
+    const observerIndex = controller.indexOf("startObserver();", setModeStart);
     const scheduleIndex = controller.indexOf("scheduleApply(0)", setModeStart);
 
     expect(setModeStart).toBeGreaterThanOrEqual(0);
     expect(writeIndex).toBeGreaterThan(setModeStart);
     expect(modeIndex).toBeGreaterThan(writeIndex);
-    expect(scheduleIndex).toBeGreaterThan(modeIndex);
+    expect(observerIndex).toBeGreaterThan(modeIndex);
+    expect(scheduleIndex).toBeGreaterThan(observerIndex);
     expect(controller).toContain("for (const element of elements) element.remove();");
     expect(controller).not.toContain("DocumentFragment");
     expect(controller).not.toContain("cloneNode");
   });
 
-  it("clears recovery state before fail-open and Stock reloads", () => {
+  it("clears recovery state and disconnects observation before fail-open or Stock reloads", () => {
     const controller = read("extension/firefox/src/slim-content-controller.ts");
-    const failOpenStart = controller.indexOf("const failOpen");
+    const drift = read("extension/firefox/src/slim-discovery.ts");
+    const failOpenStart = controller.indexOf("async function failOpen");
+    const failOpenStop = controller.indexOf("stopObserver();", failOpenStart);
     const failOpenClear = controller.indexOf("clearSessionConfig();", failOpenStart);
     const failOpenReload = controller.indexOf("location.reload()", failOpenStart);
-    const stockStart = controller.indexOf("const restoreStock");
+    const stockStart = controller.indexOf("async function restoreStock");
+    const stockStop = controller.indexOf("stopObserver();", stockStart);
     const stockClear = controller.indexOf("clearSessionConfig();", stockStart);
     const stockReload = controller.indexOf("location.reload()", stockStart);
 
-    expect(failOpenClear).toBeGreaterThan(failOpenStart);
+    expect(failOpenStop).toBeGreaterThan(failOpenStart);
+    expect(failOpenClear).toBeGreaterThan(failOpenStop);
     expect(failOpenReload).toBeGreaterThan(failOpenClear);
-    expect(stockClear).toBeGreaterThan(stockStart);
+    expect(stockStop).toBeGreaterThan(stockStart);
+    expect(stockClear).toBeGreaterThan(stockStop);
     expect(stockReload).toBeGreaterThan(stockClear);
     expect(controller).toContain("placeholder-budget-exceeded");
-    expect(controller).toContain("DRIFT_FAILURE_LIMIT = 3");
+    expect(drift).toContain("DEFAULT_SLIM_DRIFT_FAILURE_LIMIT = 3");
   });
 
-  it("uses bounded linear discovery and connected-element mounted counts", () => {
+  it("marks latest-window application destructive before its first page mutation", () => {
     const controller = read("extension/firefox/src/slim-content-controller.ts");
+    const fnStart = controller.indexOf("function applyLatestWindow");
+    const markIndex = controller.indexOf("markDestructiveMutation();", fnStart);
+    const placeholderIndex = controller.indexOf('data-elatura-placeholder"', fnStart);
+    const removeIndex = controller.indexOf("element.remove();", fnStart);
 
-    expect(controller).toContain("MAX_TURN_CANDIDATES = 10_000");
-    expect(controller).toContain("role-marker-budget-exceeded");
-    expect(controller).toContain("turn-container-budget-exceeded");
-    expect(controller).not.toMatch(/for \(let left[\s\S]*for \(let right/u);
+    expect(fnStart).toBeGreaterThanOrEqual(0);
+    expect(markIndex).toBeGreaterThan(fnStart);
+    expect(placeholderIndex).toBeGreaterThan(markIndex);
+    expect(removeIndex).toBeGreaterThan(placeholderIndex);
+    expect(controller).toContain("runtimeState.destructiveApplied = true");
+  });
+
+  it("uses bounded live discovery and connected-element mounted counts", () => {
+    const controller = read("extension/firefox/src/slim-content-controller.ts");
+    const discovery = read("extension/firefox/src/slim-live-discovery.ts");
+    const policy = read("extension/firefox/src/slim-discovery.ts");
+
+    expect(policy).toContain("MAX_SLIM_DISCOVERY_CANDIDATES = 10_000");
+    expect(discovery).toContain("role-marker-budget-exceeded");
+    expect(discovery).toContain("turn-container-budget-exceeded");
+    expect(discovery).toContain("ambiguous-role-markers");
+    expect(discovery).toContain("validateAndGroupSlimDiscovery(pureCandidates)");
+    expect(discovery).not.toMatch(/for \(let left[\s\S]*for \(let right/u);
     expect(controller).toContain("turn.element.isConnected");
     expect(controller).not.toContain("querySelectorAll('[data-testid^=\"conversation-turn-\"], article')");
+  });
+
+  it("does not observe the full page while Stock or locked", () => {
+    const controller = read("extension/firefox/src/slim-content-controller.ts");
+    const observerConstruction = controller.indexOf("slimObserver = new MutationObserver");
+    const startFunction = controller.indexOf("function startObserver");
+    const initialConfig = controller.indexOf("const initialConfig = readSessionConfig()");
+    const initialAuthorization = controller.indexOf("transformAuthorization().then", initialConfig);
+    const initialStart = controller.indexOf("startObserver();", initialAuthorization);
+
+    expect(observerConstruction).toBeGreaterThan(startFunction);
+    expect(controller).toContain("let slimObserver: MutationObserver | null = null");
+    expect(controller).toContain("function stopObserver");
+    expect(initialStart).toBeGreaterThan(initialAuthorization);
+    expect(controller).not.toMatch(/const slimObserver = new MutationObserver/u);
+  });
+
+  it("uses time-based route drift decisions rather than raw mutation counts", () => {
+    const controller = read("extension/firefox/src/slim-content-controller.ts");
+
+    expect(controller).toContain('kind: "route-changed"');
+    expect(controller).toContain('kind: "discovery-failed"');
+    expect(controller).toContain('kind: "discovery-succeeded"');
+    expect(controller).toContain('kind: "mode-applied"');
+    expect(controller).toContain('decision.status === "grace"');
+    expect(controller).not.toContain("driftFailures += 1");
   });
 
   it("makes revocation and emergency disable request Stock restoration", () => {
