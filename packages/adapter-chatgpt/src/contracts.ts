@@ -4,12 +4,15 @@ import {
   type ApplicationAdapter,
   type AdapterVersionPolicy,
 } from "@elatura/core/adapter-contract";
+import type { ValidationIssue } from "@elatura/core";
 import {
   READ_ONLY_REPRESENTATION_VERSION,
+  resolveReadOnlyRepresentationPolicy,
   validateReadOnlyRepresentation,
   type ReadOnlyCodeBlock,
   type ReadOnlyEntry,
   type ReadOnlyRepresentation,
+  type ReadOnlyRepresentationPolicy,
 } from "@elatura/core/representation";
 import {
   detectChatGptConversation,
@@ -37,10 +40,97 @@ export type SyntheticChatGptRepresentationOptions = {
   capturedAt: number;
   staleAt: number;
   expiresAt: number;
+  representationPolicy?: Partial<ReadOnlyRepresentationPolicy>;
 };
+
+const REPRESENTATION_POLICY_KEYS: readonly (keyof ReadOnlyRepresentationPolicy)[] = [
+  "maxEntries",
+  "maxChildrenPerEntry",
+  "maxCodeBlocksPerEntry",
+  "maxTextCodeUnits",
+  "maxCodeBlockTextCodeUnits",
+  "maxEntrySerializedBytes",
+  "maxRepresentationSerializedBytes",
+  "maxRepresentationNodes",
+  "maxSearchQueryCodeUnits",
+  "maxSearchResults",
+  "maxCodeExtractionResults",
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function issue(path: string, code: string, message: string): ValidationIssue {
+  return { path, code, message };
+}
+
+type CopiedRepresentationPolicy =
+  | { ok: true; value: Partial<ReadOnlyRepresentationPolicy> }
+  | { ok: false; issues: ValidationIssue[] };
+
+function invalidRepresentationPolicy(message?: string): CopiedRepresentationPolicy {
+  return {
+    ok: false,
+    issues: [
+      issue(
+        "$.representationPolicy",
+        "representation-policy-invalid",
+        message ??
+          "Expected an optional own-data record of positive safe integer representation limits.",
+      ),
+    ],
+  };
+}
+
+function copyRepresentationPolicy(value: unknown): CopiedRepresentationPolicy {
+  try {
+    if (value === undefined) return { ok: true, value: Object.freeze({}) };
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      Array.isArray(value)
+    ) {
+      return invalidRepresentationPolicy();
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      return invalidRepresentationPolicy();
+    }
+    const allowed = new Set<string>(REPRESENTATION_POLICY_KEYS);
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== "string" || !allowed.has(key)) {
+        return invalidRepresentationPolicy();
+      }
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (
+        !descriptor ||
+        !("value" in descriptor) ||
+        descriptor.get !== undefined ||
+        descriptor.set !== undefined ||
+        typeof descriptor.value !== "number" ||
+        !Number.isSafeInteger(descriptor.value) ||
+        (descriptor.value as number) < 1
+      ) {
+        return invalidRepresentationPolicy();
+      }
+    }
+    const copied: Record<string, number> = {};
+    for (const key of REPRESENTATION_POLICY_KEYS) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+      copied[key] = Object.getOwnPropertyDescriptor(value, key)?.value as number;
+    }
+    try {
+      resolveReadOnlyRepresentationPolicy(copied as Partial<ReadOnlyRepresentationPolicy>);
+    } catch (error) {
+      return invalidRepresentationPolicy(
+        error instanceof Error ? error.message : undefined,
+      );
+    }
+    return { ok: true, value: Object.freeze(copied) };
+  } catch {
+    return invalidRepresentationPolicy();
+  }
 }
 
 function hasSyntheticMarker(source: ChatGptConversation): boolean {
@@ -118,6 +208,9 @@ export function toSyntheticChatGptRepresentation(
   source: ChatGptConversation,
   options: SyntheticChatGptRepresentationOptions,
 ): ReturnType<typeof validateReadOnlyRepresentation> {
+  const representationPolicy = copyRepresentationPolicy(options.representationPolicy);
+  if (!representationPolicy.ok) return representationPolicy;
+
   if (!hasSyntheticMarker(source)) {
     return {
       ok: false,
@@ -202,7 +295,7 @@ export function toSyntheticChatGptRepresentation(
     activePath: activePathIds(source),
     entries,
   };
-  return validateReadOnlyRepresentation(representation);
+  return validateReadOnlyRepresentation(representation, representationPolicy.value);
 }
 
 export const chatGptAdapterVersionPolicy: AdapterVersionPolicy = {

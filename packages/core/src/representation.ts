@@ -86,6 +86,29 @@ export const DEFAULT_READ_ONLY_REPRESENTATION_POLICY: ReadOnlyRepresentationPoli
   maxCodeExtractionResults: 4_096,
 });
 
+export function resolveReadOnlyRepresentationPolicy(
+  input?: Partial<ReadOnlyRepresentationPolicy>,
+): ReadOnlyRepresentationPolicy {
+  const resolved = { ...DEFAULT_READ_ONLY_REPRESENTATION_POLICY, ...input };
+  for (const [name, value] of Object.entries(resolved)) {
+    if (!Number.isSafeInteger(value) || (value as number) < 1) {
+      throw new RangeError(`${name} must be a positive safe integer.`);
+    }
+  }
+  if (resolved.maxEntrySerializedBytes > resolved.maxRepresentationSerializedBytes) {
+    throw new RangeError(
+      "maxEntrySerializedBytes must not exceed maxRepresentationSerializedBytes.",
+    );
+  }
+  if (resolved.maxChildrenPerEntry > resolved.maxEntries) {
+    throw new RangeError("maxChildrenPerEntry must not exceed maxEntries.");
+  }
+  if (resolved.maxCodeBlockTextCodeUnits > resolved.maxTextCodeUnits) {
+    throw new RangeError("maxCodeBlockTextCodeUnits must not exceed maxTextCodeUnits.");
+  }
+  return Object.freeze(resolved);
+}
+
 const MAX_METADATA_STRING = 512;
 const MAX_REFERENCE_LENGTH = 4_096;
 const ADAPTER_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;

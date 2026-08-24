@@ -19,9 +19,11 @@ import {
 } from "./companion-protocol.js";
 import {
   resolveFreshnessState,
+  resolveReadOnlyRepresentationPolicy,
   validateAndMeasureReadOnlyRepresentation,
   type FreshnessState,
   type ReadOnlyRepresentation,
+  type ReadOnlyRepresentationPolicy,
 } from "./representation.js";
 import {
   accountedResidentBytes,
@@ -42,6 +44,7 @@ export type SyntheticCompanionOptions = {
   conversations: readonly SyntheticCompanionConversationInput[];
   acceptedAdapters?: readonly AdapterIdentity[];
   policy?: Partial<CompanionWorkingSetPolicy>;
+  representationPolicy?: Partial<ReadOnlyRepresentationPolicy>;
   now?: () => number;
 };
 
@@ -142,6 +145,7 @@ export class SyntheticCompanion {
   readonly #records = new Map<string, ResidentRecord>();
   readonly #generations = new Map<string, number>();
   readonly #policy: CompanionWorkingSetPolicy;
+  readonly #representationPolicy: ReadOnlyRepresentationPolicy;
   readonly #now: () => number;
   #acceptedAdapters: Set<string>;
   #active = true;
@@ -160,6 +164,9 @@ export class SyntheticCompanion {
     }
     this.#sessionId = options.sessionId;
     this.#policy = resolveCompanionWorkingSetPolicy(options.policy);
+    this.#representationPolicy = resolveReadOnlyRepresentationPolicy(
+      options.representationPolicy,
+    );
     this.#now = options.now ?? Date.now;
     this.#createdAt = this.#now();
 
@@ -167,7 +174,10 @@ export class SyntheticCompanion {
       if (!isCompanionToken(input.id) || this.#sources.has(input.id)) {
         throw new TypeError("Conversation ids must be unique bounded local tokens.");
       }
-      const validated = validateAndMeasureReadOnlyRepresentation(input.representation);
+      const validated = validateAndMeasureReadOnlyRepresentation(
+        input.representation,
+        this.#representationPolicy,
+      );
       this.#sources.set(input.id, {
         id: input.id,
         representation: validated.ok ? validated.value.representation : null,
