@@ -86,12 +86,87 @@ export const DEFAULT_READ_ONLY_REPRESENTATION_POLICY: ReadOnlyRepresentationPoli
   maxCodeExtractionResults: 4_096,
 });
 
+const READ_ONLY_REPRESENTATION_POLICY_KEYS = [
+  "maxEntries",
+  "maxChildrenPerEntry",
+  "maxCodeBlocksPerEntry",
+  "maxTextCodeUnits",
+  "maxCodeBlockTextCodeUnits",
+  "maxEntrySerializedBytes",
+  "maxRepresentationSerializedBytes",
+  "maxRepresentationNodes",
+  "maxSearchQueryCodeUnits",
+  "maxSearchResults",
+  "maxCodeExtractionResults",
+] as const satisfies readonly (keyof ReadOnlyRepresentationPolicy)[];
+
+const REPRESENTATION_POLICY_RECORD_ERROR =
+  "Expected undefined or a plain own-data record of positive safe integer representation limits.";
+
+function inspectRepresentationPolicyRecord(
+  input: Partial<ReadOnlyRepresentationPolicy> | undefined,
+): Record<(typeof READ_ONLY_REPRESENTATION_POLICY_KEYS)[number], number> {
+  const resolved = {} as Record<
+    (typeof READ_ONLY_REPRESENTATION_POLICY_KEYS)[number],
+    number
+  >;
+  if (input === undefined) {
+    for (const key of READ_ONLY_REPRESENTATION_POLICY_KEYS) {
+      resolved[key] = DEFAULT_READ_ONLY_REPRESENTATION_POLICY[key];
+    }
+    return resolved;
+  }
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error(REPRESENTATION_POLICY_RECORD_ERROR);
+  }
+  const prototype = Object.getPrototypeOf(input);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new Error(REPRESENTATION_POLICY_RECORD_ERROR);
+  }
+  const allowed = new Set<string>(READ_ONLY_REPRESENTATION_POLICY_KEYS);
+  const descriptors = Object.getOwnPropertyDescriptors(input) as Record<
+    PropertyKey,
+    PropertyDescriptor | undefined
+  >;
+  for (const key of Reflect.ownKeys(descriptors)) {
+    if (typeof key !== "string" || !allowed.has(key)) {
+      throw new Error(REPRESENTATION_POLICY_RECORD_ERROR);
+    }
+    const descriptor = descriptors[key];
+    if (
+      !descriptor ||
+      !descriptor.enumerable ||
+      !("value" in descriptor) ||
+      descriptor.get !== undefined ||
+      descriptor.set !== undefined
+    ) {
+      throw new Error(REPRESENTATION_POLICY_RECORD_ERROR);
+    }
+  }
+  for (const key of READ_ONLY_REPRESENTATION_POLICY_KEYS) {
+    const descriptor = descriptors[key];
+    resolved[key] = descriptor
+      ? (descriptor.value as number)
+      : DEFAULT_READ_ONLY_REPRESENTATION_POLICY[key];
+  }
+  return resolved;
+}
+
 export function resolveReadOnlyRepresentationPolicy(
   input?: Partial<ReadOnlyRepresentationPolicy>,
 ): ReadOnlyRepresentationPolicy {
-  const resolved = { ...DEFAULT_READ_ONLY_REPRESENTATION_POLICY, ...input };
-  for (const [name, value] of Object.entries(resolved)) {
-    if (!Number.isSafeInteger(value) || (value as number) < 1) {
+  let resolved: Record<
+    (typeof READ_ONLY_REPRESENTATION_POLICY_KEYS)[number],
+    number
+  >;
+  try {
+    resolved = inspectRepresentationPolicyRecord(input);
+  } catch {
+    throw new TypeError(REPRESENTATION_POLICY_RECORD_ERROR);
+  }
+  for (const name of READ_ONLY_REPRESENTATION_POLICY_KEYS) {
+    const value = resolved[name];
+    if (!Number.isSafeInteger(value) || value < 1) {
       throw new RangeError(`${name} must be a positive safe integer.`);
     }
   }
