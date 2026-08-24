@@ -23,6 +23,7 @@ export type SlimDiscoveryCandidate = {
 export type SlimDiscoveryFailureReason =
   | "no-turn-candidates"
   | "candidate-budget-exceeded"
+  | "invalid-candidate"
   | "invalid-candidate-id"
   | "duplicate-candidate-id"
   | "invalid-parent-token"
@@ -131,7 +132,7 @@ export function validateAndGroupSlimDiscovery(
 
   const issues: SlimDiscoveryIssue[] = [];
   const seenIds = new Set<string>();
-  const expectedParent = candidates[0]?.parentToken;
+  let expectedParent: string | null = null;
   let previousOrder = -1;
   let userTurns = 0;
   let assistantTurns = 0;
@@ -142,7 +143,10 @@ export function validateAndGroupSlimDiscovery(
   for (let index = 0; index < candidates.length; index += 1) {
     const candidate = candidates[index];
     const path = `$.candidates[${index}]`;
-    if (!candidate || typeof candidate !== "object") continue;
+    if (!candidate || typeof candidate !== "object") {
+      issues.push(issue(path, "invalid-candidate", "Expected a turn candidate."));
+      continue;
+    }
 
     if (!validToken(candidate.id)) {
       issues.push(issue(`${path}.id`, "invalid-candidate-id", "Candidate ids must be bounded opaque tokens."));
@@ -156,10 +160,13 @@ export function validateAndGroupSlimDiscovery(
       issues.push(
         issue(`${path}.parentToken`, "invalid-parent-token", "Parent tokens must be bounded opaque tokens."),
       );
-    } else if (candidate.parentToken !== expectedParent) {
-      issues.push(
-        issue(`${path}.parentToken`, "turn-parent-mismatch", "All discovered turns must share one parent."),
-      );
+    } else {
+      if (expectedParent === null) expectedParent = candidate.parentToken;
+      else if (candidate.parentToken !== expectedParent) {
+        issues.push(
+          issue(`${path}.parentToken`, "turn-parent-mismatch", "All discovered turns must share one parent."),
+        );
+      }
     }
 
     if (!Number.isInteger(candidate.documentOrder) || candidate.documentOrder < 0) {

@@ -16,6 +16,7 @@ This packet prepares the locked slim-mode prototype for a later live-adapter ref
 It rejects:
 
 - empty or oversized candidate sets;
+- malformed candidate entries;
 - invalid or duplicate ids;
 - multiple parent tokens;
 - non-increasing document order;

@@ -94,6 +94,31 @@ describe("slim discovery policy", () => {
     });
   });
 
+  it("rejects malformed candidate entries instead of skipping them silently", () => {
+    const malformedEntry = undefined as unknown as SlimDiscoveryCandidate;
+
+    const trailing = validateAndGroupSlimDiscovery([
+      candidate("turn-1", 0, "user"),
+      malformedEntry,
+    ]);
+    expect(trailing.ok).toBe(false);
+    if (!trailing.ok) {
+      expect(trailing.issues.map((entry) => entry.code)).toContain("invalid-candidate");
+    }
+
+    const leading = validateAndGroupSlimDiscovery([
+      malformedEntry,
+      candidate("turn-1", 0, "user"),
+      candidate("turn-2", 1, "assistant", { parentToken: "parent-1" }),
+    ]);
+    expect(leading.ok).toBe(false);
+    if (!leading.ok) {
+      const codes = leading.issues.map((entry) => entry.code);
+      expect(codes[0]).toBe("invalid-candidate");
+      expect(codes).not.toContain("turn-parent-mismatch");
+    }
+  });
+
   it("enforces the candidate budget before iterating provider data", () => {
     const oversized = Array.from({ length: MAX_SLIM_DISCOVERY_CANDIDATES + 1 }, (_, index) =>
       candidate(`turn-${index}`, index, index % 2 === 0 ? "user" : "assistant"),
