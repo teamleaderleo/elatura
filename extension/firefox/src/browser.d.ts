@@ -1,5 +1,15 @@
 // SPDX-License-Identifier: MPL-2.0
 
+type BrowserMessageSender = {
+  tab?: { id?: number };
+};
+
+type BrowserTab = {
+  id?: number;
+  active?: boolean;
+  url?: string;
+};
+
 declare const browser: {
   storage: {
     local: {
@@ -11,10 +21,15 @@ declare const browser: {
   runtime: {
     getBrowserInfo(): Promise<{ name: string; vendor: string; version: string; buildID: string }>;
     getManifest(): { version: string };
+    getURL(path: string): string;
     sendMessage(message: unknown): Promise<unknown>;
     onMessage: {
-      addListener(listener: (message: unknown) => unknown): void;
+      addListener(listener: (message: unknown, sender?: BrowserMessageSender) => unknown): void;
     };
+  };
+  tabs: {
+    query(queryInfo: { active?: boolean; currentWindow?: boolean }): Promise<BrowserTab[]>;
+    sendMessage(tabId: number, message: unknown): Promise<unknown>;
   };
   webRequest: {
     onBeforeRequest: {

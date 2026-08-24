@@ -1,13 +1,20 @@
 :root { color-scheme: light dark; font: 13px/1.4 system-ui, sans-serif; }
-body { margin: 0; min-width: 340px; }
+body { margin: 0; min-width: 360px; max-width: 420px; }
 main { padding: 16px; }
 header { display: flex; align-items: center; justify-content: space-between; font-size: 16px; }
 .mode { border: 1px solid currentColor; border-radius: 999px; padding: 2px 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
 p { opacity: .78; }
 dl { display: grid; gap: 8px; }
+dl.compact { margin: 10px 0; gap: 5px; }
 dl div { display: flex; justify-content: space-between; gap: 16px; }
 dt { opacity: .72; }
-dd { margin: 0; max-width: 190px; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; white-space: nowrap; }
+dd { margin: 0; max-width: 210px; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; white-space: nowrap; text-align: right; }
+fieldset { display: grid; gap: 8px; margin: 14px 0 0; padding: 12px; border: 1px solid currentColor; border-radius: 10px; }
+legend { font-weight: 700; padding: 0 5px; }
+fieldset label { display: block; }
+fieldset label input[type="checkbox"] { margin-right: 7px; vertical-align: top; }
+select, input[type="number"] { box-sizing: border-box; width: 100%; padding: 7px 8px; }
+.note { margin: 2px 0 0; font-size: 12px; }
 .actions { display: grid; gap: 8px; margin-top: 14px; }
 button { width: 100%; padding: 8px 10px; }
 button:disabled { opacity: .5; }
