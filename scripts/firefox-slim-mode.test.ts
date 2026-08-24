@@ -128,6 +128,20 @@ describe("Firefox slim-mode prototype", () => {
     expect(drift).toContain("DEFAULT_SLIM_DRIFT_FAILURE_LIMIT = 3");
   });
 
+  it("marks latest-window application destructive before its first page mutation", () => {
+    const controller = read("extension/firefox/src/slim-content-controller.ts");
+    const fnStart = controller.indexOf("function applyLatestWindow");
+    const markIndex = controller.indexOf("markDestructiveMutation();", fnStart);
+    const placeholderIndex = controller.indexOf('data-elatura-placeholder"', fnStart);
+    const removeIndex = controller.indexOf("element.remove();", fnStart);
+
+    expect(fnStart).toBeGreaterThanOrEqual(0);
+    expect(markIndex).toBeGreaterThan(fnStart);
+    expect(placeholderIndex).toBeGreaterThan(markIndex);
+    expect(removeIndex).toBeGreaterThan(placeholderIndex);
+    expect(controller).toContain("runtimeState.destructiveApplied = true");
+  });
+
   it("uses bounded live discovery and connected-element mounted counts", () => {
     const controller = read("extension/firefox/src/slim-content-controller.ts");
     const discovery = read("extension/firefox/src/slim-live-discovery.ts");

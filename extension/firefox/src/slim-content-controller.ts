@@ -299,6 +299,7 @@ function applyLatestWindow(
   discovery: Extract<LiveSlimDiscovery, { ok: true }>,
   plan: SlimWindowPlan,
   revealPrevious: () => void,
+  markDestructiveMutation: () => void,
 ): boolean {
   ensureSlimStyle();
   clearSuppressionAttributes();
@@ -315,6 +316,7 @@ function applyLatestWindow(
     }
     const first = elements[0];
     if (!first) throw new Error("window-range-empty");
+    if (!removedAny) markDestructiveMutation();
     const previous = first.previousElementSibling as HTMLElement | null;
     if (previous?.hasAttribute("data-elatura-placeholder")) {
       mergePlaceholder(previous, elements.length, range.estimatedBlockSizePx);
@@ -522,9 +524,16 @@ export function bootSlimContentController(): void {
       } else if (runtimeState.mode === "latest-window") {
         stopObserver();
         try {
+          const removedAny = applyLatestWindow(
+            discovery,
+            result.value,
+            () => void revealPrevious(),
+            () => {
+              runtimeState.destructiveApplied = true;
+            },
+          );
           runtimeState.destructiveApplied =
-            applyLatestWindow(discovery, result.value, () => void revealPrevious()) ||
-            runtimeState.destructiveApplied;
+            removedAny || runtimeState.destructiveApplied;
         } finally {
           startObserver();
         }

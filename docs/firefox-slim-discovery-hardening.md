@@ -69,6 +69,7 @@ The locked controller now consumes both the live adapter and the pure drift redu
 - Stock and the current locked build install no full-page slim-mode mutation observer.
 - A future successfully authorized non-stock mode writes recovery configuration first, then starts the observer.
 - Latest-window DOM changes temporarily disconnect the observer so the extension does not react to its own removals.
+- A latest-window application that fails partway is still treated as destructive and reloads the genuine page, because destructive state is marked before the first removal.
 - Stock, fail-open, revocation, emergency disable, and destructive reload paths disconnect the observer.
 - Mounted-turn metrics count only discovered elements that remain connected after application.
 - SPA route changes enter the tested grace state before failures consume the drift budget.
