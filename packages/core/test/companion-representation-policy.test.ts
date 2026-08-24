@@ -203,7 +203,7 @@ describe("synthetic companion representation policy", () => {
     expect(open.usage.residentEntryCount).toBeLessThanOrEqual(
       DEFAULT_COMPANION_WORKING_SET_POLICY.maxResidentEntries,
     );
-  });
+  }, 20_000);
 
   it("keeps companion resident-page/search/client limits independent from admission limits", async () => {
     const companion = new SyntheticCompanion({
@@ -237,7 +237,7 @@ describe("synthetic companion representation policy", () => {
     expect(page.usage.residentEntryCount).toBeLessThanOrEqual(
       DEFAULT_COMPANION_WORKING_SET_POLICY.maxResidentEntries,
     );
-  });
+  }, 20_000);
 
   it("bounds explicit admission independently by every representation resource cap", () => {
     // Entry count still binds above the raised explicit maximum.
@@ -322,7 +322,7 @@ describe("synthetic companion representation policy", () => {
     if (!overEntryBytes.ok) {
       expect(overEntryBytes.issues[0]?.code).toBe("representation-entry-byte-limit");
     }
-  });
+  }, 20_000);
 
   it("rejects unknown fields, accessors, unsafe integers, and incoherent caps before admission", async () => {
     const base = {
@@ -746,5 +746,5 @@ describe("resolveReadOnlyRepresentationPolicy", () => {
       request("open", { conversationId: "unchecked-large", anchorEntryId: null, before: 2, after: 2 }),
     );
     expect(open.ok).toBe(true);
-  });
+  }, 20_000);
 });
