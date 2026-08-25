@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Elatura Observer",
-  "version": "0.0.8",
-  "description": "Observe content-free performance characteristics of oversized ChatGPT application state.",
+  "version": "0.0.9",
+  "description": "Observe content-free performance characteristics and prototype fail-open local slimming for oversized ChatGPT pages.",
   "permissions": [
     "storage",
     "webRequest",
@@ -21,6 +21,17 @@
       "matches": ["https://chatgpt.com/*"],
       "js": ["content.js"],
       "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "slim-content-controller.js",
+        "slim-discovery.js",
+        "slim-live-discovery.js",
+        "slim-window.js"
+      ],
+      "matches": ["https://chatgpt.com/*"]
     }
   ],
   "action": {

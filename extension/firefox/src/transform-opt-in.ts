@@ -21,7 +21,9 @@ export type TransformOptInState = {
   reason: TransformOptInReason;
   generation: number;
   acknowledgementCount: number;
-  authorizesTransform: false;
+  // Runtime-message consumers validate this defensively. Every local constructor
+  // and repository gate below still requires the value to remain false.
+  authorizesTransform: boolean;
 };
 
 export type TransformOptInController = {

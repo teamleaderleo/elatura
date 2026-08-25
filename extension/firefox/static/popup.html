@@ -12,21 +12,45 @@
         <strong>Elatura</strong>
         <span class="mode" id="mode">idle</span>
       </header>
-      <p>Start a run before opening the test conversation. Responses remain byte-for-byte unchanged.</p>
+      <p>Observe content-free page costs and inspect a fail-open slimming prototype for the active ChatGPT tab.</p>
       <dl>
         <div><dt>Run</dt><dd id="run">none</dd></div>
         <div><dt>Requests</dt><dd id="requests">—</dd></div>
         <div><dt>Bytes observed</dt><dd id="bytes">—</dd></div>
         <div><dt>Latest composer mark</dt><dd id="composer">—</dd></div>
         <div><dt>Transform safety</dt><dd id="transform-safety">locked</dd></div>
-        <div><dt>Transform opt-in</dt><dd id="transform-opt-in">not recorded; locked</dd></div>
+        <div><dt>Transform opt-in</dt><dd id="transform-opt-in">not recorded</dd></div>
       </dl>
+
+      <fieldset id="slim-controls">
+        <legend>Active ChatGPT page prototype</legend>
+        <label for="slim-mode">Mode</label>
+        <select id="slim-mode">
+          <option value="stock">Stock page</option>
+          <option value="render-suppressed">Render suppression</option>
+          <option value="latest-window">Latest-message window</option>
+        </select>
+        <label for="slim-turn-groups">Latest user/assistant pairs</label>
+        <input id="slim-turn-groups" type="number" min="1" max="8" step="1" value="3" />
+        <dl class="compact">
+          <div><dt>Status</dt><dd id="slim-status">unavailable</dd></div>
+          <div><dt>Mounted turns</dt><dd id="slim-mounted">—</dd></div>
+          <div><dt>Suppressed turns</dt><dd id="slim-suppressed">—</dd></div>
+          <div><dt>Elements before / after</dt><dd id="slim-elements">—</dd></div>
+          <div><dt>Placeholders</dt><dd id="slim-placeholders">—</dd></div>
+        </dl>
+        <button id="apply-slim" type="button">Apply selected mode</button>
+        <button id="reveal-slim" type="button">Reveal previous window</button>
+        <button id="restore-stock" type="button">Restore stock page</button>
+        <p class="note">Live slim modes remain locked in this build. Latest-message mode is designed to remove older mounted turns without caching their content; restoring would reload the genuine page.</p>
+      </fieldset>
+
       <fieldset id="transform-opt-in-controls">
         <legend>Session-local transform opt-in intent</legend>
-        <p>Recording intent does not authorize response changes. Transforms remain locked in this build.</p>
+        <p>Recording intent does not authorize response changes. Recording intent does not authorize a live page change. Response-body changes remain locked.</p>
         <label><input id="opt-in-session-only" type="checkbox" /> I understand this intent lasts only for the current background session.</label>
-        <label><input id="opt-in-future-risk" type="checkbox" /> I understand a future reviewed transform may alter page behaviour.</label>
-        <label><input id="opt-in-emergency-control" type="checkbox" /> I understand emergency disable and ordinary site access remain available.</label>
+        <label><input id="opt-in-future-risk" type="checkbox" /> I understand a future reviewed page mode may alter local rendering behaviour.</label>
+        <label><input id="opt-in-emergency-control" type="checkbox" /> I understand Stock and emergency disable preserve ordinary site access.</label>
         <button id="record-opt-in" type="button" disabled>Record local opt-in intent</button>
         <button id="revoke-opt-in" type="button" disabled>Revoke opt-in intent</button>
       </fieldset>

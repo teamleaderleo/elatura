@@ -6,29 +6,27 @@ It keeps the authenticated website and browser session as the source of truth, b
 
 ## Status
 
-Elatura is in **M0: evidence and observation**. The current Firefox code passes ChatGPT responses through unchanged. The repository provides:
+Elatura is in **active prototype and dogfood**. The project has moved beyond its original M0 observation-only phase: live/browser and physical-device work now feed the next implementation choices directly.
 
-- an observe-only Firefox extension that passes response bytes through unchanged
-- explicit benchmark runs with content-free JSON export
-- lossless run totals, bounded redacted path aggregation, and report integrity flags
-- capability-driven generic adapter contracts
-- a reusable staged adapter conformance runner
+Current work includes:
+
+- an observe-only Firefox transport and content-free benchmark/reporting path
+- a locked, fail-open Firefox slim mode with bounded live DOM discovery, render suppression, latest-window planning, placeholders, restoration, and drift handling
+- a preflighted DOM executor and browser host for the latest-window path
+- a local-only Android ChatGPT notification sensor, guided diagnostics, OriginOS/iQOO setup, richer content-free notification metadata, and a completion-signal inbox
+- stable-signing work for repeatable in-place Android test builds
+- capability-driven generic adapter contracts and a reusable staged adapter conformance runner
 - explicit schema-drift and adapter-version compatibility rules
-- a conservative ChatGPT graph-shape inspector
 - deterministic oversized synthetic fixtures and malformed graph families
-- generic active-path selection planning
-- a pure fail-open controller and synthetic-only snapshot materialization with independent output validation
-- identifier-free, bounded structural fingerprints
-- a versioned synthetic-only in-memory cache with isolation, expiry, invalidation, retention, deletion, and corruption recovery
-- provenance and read-only representation contracts for search, timelines, branch navigation, code extraction, and jump-back
-- a synthetic-only ChatGPT alternate representation
-- privacy-validating benchmark analysis, cohort comparison, and live-baseline session preflight
+- a pure fail-open response-binding/controller path with independent output validation
+- identifier-free bounded fingerprints, cache/provenance contracts, and read-only representations
 - locked transform emergency controls and non-authorizing session-local opt-in intent
-- property, compatibility, adversarial, and production-path tests
+- property, compatibility, adversarial, production-path, and physical-use-driven follow-up tests
+- broader resource/offload experiments for heavyweight authenticated applications, including device-offload comparisons
 
-Private transcript persistence, private alternate-surface bridging, and live response transformation remain disabled behind the project gates.
+The default Firefox response path still preserves authoritative response bytes, and high-authority live transformation remains separately gated. The active product question is now which intervention layer earns its complexity in real use: suppress or window live page state, use a cheaper local representation, or move execution elsewhere while preserving the native service experience.
 
-Do not rely on Elatura for data recovery or production browsing yet.
+Elatura remains experimental software. Keep recovery paths and the authoritative application available while testing it.
 
 ## Why Firefox first?
 
@@ -53,7 +51,7 @@ Open the extension popup and choose **Start new run** before loading the test co
 
 The report contains aggregated redacted request paths, byte counts, durations, outcomes, browser/version information, page-readiness timings, and explicit integrity metadata. It does not contain response bodies, message text, cookies, authorization headers, query strings, or raw conversation identifiers.
 
-Offline work does not need to stop while the private baseline is unavailable:
+Offline work does not need to stop while a private/live experiment is unavailable:
 
 ```bash
 npm run generate:fixture -- --turns 5000 --branches-every 20 --out artifacts/fixture.json
@@ -69,18 +67,18 @@ See `docs/offline-development.md` for the boundary between safe synthetic work a
 - `docs/fail-open-pipeline.md` — pure orchestration, resource budgets, diagnostics, and synthetic materialization
 - `docs/second-workload-rubric.md` — evidence-based selection criteria for the second real adapter
 - `docs/transform-safety.md` — disabled-by-default transform controls and authorization boundaries
-- `docs/live-baseline-runbook.md` — canonical content-free M0 evidence protocol
+- `docs/live-baseline-runbook.md` — the original content-free M0 evidence protocol
 
 ## Repository map
 
 ```text
-extension/firefox/        observe-only Firefox transport, reports, and locked safety controls
+extension/firefox/        Firefox observation, slim-mode, reports, and locked safety controls
 packages/core/            generic runtime, orchestration, adapter, cache, provenance, representation, fingerprint, and selection contracts
-packages/adapter-chatgpt/ ChatGPT-specific graph inspection, synthetic transformation, and synthetic representation
+packages/adapter-chatgpt/ ChatGPT-specific graph inspection, synthetic transformation, and representation work
 packages/fixtures/        deterministic synthetic and malformed graph workloads
 benchmarks/               report validation, integrity, cohort analysis, session planning, and readiness
 scripts/                  security, release, benchmark, fixture, and evidence tooling
-docs/                     architecture, privacy, contracts, measurement, release, and development decisions
+docs/                     architecture, privacy, contracts, measurement, release, experiments, and development decisions
 ```
 
 ## License

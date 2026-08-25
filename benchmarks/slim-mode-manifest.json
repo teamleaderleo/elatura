@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 1,
+  "experiment": "firefox-chatgpt-slim-mode",
+  "liveAuthorization": "disconnected",
+  "modes": {
+    "stock": {
+      "responseMutation": false,
+      "domRemoval": false,
+      "renderSuppression": false
+    },
+    "render-suppressed": {
+      "responseMutation": false,
+      "domRemoval": false,
+      "renderSuppression": true,
+      "claims": [
+        "layout-and-paint-only"
+      ]
+    },
+    "latest-window": {
+      "responseMutation": false,
+      "domRemoval": true,
+      "detachedDomCache": false,
+      "restoreStrategy": "clear-session-config-and-reload-stock-page",
+      "claims": [
+        "mounted-dom-and-render-work-only"
+      ]
+    }
+  },
+  "defaultTurnGroups": 3,
+  "maximumTurnGroups": 8,
+  "measurements": [
+    "elementNodesBefore",
+    "textNodesBefore",
+    "nodeCountTruncatedBefore",
+    "elementNodesAfter",
+    "textNodesAfter",
+    "nodeCountTruncatedAfter",
+    "discoveredTurnsBefore",
+    "mountedTurnsAfter",
+    "suppressedTurns",
+    "placeholderCount",
+    "applyCount",
+    "failOpenCount",
+    "composerReadyMs",
+    "requestCount",
+    "totalBytesObserved",
+    "oversizedResponseCount"
+  ],
+  "manualTrials": {
+    "chatSwitchCycles": 100,
+    "enableDisableCycles": 100,
+    "requiredConversationClasses": [
+      "ordinary",
+      "large",
+      "pathological-spinner"
+    ],
+    "requiredChecks": [
+      "composer-remains-usable",
+      "active-stream-remains-mounted",
+      "latest-three-pairs-remain-mounted",
+      "stock-reload-restores-official-page",
+      "selector-drift-fails-open",
+      "extension-state-does-not-grow-monotonically"
+    ]
+  },
+  "forbiddenClaims": [
+    "reduced-network-payload",
+    "reduced-chatgpt-application-state",
+    "fixed-server-throttling",
+    "production-ready",
+    "provider-response-contract-known"
+  ]
+}

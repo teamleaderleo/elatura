@@ -85,6 +85,17 @@ Timeline pages include `codeBlockCount` and omit code text. A client must reques
 
 Every policy value is a positive safe integer. Constrained and adversarial configurations may lower limits, but the response ceiling must remain large enough to contain the configured maximum page, search, code, metadata, relationship, and envelope payload. Incoherent policies fail during construction before any resident state exists.
 
+## Source-admission representation policy
+
+Synthetic companion construction accepts an optional `representationPolicy` that bounds how large an admitted read-only source may be. It is separate from the resident working-set limits above and from client state:
+
+- absent by default, which preserves the 10,000-entry default admission ceiling;
+- validated through the descriptor-safe public wrapper, which rejects unknown fields, accessors, non-safe integers, and incoherent caps (a per-entry byte ceiling above the total, more children per entry than entries, or a code-block text ceiling above the entry text ceiling) before any source is inspected;
+- applied to every admitted source at construction, including the synthetic ChatGPT alternate-representation helper through its own optional `representationPolicy`;
+- unable to bypass synthetic-only provenance or version-1 entry-id requirements.
+
+This is the bounded seam used to admit a 100,000-entry synthetic fixture for the companion browser experiments without raising any global default.
+
 ## Resident admission
 
 Page and search records are measured before entering resident state. Admission plans all removals before mutating the working set.

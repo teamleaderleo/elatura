@@ -13,7 +13,7 @@ import {
   type SyntheticCompanionDispatchOptions,
   type SyntheticCompanionOptions,
 } from "./companion-runtime.js";
-import { validateAndMeasureReadOnlyRepresentation } from "./representation.js";
+import { validateAndMeasureReadOnlyRepresentation, resolveReadOnlyRepresentationPolicy, type ReadOnlyRepresentationPolicy } from "./representation.js";
 
 const ADAPTER_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 const MAX_COMPANION_REFERENCE_CODE_UNITS = 4_096;
@@ -44,6 +44,20 @@ const POLICY_KEYS = [
   "maxRequestSerializedBytes",
   "sessionTtlMs",
 ] as const satisfies readonly (keyof CompanionWorkingSetPolicy)[];
+
+const REPRESENTATION_POLICY_KEYS = [
+  "maxEntries",
+  "maxChildrenPerEntry",
+  "maxCodeBlocksPerEntry",
+  "maxTextCodeUnits",
+  "maxCodeBlockTextCodeUnits",
+  "maxEntrySerializedBytes",
+  "maxRepresentationSerializedBytes",
+  "maxRepresentationNodes",
+  "maxSearchQueryCodeUnits",
+  "maxSearchResults",
+  "maxCodeExtractionResults",
+] as const satisfies readonly (keyof ReadOnlyRepresentationPolicy)[];
 
 function plainRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
@@ -160,11 +174,37 @@ function copyPolicy(value: unknown): Partial<CompanionWorkingSetPolicy> | null {
   }
 }
 
+function copyRepresentationPolicy(
+  value: unknown,
+): Partial<ReadOnlyRepresentationPolicy> | null {
+  try {
+    if (value === undefined) return Object.freeze({});
+    if (!plainRecord(value) || !exactOwnKeys(value, REPRESENTATION_POLICY_KEYS)) return null;
+    const copied: Partial<ReadOnlyRepresentationPolicy> = {};
+    for (const key of Object.getOwnPropertyNames(value)) {
+      const descriptor = dataDescriptor(value, key);
+      if (
+        !descriptor ||
+        typeof descriptor.value !== "number" ||
+        !Number.isSafeInteger(descriptor.value) ||
+        descriptor.value < 1
+      ) {
+        return null;
+      }
+      (copied as Record<string, number>)[key] = descriptor.value;
+    }
+    return Object.freeze(copied);
+  } catch {
+    return null;
+  }
+}
+
 type NormalizedOptions = Readonly<{
   sessionId: string;
   conversations: readonly SyntheticCompanionConversationInput[];
   acceptedAdapters?: readonly AdapterIdentity[];
   policy: Partial<CompanionWorkingSetPolicy>;
+  representationPolicy: Partial<ReadOnlyRepresentationPolicy>;
   now?: () => number;
 }>;
 
@@ -173,6 +213,7 @@ const OPTION_KEYS = [
   "conversations",
   "acceptedAdapters",
   "policy",
+  "representationPolicy",
   "now",
 ] as const;
 
@@ -207,6 +248,15 @@ function copyOptions(value: unknown): NormalizedOptions | null {
     const policy = copyPolicy(policyValue);
     if (!policy) return null;
 
+    let representationPolicyValue: unknown;
+    if (Object.prototype.hasOwnProperty.call(value, "representationPolicy")) {
+      const descriptor = dataDescriptor(value, "representationPolicy");
+      if (!descriptor) return null;
+      representationPolicyValue = descriptor.value;
+    }
+    const representationPolicy = copyRepresentationPolicy(representationPolicyValue);
+    if (!representationPolicy) return null;
+
     let now: (() => number) | undefined;
     if (Object.prototype.hasOwnProperty.call(value, "now")) {
       const descriptor = dataDescriptor(value, "now");
@@ -222,6 +272,7 @@ function copyOptions(value: unknown): NormalizedOptions | null {
       conversations,
       ...(acceptedAdapters ? { acceptedAdapters } : {}),
       policy,
+      representationPolicy,
       ...(now ? { now } : {}),
     });
   } catch {
@@ -298,6 +349,9 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
       throw new TypeError("SyntheticCompanion options must be bounded own-data records.");
     }
     const policy = resolveCompanionWorkingSetPolicy(normalized.policy);
+    const representationPolicy = resolveReadOnlyRepresentationPolicy(
+      normalized.representationPolicy,
+    );
     const minimumResponseStringCodeUnits = Math.max(
       MAX_COMPANION_REFERENCE_CODE_UNITS,
       policy.maxPageEntryTextCodeUnits,
@@ -310,7 +364,10 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
     }
 
     for (const input of normalized.conversations) {
-      const validated = validateAndMeasureReadOnlyRepresentation(input.representation);
+      const validated = validateAndMeasureReadOnlyRepresentation(
+        input.representation,
+        representationPolicy,
+      );
       if (validated.ok) {
         if (validated.value.representation.provenance.synthetic !== true) {
           throw new TypeError("SyntheticCompanion accepts synthetic provenance only.");
@@ -333,6 +390,7 @@ export class SyntheticCompanion extends UncheckedSyntheticCompanion {
         ? { acceptedAdapters: normalized.acceptedAdapters }
         : {}),
       policy,
+      representationPolicy: normalized.representationPolicy,
       ...(normalized.now ? { now: normalized.now } : {}),
     });
   }
