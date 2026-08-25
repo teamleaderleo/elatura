@@ -11,6 +11,7 @@ import {
   SCENARIO_IDS,
   createLoopbackServer,
   isLoopbackRemoteAddress,
+  staticAssetTable,
 } from "../../../scripts/run-synthetic-companion-loopback.mjs";
 import { CompanionWebController } from "../src/controller.js";
 import {
@@ -151,6 +152,16 @@ describe("static surface serving", () => {
     );
     expect(vendor.status).toBe(200);
     expect(vendor.headers.get("content-type")).toContain("text/javascript");
+  });
+
+  it("allowlists and serves the controller's request-id dependency", async () => {
+    expect(staticAssetTable().get("/vendor/@elatura/companion-web/request-id.js"))
+      .toBe("packages/companion-web/dist/request-id.js");
+    const response = await fetch(`${origin}/vendor/@elatura/companion-web/request-id.js`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/javascript");
+    const body = await response.text();
+    expect(body).toContain("nextCompanionRequestId");
   });
 
   it("keeps every served asset free of remote URL literals", async () => {
