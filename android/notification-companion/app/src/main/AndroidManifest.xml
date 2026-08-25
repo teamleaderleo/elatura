@@ -18,6 +18,10 @@
             android:exported="true" />
 
         <activity
+            android:name=".SignalInboxActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="false" />
 

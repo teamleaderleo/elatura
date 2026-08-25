@@ -123,7 +123,7 @@ describe("Android notification companion safety boundary", () => {
     expect(entry).toContain("SetupGuideActivity::class.java")
     expect(setup).toContain("hintStore.registerChangeListener(hintPreferenceListener)");
     expect(setup).toContain("hintStore.unregisterChangeListener(hintPreferenceListener)");
-    expect(setup).toContain("startActivity(Intent(this, MainActivity::class.java))");
+    expect(setup).toContain("startActivity(Intent(this, SignalInboxActivity::class.java))");
     expect(guide).toContain("guideFamily == DeviceGuideFamily.VIVO_IQOO");
     expect(guide).toContain("evidence.firstChatGptHintCaptured");
     expect(shortcuts).toContain("SetupGuideActivity");

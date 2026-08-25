@@ -51,6 +51,8 @@ jobs:
 
       - name: Test and assemble debug APK
         shell: bash
+        env:
+          ELATURA_SIGNING_MODE: ephemeral-debug
         run: >-
           gradle
           -p android/notification-companion
@@ -59,10 +61,37 @@ jobs:
           --no-daemon
           --stacktrace
 
-      - name: Upload debug APK
+      - name: Generate checksum and provenance
+        shell: bash
+        env:
+          BUILD_SHA: ${{ github.sha }}
+          BUILD_RUN_ID: ${{ github.run_id }}
+          BUILD_RUN_NUMBER: ${{ github.run_number }}
+          BUILD_REF: ${{ github.head_ref || github.ref_name }}
+          SIGNING_MODE: ephemeral-debug
+        run: |
+          set -euo pipefail
+          OUTPUT="android/notification-companion/app/build/outputs/apk/debug"
+          cd "${OUTPUT}"
+          sha256sum app-debug.apk > app-debug.apk.sha256
+          {
+            echo "artifact=app-debug.apk"
+            echo "sha256=$(cut -d' ' -f1 app-debug.apk.sha256)"
+            echo "commit=${BUILD_SHA}"
+            echo "workflowRun=${BUILD_RUN_ID}"
+            echo "workflowRunNumber=${BUILD_RUN_NUMBER}"
+            echo "ref=${BUILD_REF}"
+            echo "signingMode=${SIGNING_MODE}"
+            echo "updateCompatibility=not-guaranteed-across-workflow-runs"
+          } > BUILD-PROVENANCE.txt
+
+      - name: Upload ephemeral debug APK bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: elatura-notification-companion-debug
-          path: android/notification-companion/app/build/outputs/apk/debug/app-debug.apk
+          name: elatura-notification-companion-ephemeral-debug
+          path: |
+            android/notification-companion/app/build/outputs/apk/debug/app-debug.apk
+            android/notification-companion/app/build/outputs/apk/debug/app-debug.apk.sha256
+            android/notification-companion/app/build/outputs/apk/debug/BUILD-PROVENANCE.txt
           if-no-files-found: error
           retention-days: 7

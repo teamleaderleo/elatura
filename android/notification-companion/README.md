@@ -19,7 +19,7 @@ A notification is presented only as a **possible completion**. Missing, grouped,
 
 ## First-run setup
 
-The first launch opens a guided setup screen. Later launches open the diagnostic dashboard. Long-press the app icon and choose **Open setup guide** to return to setup at any time.
+The first launch opens a guided setup screen. Later launches open the compact signal inbox. Long-press the app icon and choose **Open setup guide** to return to setup at any time.
 
 The guide keeps three kinds of evidence separate:
 
@@ -42,11 +42,28 @@ On an iQOO or vivo phone:
 
 Elatura reports Android's standard battery-optimization exemption status but does not request broad battery, accessibility, overlay, administrator, or arbitrary command authority. OriginOS controls remain separate from Android's standard Doze status.
 
-## What the diagnostic screen shows
+A concise phone checklist is available in `INSTALL-IQOO.md`.
+
+## Signal inbox
+
+The normal-use screen groups recent events only by Android's keyed notification identity and classifies each group as:
+
+- **Possible completion** — a non-grouped posted notification with routing clues and no active-state metadata;
+- **In progress** — an ongoing notification or any notification carrying progress metadata;
+- **Unknown signal** — insufficient evidence or a grouped summary;
+- **Removed** — Android reported that the notification disappeared.
+
+The stored metadata records whether progress exists, not a trustworthy completion percentage. Elatura therefore keeps every progress-bearing notification in **In progress** until physical-device evidence supports a narrower rule.
+
+Possible completion is deliberately not phrased as confirmed completion. The app does not claim that one notification identity equals one ChatGPT conversation, does not display HMAC values, and does not automatically refresh or submit anything to ChatGPT.
+
+The inbox provides one-tap access to ChatGPT, the setup guide, and Advanced diagnostics.
+
+## Advanced diagnostics
 
 The phone UI redraws when the local store changes. It does not poll and rebuild the entire screen every second. Relative ages and notification-access health refresh on a lightweight 30-second timer while the activity is visible.
 
-The diagnostic separates four kinds of evidence:
+Diagnostics separates four kinds of evidence:
 
 1. **Listener health** — notification-access grant, service starts, connection callbacks, current-process confirmation, and the latest captured event.
 2. **Test context** — phone model, Android version/API, ChatGPT and Elatura app versions, CI build commit/run, and Elatura's battery-optimization exemption status.
@@ -69,27 +86,35 @@ Open this directory as an Android Studio project, or build from a shell with a c
 gradle -p android/notification-companion :app:testDebugUnitTest :app:assembleDebug
 ```
 
-Install the debug APK on a connected user-owned phone:
+Install a locally built debug APK on a connected user-owned phone:
 
 ```sh
 adb install -r android/notification-companion/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The `Android notification companion` GitHub Actions workflow also runs the unit tests, assembles the debug APK, embeds its commit/run identifiers, and uploads it as a seven-day artifact when the workflow succeeds.
+The pull-request `Android notification companion` workflow runs unit tests, assembles a debug APK, embeds its commit/run/signing mode in the app version, and uploads a seven-day artifact named `elatura-notification-companion-ephemeral-debug` containing:
+
+- `app-debug.apk`;
+- `app-debug.apk.sha256`;
+- `BUILD-PROVENANCE.txt`.
+
+The pull-request artifact is not the final continuing-test download. GitHub-hosted runs may use different debug certificates, so cross-run in-place updates are not guaranteed. Stable private signing and update verification are tracked in issue #104. Use the provenance file and checksum from the exact workflow run named in any one-off handoff.
 
 ## First physical-device diagnostic
 
-1. Complete the setup guide and open the diagnostic dashboard.
+1. Complete the setup guide and open the signal inbox.
 2. Confirm the health card says **Listening**.
-3. Confirm **Test context** identifies the phone, Android version, ChatGPT version, Elatura version, and the expected build.
-4. Tap **Start or reset test session**.
-5. Run at least 30 ChatGPT completions across the job types you actually use.
-6. After independently confirming one task completed, tap **Record one completed test case**.
-7. Follow the guided questions:
+3. Run one small ChatGPT completion and confirm a new signal appears.
+4. Open **Advanced diagnostics**.
+5. Confirm **Test context** identifies the phone, Android version, ChatGPT version, Elatura version/signing mode, and the expected build.
+6. Tap **Start or reset test session**.
+7. Run at least 30 ChatGPT completions across the job types you actually use.
+8. After independently confirming one task completed, tap **Record one completed test case**.
+9. Follow the guided questions:
    - notification arrived or missed;
    - when it arrived, correct chat, failed/wrong chat, or tap not tested.
-8. Use **Undo latest saved case** immediately after a mistaken entry.
-9. Use **Share content-free diagnostic report** and attach or paste the result into issue #96 or #99.
+10. Use **Undo latest saved case** immediately after a mistaken entry.
+11. Use **Share content-free diagnostic report** and attach or paste the result into issue #96 or #99.
 
 The report automatically records:
 
@@ -100,9 +125,10 @@ The report automatically records:
 - completed test-case count and notification arrival/miss totals;
 - correct, failed, and not-tested deep-link totals;
 - posted-to-observed latency distribution;
-- title/text routing-token availability;
-- grouped and replaced behavior visible in the event sequence;
-- ongoing versus possible-completion events;
+- title/text/channel/shortcut clue availability;
+- grouped and repeated notification behavior;
+- progress, ongoing, and possible-completion events;
+- removal reasons;
 - listener restarts/disconnects;
 - bounded queue and teardown drops, duplicates, local corruption, and processing errors.
 
@@ -110,7 +136,7 @@ Describe only the broad job types tested when posting the report. Do not include
 
 ## Next packets
 
-- expanded content-free notification metadata and removal reasons;
+- stable private signing and in-place update verification;
 - reboot, force-stop, permission-revoke, and OriginOS background-cleanup survival tests;
-- a compact everyday completion inbox with diagnostics moved behind an Advanced screen;
+- inbox acknowledgement/muting only after physical evidence clarifies notification identity stability;
 - explicit device pairing and authenticated outbound relay only after physical evidence supports it.
