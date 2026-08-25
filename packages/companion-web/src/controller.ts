@@ -33,6 +33,27 @@ export type CompanionWebControllerSnapshot = Readonly<{
   requestOrdinal: number;
 }>;
 
+/**
+ * Content-free working-set counters only. No conversation ids, text, or other
+ * rendered content crosses this boundary, so the later browser benchmark
+ * packet can record resource behavior without recording representations.
+ */
+export type CompanionWebWorkingSetSnapshot = Readonly<{
+  pendingLaneCount: number;
+  requestOrdinal: number;
+  ownerOrdinal: number;
+  clientPendingRequestCount: number;
+  renderMountedConversationCount: number;
+  renderMountedTimelineRowCount: number;
+  renderMountedSearchResultCount: number;
+  renderMountedCodeTextCodeUnits: number;
+  renderEstimatedArtifactBytes: number;
+  transportDispatchedRequestCount: number;
+  transportCompletedRequestCount: number;
+  transportCancelledRequestCount: number;
+  transportInFlightRequestCount: number;
+}>;
+
 export type CompanionWebDispatchResult = Readonly<{
   outcome: "applied" | "superseded" | "rejected";
   requestId: string;
@@ -78,6 +99,27 @@ export class CompanionWebController {
       transport: this.#transport.snapshot,
       pendingLaneCount: this.#owned.size,
       requestOrdinal: this.#requestOrdinal,
+    });
+  }
+
+  get workingSetSnapshot(): CompanionWebWorkingSetSnapshot {
+    const client = this.#client.snapshot;
+    const render = this.#render.snapshot;
+    const transport = this.#transport.snapshot;
+    return Object.freeze({
+      pendingLaneCount: this.#owned.size,
+      requestOrdinal: this.#requestOrdinal,
+      ownerOrdinal: this.#ownerOrdinal,
+      clientPendingRequestCount: client.pendingRequestCount,
+      renderMountedConversationCount: render.conversations.length,
+      renderMountedTimelineRowCount: render.mountedTimelineRowCount,
+      renderMountedSearchResultCount: render.mountedSearchResultCount,
+      renderMountedCodeTextCodeUnits: render.mountedCodeTextCodeUnits,
+      renderEstimatedArtifactBytes: render.estimatedArtifactBytes,
+      transportDispatchedRequestCount: transport.dispatchedRequestCount,
+      transportCompletedRequestCount: transport.completedRequestCount,
+      transportCancelledRequestCount: transport.cancelledRequestCount,
+      transportInFlightRequestCount: transport.inFlightRequestCount,
     });
   }
 
@@ -175,12 +217,17 @@ export class CompanionWebController {
         snapshot: this.snapshot,
       });
     } catch {
-      if (this.#isCurrent(lane, owned)) this.#owned.delete(lane);
+      const disowned = !this.#isCurrent(lane, owned);
+      if (!disowned) this.#owned.delete(lane);
       this.#client.cancel(owned.requestId);
       return Object.freeze({
-        outcome: "rejected",
+        outcome: disowned || owned.abortController.signal.aborted
+          ? "superseded"
+          : "rejected",
         requestId: owned.requestId,
-        issueCodes: Object.freeze(["transport-failed"]),
+        issueCodes: Object.freeze(
+          disowned || owned.abortController.signal.aborted ? [] : ["transport-failed"],
+        ),
         snapshot: this.snapshot,
       });
     }
