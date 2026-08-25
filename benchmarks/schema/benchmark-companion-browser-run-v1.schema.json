@@ -1,0 +1,204 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://elatura.local/schemas/benchmark-companion-browser-run-v1.schema.json",
+  "title": "Elatura content-free synthetic companion browser run manifest",
+  "description": "Fixed-schema, content-free record for one synthetic browser surface benchmark run. Only bounded numbers, fixed enums, fixed tokens, UUIDs, and canonical UTC timestamps are accepted. Conversation ids, titles, URLs, snippets, screenshots, transcripts, cookies, credentials, and free-form notes are forbidden.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "recordedAt",
+    "fixture",
+    "client",
+    "environment",
+    "timingsMs",
+    "peakProcessBytes",
+    "residentCompanion",
+    "retainedClient",
+    "renderedSurface",
+    "requestCacheLedger",
+    "probes",
+    "integrity",
+    "privacy"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "format": "uuid" },
+    "recordedAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}Z$"
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "entryCount", "textCodeUnits", "codeBlockCount"],
+      "properties": {
+        "id": { "enum": ["synthetic-100", "synthetic-10000", "synthetic-100000", "branch-heavy", "large-code"] },
+        "entryCount": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "textCodeUnits": { "type": "integer", "minimum": 0, "maximum": 100000000 },
+        "codeBlockCount": { "type": "integer", "minimum": 0, "maximum": 10000 }
+      }
+    },
+    "client": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["revision", "protocolVersion"],
+      "properties": {
+        "revision": { "type": "string", "pattern": "^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$" },
+        "protocolVersion": { "const": 1 }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platformClass", "browserClass", "versionToken"],
+      "properties": {
+        "platformClass": { "enum": ["desktop", "mobile"] },
+        "browserClass": { "enum": ["chromium", "gecko", "webkit"] },
+        "versionToken": { "type": "string", "pattern": "^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$" }
+      }
+    },
+    "timingsMs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["initialUsableMs", "pageOlderMs", "pageNewerMs", "searchMs"],
+      "properties": {
+        "initialUsableMs": { "type": ["number", "null"], "minimum": 0 },
+        "pageOlderMs": { "type": ["number", "null"], "minimum": 0 },
+        "pageNewerMs": { "type": ["number", "null"], "minimum": 0 },
+        "searchMs": { "type": ["number", "null"], "minimum": 0 }
+      }
+    },
+    "peakProcessBytes": { "type": ["integer", "null"], "minimum": 1 },
+    "residentCompanion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["conversations", "records", "entries", "textCodeUnits", "serializedBytes"],
+      "properties": {
+        "conversations": { "type": "integer", "minimum": 0 },
+        "records": { "type": "integer", "minimum": 0 },
+        "entries": { "type": "integer", "minimum": 0 },
+        "textCodeUnits": { "type": "integer", "minimum": 0 },
+        "serializedBytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "retainedClient": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metadataRecords", "timelineEntries", "searchResults", "codeBlocks", "pendingRequests"],
+      "properties": {
+        "metadataRecords": { "type": "integer", "minimum": 0 },
+        "timelineEntries": { "type": "integer", "minimum": 0 },
+        "searchResults": { "type": "integer", "minimum": 0 },
+        "codeBlocks": { "type": "integer", "minimum": 0 },
+        "pendingRequests": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "renderedSurface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timelineRows", "domNodes", "estimatedArtifactBytes"],
+      "properties": {
+        "timelineRows": { "type": "integer", "minimum": 0 },
+        "domNodes": { "type": ["integer", "null"], "minimum": 0 },
+        "estimatedArtifactBytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "requestCacheLedger": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dispatchedRequests", "completedRequests", "cancelledRequests",
+        "failedRequests", "refusedOverLimitRequests", "cacheEntries", "cacheTotalBytes"
+      ],
+      "properties": {
+        "dispatchedRequests": { "type": "integer", "minimum": 0 },
+        "completedRequests": { "type": "integer", "minimum": 0 },
+        "cancelledRequests": { "type": "integer", "minimum": 0 },
+        "failedRequests": { "type": "integer", "minimum": 0 },
+        "refusedOverLimitRequests": { "type": "integer", "minimum": 0 },
+        "cacheEntries": { "type": "integer", "minimum": 0 },
+        "cacheTotalBytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "probes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["switchProbe", "openCloseProbe"],
+      "properties": {
+        "switchProbe": { "$ref": "#/$defs/probe" },
+        "openCloseProbe": { "$ref": "#/$defs/probe" }
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observedStates", "truncatedResponseCount", "overLimitRefusalCount"],
+      "properties": {
+        "observedStates": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 7,
+          "items": {
+            "enum": ["fresh", "stale", "expired", "corrupt", "drifted", "cancelled", "over-limit"]
+          }
+        },
+        "truncatedResponseCount": { "type": "integer", "minimum": 0 },
+        "overLimitRefusalCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contentCaptured", "urlsCaptured", "transcriptTextCaptured", "screenshotsCaptured"],
+      "properties": {
+        "contentCaptured": { "const": false },
+        "urlsCaptured": { "const": false },
+        "transcriptTextCaptured": { "const": false },
+        "screenshotsCaptured": { "const": false }
+      }
+    }
+  },
+  "$defs": {
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cycles", "samples"],
+      "properties": {
+        "cycles": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 100000,
+          "description": "Completed probe repetitions that produced the attached samples; one cycle yields at most two samples. The prescribed browser probes declare rounds x served-conversations switch cycles (8 for the runbook's single-conversation server) and 16 open/close cycles."
+        },
+        "samples": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 32,
+          "description": "Every raw probe sample in emission order; nothing may be hidden, aggregated, or truncated. Prescribed emissions: 8 samples per served conversation (switch probe) and exactly 32 samples (open/close probe).",
+          "items": { "$ref": "#/$defs/sample" }
+        }
+      }
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "residentConversations", "residentRecords", "residentEntries",
+        "renderedRows", "retainedClientRecords", "cacheEntries", "cacheBytes",
+        "artifactBytes"
+      ],
+      "properties": {
+        "residentConversations": { "type": "integer", "minimum": 0 },
+        "residentRecords": { "type": "integer", "minimum": 0 },
+        "residentEntries": { "type": "integer", "minimum": 0 },
+        "renderedRows": { "type": "integer", "minimum": 0 },
+        "retainedClientRecords": { "type": "integer", "minimum": 0 },
+        "cacheEntries": { "type": "integer", "minimum": 0 },
+        "cacheBytes": { "type": "integer", "minimum": 0 },
+        "artifactBytes": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

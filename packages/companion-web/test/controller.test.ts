@@ -6,6 +6,9 @@ import type {
   CompanionUsage,
 } from "@elatura/core/companion";
 import { CompanionWebController } from "../src/controller.js";
+import type {
+  CompanionWebDispatchResult,
+} from "../src/controller.js";
 import { BoundedCompanionRenderSink } from "../src/render-sink.js";
 import type {
   CompanionTransport,
@@ -75,6 +78,56 @@ function success(
     errorCode: null,
     usage: USAGE,
   };
+}
+
+function navigatePayload(
+  conversationId: string,
+  entryId: string,
+  lists: {
+    parentId?: string | null;
+    childIds?: string[];
+    siblingIds?: string[];
+    activePath?: string[];
+  } = {},
+) {
+  const childIds = lists.childIds ?? [];
+  const siblingIds = lists.siblingIds ?? [];
+  const activePath = lists.activePath ?? [entryId];
+  const parentId = lists.parentId === undefined ? null : lists.parentId;
+  return {
+    conversationId,
+    generation: 0,
+    entryId,
+    parentId,
+    childIds,
+    childCount: childIds.length,
+    siblingIds,
+    siblingCount: siblingIds.length,
+    activePath,
+    jumpBackReference: null,
+  };
+}
+
+async function settleOpen(
+  transport: DeferredTransport,
+  controller: CompanionWebController,
+  conversationId: string,
+): Promise<void> {
+  const opening = controller.open(conversationId);
+  const pending = transport.pending[transport.pending.length - 1]!;
+  pending.resolve(success(pending.request, pagePayload(conversationId, 2)));
+  expect((await opening).outcome).toBe("applied");
+}
+
+async function settleNavigate(
+  transport: DeferredTransport,
+  controller: CompanionWebController,
+  payload: unknown,
+): Promise<CompanionWebDispatchResult> {
+  const navigating = controller.navigate("nav-conversation", "nav-conversation-entry-0");
+  const pending = transport.pending[transport.pending.length - 1]!;
+  pending.resolve(success(pending.request, payload));
+  return navigating;
 }
 
 type Pending = {
@@ -209,6 +262,35 @@ describe("CompanionWebController", () => {
     expect(controller.snapshot.client.pendingRequestCount).toBe(0);
   });
 
+  it("emits stable six-digit request ids on the ordinary dispatch path", async () => {
+    const transport = new DeferredTransport();
+    const controller = new CompanionWebController({
+      sessionId: "id-width-session",
+      transport,
+    });
+
+    const conversations = ["id-a", "id-b", "id-c"];
+    const openings = conversations.map((conversationId) =>
+      controller.open(conversationId),
+    );
+    for (const [index, pending] of transport.pending.entries()) {
+      pending.resolve(
+        success(pending.request, pagePayload(conversations[index]!, 1)),
+      );
+    }
+    const results = await Promise.all(openings);
+
+    expect(results.map((result) => result.requestId)).toEqual([
+      "web-000001",
+      "web-000002",
+      "web-000003",
+    ]);
+    for (const requestId of results.map((result) => result.requestId)) {
+      expect(requestId).toMatch(/^web-[0-9]{6}$/u);
+    }
+    expect(controller.snapshot.requestOrdinal).toBe(3);
+  });
+
   it("mounts only the configured number of timeline rows", async () => {
     const transport = new DeferredTransport();
     const controller = new CompanionWebController({
@@ -260,5 +342,141 @@ describe("CompanionWebController", () => {
     expect((await controller.revoke()).outcome).toBe("applied");
     expect(controller.snapshot.client.pendingRequestCount).toBe(0);
     expect(controller.snapshot.render.mountedTimelineRowCount).toBe(0);
+  });
+});
+
+describe("CompanionWebController navigation policy binding", () => {
+  it("exposes the resolved navigation cap as an immutable scalar", () => {
+    expect(new BoundedCompanionRenderSink().maxNavigationRelationshipIds).toBe(64);
+    expect(
+      new BoundedCompanionRenderSink({ maxNavigationRelationshipIds: 7 })
+        .maxNavigationRelationshipIds,
+    ).toBe(7);
+  });
+
+  it("mounts navigation lists up to a configured cap below the default exactly", async () => {
+    const transport = new DeferredTransport();
+    const controller = new CompanionWebController({
+      sessionId: "nav-cap-low-session",
+      transport,
+      renderPolicy: { maxNavigationRelationshipIds: 4 },
+    });
+    await settleOpen(transport, controller, "nav-conversation");
+
+    const applied = await settleNavigate(
+      transport,
+      controller,
+      navigatePayload("nav-conversation", "nav-conversation-entry-0", {
+        childIds: ["nav-conversation-entry-1", "nav-conversation-entry-2"],
+        siblingIds: ["nav-conversation-entry-3", "nav-conversation-entry-4"],
+        activePath: [
+          "nav-conversation-entry-5",
+          "nav-conversation-entry-6",
+          "nav-conversation-entry-7",
+          "nav-conversation-entry-8",
+        ],
+      }),
+    );
+    expect(applied.outcome).toBe("applied");
+
+    const navigation = controller.snapshot.render.navigation;
+    expect(navigation).not.toBeNull();
+    // Every mounted list equals its true payload size and obeys the exact
+    // configured bound of 4 — not the module default of 64.
+    expect(navigation!.childIds).toHaveLength(2);
+    expect(navigation!.siblingIds).toHaveLength(2);
+    expect(navigation!.activePath).toHaveLength(4);
+    for (const list of [navigation!.childIds, navigation!.siblingIds, navigation!.activePath]) {
+      expect(list.length).toBeLessThanOrEqual(4);
+    }
+    // The mounted counter tracks childIds + activePath + parent (null here).
+    expect(controller.snapshot.render.mountedNavigationRelationshipCount).toBe(6);
+    expect(controller.workingSetSnapshot.renderEstimatedArtifactBytes)
+      .toBeLessThanOrEqual(2_097_152);
+  });
+
+  it("drops instead of retaining stale navigation when extraction refuses an over-cap reply", async () => {
+    const transport = new DeferredTransport();
+    const controller = new CompanionWebController({
+      sessionId: "nav-cap-refusal-session",
+      transport,
+      renderPolicy: { maxNavigationRelationshipIds: 4 },
+    });
+    await settleOpen(transport, controller, "nav-conversation");
+
+    const first = await settleNavigate(
+      transport,
+      controller,
+      navigatePayload("nav-conversation", "nav-conversation-entry-0", {
+        childIds: ["nav-conversation-entry-1"],
+      }),
+    );
+    expect(first.outcome).toBe("applied");
+    expect(controller.snapshot.render.navigation).not.toBeNull();
+
+    // A second navigate whose activePath exceeds the configured cap is
+    // refused by extraction; the previously mounted record must not survive
+    // as a stale stand-in for the refused reply.
+    const second = await settleNavigate(
+      transport,
+      controller,
+      navigatePayload("nav-conversation", "nav-conversation-entry-1", {
+        activePath: [
+          "nav-conversation-entry-2",
+          "nav-conversation-entry-3",
+          "nav-conversation-entry-4",
+          "nav-conversation-entry-5",
+          "nav-conversation-entry-6",
+        ],
+      }),
+    );
+    expect(second.outcome).toBe("applied");
+    expect(controller.snapshot.render.navigation).toBeNull();
+    expect(controller.snapshot.render.mountedNavigationRelationshipCount).toBe(0);
+  });
+
+  it("binds the navigate lane to a configured cap above the legacy constant", async () => {
+    const transport = new DeferredTransport();
+    const controller = new CompanionWebController({
+      sessionId: "nav-cap-high-session",
+      transport,
+      renderPolicy: { maxNavigationRelationshipIds: 80 },
+    });
+    await settleOpen(transport, controller, "nav-conversation");
+
+    const longPath = Array.from({ length: 70 }, (_, index) =>
+      `nav-conversation-entry-${index + 10}`,
+    );
+    const applied = await settleNavigate(
+      transport,
+      controller,
+      navigatePayload("nav-conversation", "nav-conversation-entry-0", {
+        activePath: longPath,
+      }),
+    );
+    expect(applied.outcome).toBe("applied");
+
+    // A 70-id activePath exceeds the legacy hardcoded constant of 64 but fits
+    // the instance's configured cap of 80, so it must mount in full.
+    const navigation = controller.snapshot.render.navigation;
+    expect(navigation).not.toBeNull();
+    expect(navigation!.activePath).toHaveLength(70);
+    expect(navigation!.childIds.length).toBeLessThanOrEqual(80);
+    expect(navigation!.siblingIds.length).toBeLessThanOrEqual(80);
+    expect(navigation!.activePath.length).toBeLessThanOrEqual(80);
+
+    // Aggregate artifact accounting stays truthful about what is mounted.
+    const bytesWithNavigation =
+      controller.workingSetSnapshot.renderEstimatedArtifactBytes;
+    expect(bytesWithNavigation).toBeGreaterThan(0);
+    expect(bytesWithNavigation)
+      .toBeLessThanOrEqual(2_097_152);
+    const revoking = controller.revoke();
+    const revokePending = transport.pending[transport.pending.length - 1]!;
+    revokePending.resolve(success(revokePending.request, { revoked: true }));
+    expect((await revoking).outcome).toBe("applied");
+    expect(controller.workingSetSnapshot.renderEstimatedArtifactBytes)
+      .toBeLessThan(bytesWithNavigation);
+    expect(controller.snapshot.render.navigation).toBeNull();
   });
 });

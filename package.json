@@ -26,7 +26,9 @@
     "compare:benchmarks": "npm run build && node scripts/compare-benchmarks.mjs",
     "baseline:plan": "npm run build && node scripts/create-baseline-session-plan.mjs",
     "baseline:check": "npm run build && node scripts/check-baseline-session.mjs",
-    "benchmark:synthetic-materialization": "npm run build && node --expose-gc scripts/benchmark-synthetic-materialization.mjs"
+    "benchmark:synthetic-materialization": "npm run build && node --expose-gc scripts/benchmark-synthetic-materialization.mjs",
+    "companion:loopback": "node scripts/run-synthetic-companion-loopback.mjs",
+    "benchmark:companion-browser": "node scripts/check-companion-browser-runs.mjs"
   },
   "engines": {
     "node": ">=22"

@@ -1,0 +1,141 @@
+# Synthetic companion browser benchmark packet
+
+Content-free measurement packet for the synthetic companion browser surface
+(#83). It records bounded numbers and fixed tokens only — no conversation
+content, titles, URLs, screenshots, transcripts, cookies, or notes.
+
+**Claim boundary:** this packet defines how to measure. No physical desktop or
+mobile browser measurements have been recorded in this repository yet, and no
+performance, memory, or mobile-usability conclusion is claimed. Conclusions
+require completed manifests from the matrix below.
+
+## Fixed schema
+
+`benchmarks/schema/benchmark-companion-browser-run-v1.schema.json` accepts:
+
+- fixture identity from a fixed id enum plus entry/text/code counts;
+- client revision token and protocol version (`1`);
+- platform class (`desktop`/`mobile`), browser class (`chromium`/`gecko`/`webkit`),
+  bounded version token;
+- initial usable, page older/newer, and search latencies (numbers or `null`);
+- peak process bytes when the platform exposes them (otherwise `null`);
+- resident companion counts; retained client record counts; rendered rows,
+  DOM nodes (when measurable), and artifact bytes;
+- browser request/cache ledger counters;
+- two probe sample arrays (6–32 samples each) of eight working-set counters,
+  each accompanied by the completed probe-cycle count; the prescribed page
+  probes emit 8 samples per served conversation (switch) and exactly 32
+  samples (open/close), so the documented procedure validates as recorded;
+- integrity: observed diagnostic state tokens and failure counters;
+- privacy flags pinned to exactly `false`.
+
+The parser/validator lives in `benchmarks/src/companion-browser-manifest.ts`
+and is exercised by `benchmarks/test/companion-browser-manifest.test.ts`.
+
+## Plateau rule
+
+A manifest passes only when **both** required probes reach a bounded plateau:
+
+- every tracked counter stays within its hard bound (mirroring the merged
+  companion/client/render/ledger defaults);
+- the second half of each probe's samples never exceeds the first half.
+
+Both probes need at least six recorded samples — the same canonical floor the
+in-page evaluator uses. `probes.*.cycles` records the number of completed
+probe repetitions that produced the attached samples; one cycle yields at most
+two samples (before and after one repeated action), and manifests whose
+sample count exceeds twice the declared cycles are refused as untruthful.
+
+The prescribed probes bind their emission counts to this admission window, so
+following the runbook is schema-admissible by construction:
+
+- the switch probe runs exactly 8 recorded rounds over every served
+  conversation and emits one sample per open: 8 samples for the runbook's
+  single-conversation server (at most 32 for four served conversations);
+- the open/close probe runs exactly 16 recorded cycles and emits exactly two
+  samples per cycle: 32 samples, on the schema ceiling;
+- before its recorded samples, each probe runs unrecorded warm-up
+  repetitions until the browser request ledger's bounded FIFO cache reaches
+  steady state, so recorded evidence shows sustained behavior rather than
+  measurement start-up; the transcript header binds the exact warm-up count;
+- a configuration whose derived emission would leave that window (for
+  example more than four served conversations) refuses to run with a fixed
+  diagnostic instead of emitting an inadmissible artifact.
+
+A monotonic retained-state, rendered-row, artifact-byte, or cache trend fails
+with fixed codes (`monotonic-growth`, `over-hard-bound`,
+`insufficient-samples`) per field. Trends are never narrated away.
+
+> Transcription rule: record **every raw numbered sample line** from the
+> page's probe output, in order, into `probes.*.samples`. Never transcribe the
+> maxima from the final `plateau-ok/failed` line: a passing verdict's maxima
+> already satisfy the second-half rule by construction, so arrays built from
+> them structurally cannot fail and would confirm any run regardless of its
+> actual behavior. The verdict line is a summary for humans, not evidence.
+
+## Desktop runbook
+
+1. Build once so the served vendor modules exist:
+   ```bash
+   npm ci --ignore-scripts
+   npm run build
+   ```
+2. Start one loopback server per fixture class (fresh terminal each):
+   ```bash
+   node scripts/run-synthetic-companion-loopback.mjs \
+     --host 127.0.0.1 --port 4173 --conversation synthetic-10000
+   ```
+   The server prints its exact loopback URL. Record nothing else from it.
+3. Open the printed URL in a clean browser profile (no extensions, empty
+   cache). Note the browser version token.
+4. In order, using only the page controls:
+   - refresh list; open the conversation; note time-to-first-mounted-window
+     as `initialUsableMs`;
+   - press Older/Newer at least twice each; record median `pageOlderMs` /
+     `pageNewerMs`;
+   - search a short synthetic token; record `searchMs`;
+   - run "Run switch probe" (it performs unrecorded warm-up opens before
+     recording) and transcribe **every raw numbered sample line**
+     from the probe output, in order, into the switch probe samples; the
+     output's first line binds the exact plan (`rounds`, `conversations`,
+     `warmup-opens`, `cycles`, `samples`) — record its `cycles` value
+     (rounds × conversations opened) as `switchProbe.cycles`;
+   - run "Run open/close probe" and transcribe likewise into the open/close
+     probe samples; record the header line's `cycles` value (16 completed
+     recorded cycles; each emits one sample before and one after close) as
+     `openCloseProbe.cycles`;
+   - ignore the final `plateau-ok/failed` line for transcription: it is a
+     human summary, not evidence (see the plateau rule above);
+   - exercise close/revoke once each and record final counters.
+5. Capture memory only via an external process monitor reading the whole
+   browser process class; record the peak as `peakProcessBytes` or omit with
+   `null`.
+6. Write one JSON manifest per run under a scratch directory outside the
+   repository, then validate:
+   ```bash
+   npm run build # once, if dist is missing
+   npm run benchmark:companion-browser -- /path/to/run-01.json
+   ```
+
+Repeat for `synthetic-100000` and any other fixture id. At least five runs per
+fixture class are required before comparing distributions.
+
+## Mobile runbook
+
+Same steps on a phone with the desktop machine tethered on a private network
+is **not supported**: the server refuses every non-loopback connection by
+design. For mobile, use an on-device loopback (for example a local development
+shell that runs Node on the device itself) or treat mobile as unmeasured. Any
+future mobile path must keep the same zero-non-loopback guarantee.
+
+Record `platformClass: "mobile"` only when the browser actually ran on the
+phone against an on-device loopback. Otherwise do not record a mobile
+manifest.
+
+## What this packet does not claim
+
+- no physical measurements are committed here;
+- no comparison against ChatGPT or any production application;
+- no statement about real conversations, real accounts, or private content;
+- no iOS/Android support claim;
+- no conclusion until valid manifests exist and pass the plateau evaluator.

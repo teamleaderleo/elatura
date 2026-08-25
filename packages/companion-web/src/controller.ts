@@ -6,18 +6,21 @@ import {
   type CompanionClientSnapshot,
   type CompanionOperation,
   type CompanionRequestEnvelope,
+  type CompanionUsage,
 } from "@elatura/core/companion";
 import {
   BoundedCompanionRenderSink,
   type CompanionRenderPolicy,
   type CompanionRenderSnapshot,
 } from "./render-sink.js";
+import { extractNavigationRecord } from "./navigation.js";
+import { nextCompanionRequestId } from "./request-id.js";
 import type {
   CompanionTransport,
   CompanionTransportSnapshot,
 } from "./transport.js";
 
-type RequestLane = "list" | "timeline" | "search" | "code" | "lifecycle";
+type RequestLane = "list" | "timeline" | "search" | "code" | "navigation" | "lifecycle";
 
 type OwnedRequest = {
   owner: number;
@@ -30,6 +33,7 @@ export type CompanionWebControllerSnapshot = Readonly<{
   render: CompanionRenderSnapshot;
   transport: CompanionTransportSnapshot;
   pendingLaneCount: number;
+  /** Requests created so far; capped by COMPANION_REQUEST_ORDINAL_MAX. */
   requestOrdinal: number;
 }>;
 
@@ -40,6 +44,7 @@ export type CompanionWebControllerSnapshot = Readonly<{
  */
 export type CompanionWebWorkingSetSnapshot = Readonly<{
   pendingLaneCount: number;
+  /** Requests created so far; capped by COMPANION_REQUEST_ORDINAL_MAX. */
   requestOrdinal: number;
   ownerOrdinal: number;
   clientPendingRequestCount: number;
@@ -56,8 +61,18 @@ export type CompanionWebWorkingSetSnapshot = Readonly<{
 
 export type CompanionWebDispatchResult = Readonly<{
   outcome: "applied" | "superseded" | "rejected";
-  requestId: string;
+  /**
+   * The wire request id of the dispatched request, or null exactly when the
+   * dispatch was refused at the request-ordinal lifetime bound before any
+   * request existed.
+   */
+  requestId: string | null;
   issueCodes: readonly string[];
+  /**
+   * Content-free companion working-set usage from the settled response, when a
+   * response envelope was received. Never carries conversation content.
+   */
+  usage: CompanionUsage | null;
   snapshot: CompanionWebControllerSnapshot;
 }>;
 
@@ -136,9 +151,8 @@ export class CompanionWebController {
     return this.snapshot;
   }
 
-  #claim(lane: RequestLane): OwnedRequest {
+  #claim(lane: RequestLane, requestId: string): OwnedRequest {
     this.#cancelLane(lane);
-    const requestId = `web-${++this.#requestOrdinal}`;
     const owned: OwnedRequest = {
       owner: ++this.#ownerOrdinal,
       requestId,
@@ -158,7 +172,21 @@ export class CompanionWebController {
     operation: CompanionOperation,
     payload: Record<string, unknown>,
   ): Promise<CompanionWebDispatchResult> {
-    const owned = this.#claim(lane);
+    // Enforced request-ordinal lifetime bound (see request-id.ts): refusing
+    // here creates nothing, registers nothing, dispatches nothing, emits
+    // nothing, and leaves pending lane ownership and counters untouched.
+    const gate = nextCompanionRequestId(this.#requestOrdinal);
+    if (!gate.ok) {
+      return Object.freeze({
+        outcome: "rejected",
+        requestId: null,
+        issueCodes: Object.freeze([gate.code]),
+        usage: null,
+        snapshot: this.snapshot,
+      });
+    }
+    this.#requestOrdinal += 1;
+    const owned = this.#claim(lane, gate.requestId);
     const expected = this.#client.expect(owned.requestId, operation);
     if (!expected.ok) {
       this.#owned.delete(lane);
@@ -166,6 +194,7 @@ export class CompanionWebController {
         outcome: "rejected",
         requestId: owned.requestId,
         issueCodes: Object.freeze(expected.issues.map((issue) => issue.code)),
+        usage: null,
         snapshot: this.snapshot,
       });
     }
@@ -189,6 +218,7 @@ export class CompanionWebController {
           outcome: "superseded",
           requestId: owned.requestId,
           issueCodes: Object.freeze([]),
+          usage: response.usage,
           snapshot: this.snapshot,
         });
       }
@@ -201,12 +231,28 @@ export class CompanionWebController {
           outcome: "rejected",
           requestId: owned.requestId,
           issueCodes: Object.freeze(applied.issues.map((issue) => issue.code)),
+          usage: response.usage,
           snapshot: this.snapshot,
         });
       }
 
       if (operation === "revoke") {
         this.#render.clear();
+      } else if (operation === "navigate") {
+        // The extraction bound comes from this instance's resolved render
+        // policy, so custom caps bind the navigate lane exactly.
+        const navigation = extractNavigationRecord(
+          response.payload,
+          this.#render.maxNavigationRelationshipIds,
+        );
+        if (navigation) {
+          this.#render.replaceNavigation(navigation);
+        } else {
+          this.#render.replaceFromClient(applied.value);
+          // A refused extraction must not silently retain the prior record as
+          // though it described the current entry; drop it instead.
+          this.#render.clearNavigation();
+        }
       } else {
         this.#render.replaceFromClient(applied.value);
       }
@@ -214,6 +260,7 @@ export class CompanionWebController {
         outcome: "applied",
         requestId: owned.requestId,
         issueCodes: Object.freeze([]),
+        usage: response.usage,
         snapshot: this.snapshot,
       });
     } catch {
@@ -228,6 +275,7 @@ export class CompanionWebController {
         issueCodes: Object.freeze(
           disowned || owned.abortController.signal.aborted ? [] : ["transport-failed"],
         ),
+        usage: null,
         snapshot: this.snapshot,
       });
     }
@@ -288,6 +336,17 @@ export class CompanionWebController {
       conversationId,
       entryId,
       blockIndex,
+    });
+  }
+
+  /**
+   * Mounts bounded parent/child/sibling/active-path relationships for one
+   * entry. The reply never carries timeline text or code.
+   */
+  navigate(conversationId: string, entryId: string): Promise<CompanionWebDispatchResult> {
+    return this.#dispatch("navigation", "navigate", {
+      conversationId,
+      entryId,
     });
   }
 
