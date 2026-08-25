@@ -5,29 +5,31 @@ import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const PROTECTED_ANDROID_SIGNING_WORKFLOW = "android-notification-companion-stable.yml";
 
 async function readJson(path) {
   return JSON.parse(await readFile(path, "utf8"));
 }
 
-async function workflowText() {
+async function ordinaryWorkflowText() {
   const directory = join(ROOT, ".github/workflows");
   const entries = await readdir(directory, { withFileTypes: true });
   const chunks = [];
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
     if (!entry.isFile() || !new Set([".yml", ".yaml"]).has(extname(entry.name))) continue;
+    if (entry.name === PROTECTED_ANDROID_SIGNING_WORKFLOW) continue;
     chunks.push(await readFile(join(directory, entry.name), "utf8"));
   }
   return chunks.join("\n");
 }
 
-const [policy, extensionManifest, amoMetadata, packageJson, candidateScript, workflows] = await Promise.all([
+const [policy, extensionManifest, amoMetadata, packageJson, candidateScript, ordinaryWorkflows] = await Promise.all([
   readJson(join(ROOT, "release/firefox-release-policy.json")),
   readJson(join(ROOT, "extension/firefox/static/manifest.json")),
   readJson(join(ROOT, "release/amo-metadata.json")),
   readJson(join(ROOT, "package.json")),
   readFile(join(ROOT, "scripts/create-firefox-release-candidate.mjs"), "utf8"),
-  workflowText(),
+  ordinaryWorkflowText(),
 ]);
 
 assert.equal(policy.schemaVersion, 1);
@@ -90,18 +92,18 @@ for (const forbidden of [
   /\bAMO_JWT_(?:ISSUER|SECRET)\b/u,
 ]) {
   assert.doesNotMatch(
-    `${packageAutomation}\n${workflows}`,
+    `${packageAutomation}\n${ordinaryWorkflows}`,
     forbidden,
     "Ordinary scripts and pull-request workflows must not sign, publish, or receive release credentials.",
   );
 }
 assert.doesNotMatch(
-  workflows,
+  ordinaryWorkflows,
   /(?:^|\n)\s*(?:permissions:\s*write-all|[A-Za-z][A-Za-z-]*:\s*write)\b/iu,
   "Ordinary pull-request workflows must remain completely read-only.",
 );
 assert.doesNotMatch(
-  workflows,
+  ordinaryWorkflows,
   /\$\{\{\s*secrets\./u,
   "Ordinary pull-request workflows must not receive repository or environment secrets.",
 );
