@@ -6,24 +6,33 @@ import {
   type CompanionClientSnapshot,
   type CompanionOperation,
   type CompanionRequestEnvelope,
+  type CompanionUsage,
 } from "@elatura/core/companion";
 import {
   BoundedCompanionRenderSink,
   type CompanionRenderPolicy,
   type CompanionRenderSnapshot,
 } from "./render-sink.js";
+import { extractNavigationRecord } from "./navigation.js";
 import type {
   CompanionTransport,
   CompanionTransportSnapshot,
 } from "./transport.js";
 
-type RequestLane = "list" | "timeline" | "search" | "code" | "lifecycle";
+type RequestLane = "list" | "timeline" | "search" | "code" | "navigation" | "lifecycle";
 
 type OwnedRequest = {
   owner: number;
   requestId: string;
   abortController: AbortController;
 };
+
+/**
+ * Navigation records are additionally bounded by the render policy default so
+ * a controller without an explicit render policy still refuses inflated
+ * relationship lists.
+ */
+const DEFAULT_MAX_NAVIGATION_RELATIONSHIP_IDS = 64;
 
 export type CompanionWebControllerSnapshot = Readonly<{
   client: CompanionClientSnapshot;
@@ -58,6 +67,11 @@ export type CompanionWebDispatchResult = Readonly<{
   outcome: "applied" | "superseded" | "rejected";
   requestId: string;
   issueCodes: readonly string[];
+  /**
+   * Content-free companion working-set usage from the settled response, when a
+   * response envelope was received. Never carries conversation content.
+   */
+  usage: CompanionUsage | null;
   snapshot: CompanionWebControllerSnapshot;
 }>;
 
@@ -166,6 +180,7 @@ export class CompanionWebController {
         outcome: "rejected",
         requestId: owned.requestId,
         issueCodes: Object.freeze(expected.issues.map((issue) => issue.code)),
+        usage: null,
         snapshot: this.snapshot,
       });
     }
@@ -189,6 +204,7 @@ export class CompanionWebController {
           outcome: "superseded",
           requestId: owned.requestId,
           issueCodes: Object.freeze([]),
+          usage: response.usage,
           snapshot: this.snapshot,
         });
       }
@@ -201,12 +217,20 @@ export class CompanionWebController {
           outcome: "rejected",
           requestId: owned.requestId,
           issueCodes: Object.freeze(applied.issues.map((issue) => issue.code)),
+          usage: response.usage,
           snapshot: this.snapshot,
         });
       }
 
       if (operation === "revoke") {
         this.#render.clear();
+      } else if (operation === "navigate") {
+        const navigation = extractNavigationRecord(
+          response.payload,
+          DEFAULT_MAX_NAVIGATION_RELATIONSHIP_IDS,
+        );
+        if (navigation) this.#render.replaceNavigation(navigation);
+        else this.#render.replaceFromClient(applied.value);
       } else {
         this.#render.replaceFromClient(applied.value);
       }
@@ -214,6 +238,7 @@ export class CompanionWebController {
         outcome: "applied",
         requestId: owned.requestId,
         issueCodes: Object.freeze([]),
+        usage: response.usage,
         snapshot: this.snapshot,
       });
     } catch {
@@ -228,6 +253,7 @@ export class CompanionWebController {
         issueCodes: Object.freeze(
           disowned || owned.abortController.signal.aborted ? [] : ["transport-failed"],
         ),
+        usage: null,
         snapshot: this.snapshot,
       });
     }
@@ -288,6 +314,17 @@ export class CompanionWebController {
       conversationId,
       entryId,
       blockIndex,
+    });
+  }
+
+  /**
+   * Mounts bounded parent/child/sibling/active-path relationships for one
+   * entry. The reply never carries timeline text or code.
+   */
+  navigate(conversationId: string, entryId: string): Promise<CompanionWebDispatchResult> {
+    return this.#dispatch("navigation", "navigate", {
+      conversationId,
+      entryId,
     });
   }
 

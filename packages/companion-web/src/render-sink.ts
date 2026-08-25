@@ -6,6 +6,7 @@ import type {
   CompanionPageEntry,
   CompanionSearchResult,
 } from "@elatura/core/companion";
+import type { CompanionNavigationRecord } from "./navigation.js";
 
 export type CompanionRenderPolicy = Readonly<{
   maxConversationMetadata: number;
@@ -14,6 +15,7 @@ export type CompanionRenderPolicy = Readonly<{
   maxSearchResults: number;
   maxSearchTextCodeUnits: number;
   maxCodeTextCodeUnits: number;
+  maxNavigationRelationshipIds: number;
   maxEstimatedArtifactBytes: number;
 }>;
 
@@ -24,6 +26,7 @@ export const DEFAULT_COMPANION_RENDER_POLICY: CompanionRenderPolicy = Object.fre
   maxSearchResults: 50,
   maxSearchTextCodeUnits: 65_536,
   maxCodeTextCodeUnits: 262_144,
+  maxNavigationRelationshipIds: 64,
   maxEstimatedArtifactBytes: 2_097_152,
 });
 
@@ -37,10 +40,12 @@ export type CompanionRenderSnapshot = Readonly<{
   searchResults: readonly CompanionSearchResult[];
   searchTruncated: boolean;
   code: CompanionClientCode | null;
+  navigation: CompanionNavigationRecord | null;
   lastError: CompanionClientSnapshot["lastError"];
   mountedTimelineRowCount: number;
   mountedSearchResultCount: number;
   mountedCodeTextCodeUnits: number;
+  mountedNavigationRelationshipCount: number;
   estimatedArtifactBytes: number;
 }>;
 
@@ -54,6 +59,7 @@ type MutableRenderState = {
   searchResults: CompanionSearchResult[];
   searchTruncated: boolean;
   code: CompanionClientCode | null;
+  navigation: CompanionNavigationRecord | null;
   lastError: CompanionClientSnapshot["lastError"];
 };
 
@@ -70,6 +76,19 @@ function resolvePolicy(
 }
 
 function estimatedBytes(value: unknown): number {
+  const state = value as MutableRenderState | null;
+  if (
+    typeof state === "object" &&
+    state !== null &&
+    "navigation" in state &&
+    state.navigation === null
+  ) {
+    // An absent navigation record contributes nothing; keeping the empty
+    // render irreducible preserves the merged artifact-cap floor.
+    const { navigation: _omitted, ...rest } = state;
+    void _omitted;
+    return JSON.stringify(rest).length * 2;
+  }
   return JSON.stringify(value).length * 2;
 }
 
@@ -142,6 +161,7 @@ function emptyState(): MutableRenderState {
     searchResults: [],
     searchTruncated: false,
     code: null,
+    navigation: null,
     lastError: null,
   };
 }
@@ -173,13 +193,40 @@ export class BoundedCompanionRenderSink {
       mountedTimelineRowCount: copied.timeline.length,
       mountedSearchResultCount: copied.searchResults.length,
       mountedCodeTextCodeUnits: copied.code?.text.length ?? 0,
+      mountedNavigationRelationshipCount: copied.navigation
+        ? copied.navigation.childIds.length +
+          copied.navigation.activePath.length +
+          (copied.navigation.parentId === null ? 0 : 1)
+        : 0,
       estimatedArtifactBytes: estimatedBytes(copied),
     });
+  }
+
+  /**
+   * Mounts one bounded navigation record, replacing any prior record. A record
+   * that would exceed the artifact budget is refused instead of mounted, and
+   * the retained record lives only while its conversation stays mounted.
+   */
+  replaceNavigation(
+    navigation: CompanionNavigationRecord,
+  ): CompanionRenderSnapshot {
+    const candidate = { ...this.#state, navigation: structuredClone(navigation) };
+    if (estimatedBytes(candidate) > this.#policy.maxEstimatedArtifactBytes) {
+      return this.snapshot;
+    }
+    this.#state = candidate;
+    return this.snapshot;
   }
 
   replaceFromClient(snapshot: CompanionClientSnapshot): CompanionRenderSnapshot {
     const timeline = copyTimeline(snapshot.page?.entries ?? [], this.#policy);
     const search = copySearch(snapshot.searchResults, this.#policy);
+    const retainedNavigation =
+      this.#state.navigation !== null &&
+      this.#state.navigation.conversationId ===
+        (snapshot.page?.conversationId ?? null)
+        ? this.#state.navigation
+        : null;
     let candidate: MutableRenderState = {
       conversations: structuredClone(
         snapshot.conversations.slice(0, this.#policy.maxConversationMetadata),
@@ -192,9 +239,13 @@ export class BoundedCompanionRenderSink {
       searchResults: search.results,
       searchTruncated: search.truncated,
       code: copyCode(snapshot.code, this.#policy),
+      navigation: structuredClone(retainedNavigation),
       lastError: snapshot.lastError,
     };
 
+    if (estimatedBytes(candidate) > this.#policy.maxEstimatedArtifactBytes) {
+      candidate.navigation = null;
+    }
     if (estimatedBytes(candidate) > this.#policy.maxEstimatedArtifactBytes) {
       candidate.code = null;
     }
@@ -240,6 +291,9 @@ export class BoundedCompanionRenderSink {
     }
     if (this.#state.code?.conversationId === conversationId) {
       this.#state.code = null;
+    }
+    if (this.#state.navigation?.conversationId === conversationId) {
+      this.#state.navigation = null;
     }
     return this.snapshot;
   }
