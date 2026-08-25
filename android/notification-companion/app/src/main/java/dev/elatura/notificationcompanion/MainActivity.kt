@@ -6,6 +6,7 @@ import android.app.AlertDialog
 import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Intent
+import android.content.SharedPreferences
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -31,21 +32,35 @@ class MainActivity : Activity() {
     private lateinit var metricsView: TextView
     private lateinit var testView: TextView
     private lateinit var eventsView: TextView
+    private lateinit var undoTestCaseButton: Button
+    private lateinit var cachedEnvironment: DiagnosticEnvironment
+    private var latestSnapshot: HintStoreSnapshot? = null
+    private var accessGranted: Boolean = false
+
     private val store by lazy { LocalHintStore(applicationContext) }
     private val dateFormat by lazy {
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM)
     }
     private val handler = Handler(Looper.getMainLooper())
-    private val refreshTick = object : Runnable {
+    private val renderPending = Runnable { renderFromStore() }
+    private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        handler.removeCallbacks(renderPending)
+        handler.post(renderPending)
+    }
+    private val ageTick = object : Runnable {
         override fun run() {
-            render()
-            handler.postDelayed(this, REFRESH_INTERVAL_MS)
+            latestSnapshot?.let { snapshot ->
+                accessGranted = notificationAccessGranted()
+                renderHealth(snapshot, System.currentTimeMillis())
+            }
+            handler.postDelayed(this, AGE_REFRESH_INTERVAL_MS)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         title = getString(R.string.app_name)
+        cachedEnvironment = diagnosticEnvironment()
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -83,30 +98,19 @@ class MainActivity : Activity() {
         metricsView = cardText(15f).apply { setTextIsSelectable(true) }
         root.addView(metricsView, matchWrap(bottom = 14))
 
-        root.addView(sectionHeading("Physical test tally"), matchWrap(bottom = 4))
+        root.addView(sectionHeading("Guided physical test"), matchWrap(bottom = 4))
         testView = cardText(15f).apply { setTextIsSelectable(true) }
         root.addView(testView, matchWrap(bottom = 8))
-        root.addView(actionButton("Mark notification arrived") {
-            store.recordVerifiedNotificationArrived()
-            toast("Recorded: notification arrived")
-            render()
+        root.addView(actionButton("Record one completed test case") {
+            beginGuidedTestCase()
         }, matchWrap(bottom = 5))
-        root.addView(actionButton("Mark notification missed") {
-            store.recordVerifiedNotificationMissed()
-            toast("Recorded: notification missed")
-            render()
-        }, matchWrap(bottom = 5))
-        root.addView(actionButton("Mark notification tap opened correct chat") {
-            store.recordVerifiedDeepLinkCorrect()
-            toast("Recorded: correct chat opened")
-            render()
-        }, matchWrap(bottom = 5))
-        root.addView(actionButton("Mark tap failed or opened wrong chat") {
-            store.recordVerifiedDeepLinkFailed()
-            toast("Recorded: tap failure")
-            render()
-        }, matchWrap(bottom = 5))
-        root.addView(actionButton("Start or reset test tally") {
+        undoTestCaseButton = actionButton("Undo latest saved case") {
+            if (store.undoLastVerifiedTestCase()) toast("Latest test case removed")
+            else toast("No saved case is available to undo")
+            renderFromStore()
+        }
+        root.addView(undoTestCaseButton, matchWrap(bottom = 5))
+        root.addView(actionButton("Start or reset test session") {
             confirmResetTestTally()
         }, matchWrap(bottom = 14))
 
@@ -119,7 +123,7 @@ class MainActivity : Activity() {
 
         root.addView(sectionHeading("Privacy and storage"), matchWrap(bottom = 4))
         root.addView(cardText(14f).apply {
-            text = "Raw notification titles and bodies are bounded in memory, converted to keyed HMAC tokens, and then discarded. The screen and shared report contain only device/app versions, build identifiers, timestamps, counters, booleans, latency measurements, manual test tallies, and opaque event metadata. At most ${LocalHintStore.MAX_QUEUE_ENTRIES} retained events are stored locally."
+            text = "Raw notification titles and bodies are bounded in memory, converted to keyed HMAC tokens, and then discarded. The screen and shared report contain only device/app versions, build identifiers, timestamps, counters, booleans, latency measurements, guided test totals, and opaque event metadata. At most ${LocalHintStore.MAX_QUEUE_ENTRIES} retained events are stored locally."
         }, matchWrap(bottom = 14))
 
         root.addView(sectionHeading("Local data controls"), matchWrap(bottom = 4))
@@ -135,26 +139,36 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        handler.removeCallbacks(refreshTick)
-        refreshTick.run()
+        store.registerChangeListener(preferenceListener)
+        cachedEnvironment = diagnosticEnvironment()
+        renderContext()
+        renderFromStore()
+        handler.removeCallbacks(ageTick)
+        handler.postDelayed(ageTick, AGE_REFRESH_INTERVAL_MS)
     }
 
     override fun onPause() {
-        handler.removeCallbacks(refreshTick)
+        store.unregisterChangeListener(preferenceListener)
+        handler.removeCallbacks(renderPending)
+        handler.removeCallbacks(ageTick)
         super.onPause()
     }
 
-    private fun render() {
+    private fun renderFromStore() {
         val snapshot = store.snapshot()
-        val environment = diagnosticEnvironment()
-        val accessGranted = notificationAccessGranted()
-        val listenerConfirmed = listenerConfirmedInCurrentProcess(snapshot, accessGranted)
-        val summary = summarizeHints(snapshot.hints)
-        val now = System.currentTimeMillis()
-        val lastEvent = snapshot.lastEventAt.takeIf { it > 0L }
+        latestSnapshot = snapshot
+        accessGranted = notificationAccessGranted()
+        renderHealth(snapshot, System.currentTimeMillis())
+        renderMetrics(snapshot)
+        renderPhysicalTest(snapshot)
+        renderEvents(snapshot)
+    }
 
+    private fun renderHealth(snapshot: HintStoreSnapshot, now: Long) {
+        val listenerConfirmed = listenerConfirmedInCurrentProcess(snapshot, accessGranted)
+        val lastEvent = snapshot.lastEventAt.takeIf { it > 0L }
         val healthLabel = when {
-            !accessGranted -> "Permission needed"
+            !accessGranted -> "Setup needed"
             listenerConfirmed -> "Listening"
             else -> "Access granted · listener not yet confirmed"
         }
@@ -174,7 +188,10 @@ class MainActivity : Activity() {
                 append("Recovery: open notification access and confirm Elatura is enabled. Android will request a rebind automatically after a disconnect.")
             }
         }
+    }
 
+    private fun renderContext() {
+        val environment = cachedEnvironment
         contextView.text = buildString {
             appendLine("Phone: ${environment.deviceManufacturer} ${environment.deviceModel}")
             appendLine("Android: ${environment.androidRelease} · API ${environment.androidSdkInt}")
@@ -184,7 +201,10 @@ class MainActivity : Activity() {
             appendLine("GitHub workflow run: ${environment.buildRunId}")
             append("Battery-optimization exemption: ${environment.batteryOptimizationExempt?.let(::yesNo) ?: "unknown"}")
         }
+    }
 
+    private fun renderMetrics(snapshot: HintStoreSnapshot) {
+        val summary = summarizeHints(snapshot.hints)
         metricsView.text = buildString {
             appendLine("Projected events observed: ${snapshot.observed}")
             appendLine("Retained unique events: ${snapshot.accepted}")
@@ -201,30 +221,34 @@ class MainActivity : Activity() {
             appendLine("Median / p95 latency: ${formatLatency(summary.latencyMedianMs)} / ${formatLatency(summary.latencyP95Ms)}")
             appendLine("Minimum / maximum latency: ${formatLatency(summary.latencyMinimumMs)} / ${formatLatency(summary.latencyMaximumMs)}")
             appendLine("Negative / >24h latency anomalies: ${summary.negativeLatencyCount} / ${summary.latencyOutlierCount}")
-            appendLine("Dropped at worker bound: ${snapshot.dropped}")
+            appendLine("Dropped at worker bound or teardown: ${snapshot.dropped}")
             appendLine("Projection or storage errors: ${snapshot.errors}")
             append("Malformed local records detected: ${snapshot.corruptRecords}")
         }
+    }
 
-        val notificationChecks = safeTotal(
-            snapshot.verifiedNotificationArrived,
-            snapshot.verifiedNotificationMissed,
-        )
-        val deepLinkChecks = safeTotal(
-            snapshot.verifiedDeepLinkCorrect,
-            snapshot.verifiedDeepLinkFailed,
-        )
+    private fun renderPhysicalTest(snapshot: HintStoreSnapshot) {
+        val tally = snapshot.physicalTestTally()
+        val notificationChecks = safeTotal(tally.notificationArrived, tally.notificationMissed)
+        val testedDeepLinks = safeTotal(tally.deepLinkCorrect, tally.deepLinkFailed)
+        val lastCase = snapshot.lastVerifiedTestCase
         testView.text = buildString {
             appendLine("Test started: ${formatOptionalTime(snapshot.testStartedAt)}")
-            appendLine("Verified notification arrivals: ${snapshot.verifiedNotificationArrived}")
-            appendLine("Verified notification misses: ${snapshot.verifiedNotificationMissed}")
-            appendLine("Arrival coverage: ${formatRatio(snapshot.verifiedNotificationArrived, notificationChecks)}")
-            appendLine("Correct notification deep links: ${snapshot.verifiedDeepLinkCorrect}")
-            appendLine("Failed or wrong deep links: ${snapshot.verifiedDeepLinkFailed}")
-            appendLine("Deep-link accuracy: ${formatRatio(snapshot.verifiedDeepLinkCorrect, deepLinkChecks)}")
-            append("Use these buttons only after independently checking whether ChatGPT completed the task and what its notification tap did.")
+            appendLine("Completed test cases: ${tally.completedCases}")
+            appendLine("Notifications arrived: ${tally.notificationArrived}")
+            appendLine("Notifications missed: ${tally.notificationMissed}")
+            appendLine("Arrival coverage: ${formatRatio(tally.notificationArrived, notificationChecks)}")
+            appendLine("Correct notification deep links: ${tally.deepLinkCorrect}")
+            appendLine("Failed or wrong deep links: ${tally.deepLinkFailed}")
+            appendLine("Deep links not tested: ${tally.deepLinkNotTested}")
+            appendLine("Deep-link accuracy: ${formatRatio(tally.deepLinkCorrect, testedDeepLinks)}")
+            appendLine("Latest saved case: ${lastCase?.let(::describeTestCase) ?: "none"}")
+            append("The guided flow saves all related counts together, so arrival and tap totals cannot drift apart.")
         }
+        undoTestCaseButton.isEnabled = lastCase != null
+    }
 
+    private fun renderEvents(snapshot: HintStoreSnapshot) {
         eventsView.text = if (snapshot.hints.isEmpty()) {
             "No ChatGPT notification hints captured yet. Complete a ChatGPT task after granting notification access, then return here."
         } else {
@@ -249,12 +273,67 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun beginGuidedTestCase() {
+        AlertDialog.Builder(this)
+            .setTitle("Did the ChatGPT task finish?")
+            .setMessage("Only completed tasks should enter the notification-coverage tally.")
+            .setPositiveButton("Completed") { _, _ -> askNotificationArrival() }
+            .setNegativeButton("Not yet", null)
+            .setNeutralButton("Cancel", null)
+            .show()
+    }
+
+    private fun askNotificationArrival() {
+        AlertDialog.Builder(this)
+            .setTitle("Did Android deliver a ChatGPT notification?")
+            .setPositiveButton("Notification arrived") { _, _ -> askDeepLinkResult() }
+            .setNegativeButton("No notification") { _, _ ->
+                saveTestCase(notificationArrived = false, deepLinkResult = null)
+            }
+            .setNeutralButton("Cancel", null)
+            .show()
+    }
+
+    private fun askDeepLinkResult() {
+        val choices = arrayOf(
+            "Opened the correct chat",
+            "Failed or opened the wrong chat",
+            "Notification tap was not tested",
+        )
+        AlertDialog.Builder(this)
+            .setTitle("What happened when the notification was tapped?")
+            .setItems(choices) { _, which ->
+                val result = when (which) {
+                    0 -> DeepLinkResult.CORRECT
+                    1 -> DeepLinkResult.FAILED
+                    else -> DeepLinkResult.NOT_TESTED
+                }
+                saveTestCase(notificationArrived = true, deepLinkResult = result)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun saveTestCase(
+        notificationArrived: Boolean,
+        deepLinkResult: DeepLinkResult?,
+    ) {
+        val testCase = VerifiedTestCase(
+            recordedAt = System.currentTimeMillis(),
+            notificationArrived = notificationArrived,
+            deepLinkResult = deepLinkResult,
+        )
+        if (store.recordVerifiedTestCase(testCase)) toast("Test case saved")
+        else toast("Unable to save the test case")
+        renderFromStore()
+    }
+
     private fun shareReport() {
         val snapshot = store.snapshot()
-        val accessGranted = notificationAccessGranted()
+        accessGranted = notificationAccessGranted()
         val report = buildContentFreeReport(
             snapshot = snapshot,
-            environment = diagnosticEnvironment(),
+            environment = cachedEnvironment,
             accessGranted = accessGranted,
             listenerConfirmedInCurrentProcess = listenerConfirmedInCurrentProcess(snapshot, accessGranted),
             generatedAt = System.currentTimeMillis(),
@@ -285,13 +364,13 @@ class MainActivity : Activity() {
 
     private fun confirmResetTestTally() {
         AlertDialog.Builder(this)
-            .setTitle("Start a fresh physical test tally?")
-            .setMessage("This resets only the four manual verification counters and records a new test start time. Captured notification hints remain intact.")
+            .setTitle("Start a fresh physical test session?")
+            .setMessage("This resets guided test cases and records a new start time. Captured notification hints remain intact.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Start") { _, _ ->
-                if (store.startTestTally(System.currentTimeMillis())) toast("Fresh test tally started")
-                else toast("Unable to reset the test tally")
-                render()
+                if (store.startTestTally(System.currentTimeMillis())) toast("Fresh test session started")
+                else toast("Unable to reset the test session")
+                renderFromStore()
             }
             .show()
     }
@@ -299,12 +378,12 @@ class MainActivity : Activity() {
     private fun confirmClearHints() {
         AlertDialog.Builder(this)
             .setTitle("Clear captured hints?")
-            .setMessage("This removes the tokenized event ring and event counters. Listener, service, and manual test evidence remains available.")
+            .setMessage("This removes the tokenized event ring and event counters. Listener, service, and guided test evidence remains available.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Clear") { _, _ ->
                 if (store.clearHints()) toast("Captured hints cleared")
                 else toast("Unable to clear captured hints")
-                render()
+                renderFromStore()
             }
             .show()
     }
@@ -326,7 +405,7 @@ class MainActivity : Activity() {
                     keyDeleted && stateCleared -> toast("Sensor identity reset")
                     else -> toast("Reset was incomplete; try again")
                 }
-                render()
+                renderFromStore()
             }
             .show()
     }
@@ -399,6 +478,13 @@ class MainActivity : Activity() {
             ?.take(limit)
             ?.takeIf(String::isNotEmpty)
             ?: "unknown"
+    }
+
+    private fun describeTestCase(testCase: VerifiedTestCase): String = when {
+        !testCase.notificationArrived -> "notification missed"
+        testCase.deepLinkResult == DeepLinkResult.CORRECT -> "arrived · correct chat"
+        testCase.deepLinkResult == DeepLinkResult.FAILED -> "arrived · wrong or failed"
+        else -> "arrived · tap not tested"
     }
 
     private fun heading(text: String, size: Float): TextView = TextView(this).apply {
@@ -485,7 +571,7 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        private const val REFRESH_INTERVAL_MS = 1_000L
+        private const val AGE_REFRESH_INTERVAL_MS = 30_000L
         private const val MAX_VISIBLE_EVENTS = 20
         private const val METADATA_LIMIT = 128
         private const val BUILD_IDENTIFIER_LIMIT = 64

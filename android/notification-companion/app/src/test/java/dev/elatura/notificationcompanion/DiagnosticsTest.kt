@@ -46,6 +46,11 @@ class DiagnosticsTest {
     fun contentFreeReportOmitsOpaqueTokenValuesAndKeepsUsefulMetadata() {
         val token = "title:length=22:h=super-secret-token"
         val keyHash = "hmac-sha256:super-secret-key-hash"
+        val lastCase = VerifiedTestCase(
+            recordedAt = 4_500L,
+            notificationArrived = true,
+            deepLinkResult = DeepLinkResult.NOT_TESTED,
+        )
         val snapshot = HintStoreSnapshot(
             hints = listOf(
                 stored(
@@ -73,10 +78,13 @@ class DiagnosticsTest {
             serviceStartedElapsedRealtime = 2_000L,
             serviceStartCount = 1L,
             testStartedAt = 2_750L,
+            verifiedCompletedCases = 10L,
             verifiedNotificationArrived = 8L,
             verifiedNotificationMissed = 2L,
             verifiedDeepLinkCorrect = 6L,
             verifiedDeepLinkFailed = 1L,
+            verifiedDeepLinkNotTested = 1L,
+            lastVerifiedTestCase = lastCase,
         )
         val environment = DiagnosticEnvironment(
             deviceManufacturer = "Example",
@@ -105,10 +113,13 @@ class DiagnosticsTest {
         assertTrue(report.contains("chatGptVersion=1.2026.200"))
         assertTrue(report.contains("batteryOptimizationExempt=false"))
         assertTrue(report.contains("listenerConfirmedInCurrentProcess=true"))
+        assertTrue(report.contains("verifiedCompletedCases=10"))
         assertTrue(report.contains("verifiedNotificationArrived=8"))
         assertTrue(report.contains("verifiedNotificationMissed=2"))
         assertTrue(report.contains("verifiedDeepLinkCorrect=6"))
         assertTrue(report.contains("verifiedDeepLinkFailed=1"))
+        assertTrue(report.contains("verifiedDeepLinkNotTested=1"))
+        assertTrue(report.contains("lastVerifiedCaseDeepLinkResult=not-tested"))
         assertTrue(report.contains("possibleCompletions=1"))
         assertTrue(report.contains("titleToken=true"))
         assertTrue(report.contains("latencyMs=500"))
