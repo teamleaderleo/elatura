@@ -24,6 +24,7 @@ describe("Android stable private signing", () => {
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).not.toContain("pull_request:");
     expect(workflow).toContain("environment: android-signing");
+    expect(workflow).toContain("if: github.ref == 'refs/heads/main'");
     expect(workflow).toContain("permissions:\n  contents: read");
     expect(workflow).toContain("cancel-in-progress: false");
   });
@@ -64,6 +65,11 @@ describe("Android stable private signing", () => {
     expect(uploadIndex).toBeGreaterThan(compareIndex);
     expect(workflow).toContain("certificateSha256=${CERT_SHA256}");
     expect(workflow).toContain("updateCompatibility=stable-for-this-certificate");
+    expect(workflow).toContain("version_code=${VERSION_CODE}");
+    expect(workflow).toContain("short_sha=${SHORT_SHA}");
+    expect(workflow).toContain(
+      "elatura-notification-companion-stable-v${{ steps.verify.outputs.version_code }}-${{ steps.verify.outputs.short_sha }}",
+    );
     expect(workflow).toContain("APKSIGNER-REPORT.txt");
     expect(workflow).toContain("app-release.apk.sha256");
   });

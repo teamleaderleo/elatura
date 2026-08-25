@@ -43,7 +43,7 @@ Create a repository environment named exactly:
 android-signing
 ```
 
-Recommended environment rules:
+Required environment rules before adding signing secrets:
 
 - require the repository owner to approve each deployment;
 - restrict deployment to the intended protected branch;
@@ -74,7 +74,7 @@ The workflow `Android notification companion stable build` uses `workflow_dispat
 
 On each run it:
 
-1. checks out the exact selected revision;
+1. rejects non-`main` refs and checks out the exact current `main` revision;
 2. materializes the keystore in the runner's private temporary directory;
 3. runs unit tests and builds the release APK with `ELATURA_SIGNING_MODE=stable-private`;
 4. verifies the APK signature with Android `apksigner`;
