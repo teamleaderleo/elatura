@@ -6,6 +6,7 @@ import type {
   CompanionUsage,
 } from "@elatura/core/companion";
 import { CompanionWebController } from "../src/controller.js";
+import { BoundedCompanionRenderSink } from "../src/render-sink.js";
 import type {
   CompanionTransport,
   CompanionTransportSnapshot,
@@ -152,6 +153,36 @@ class ImmediateTransport implements CompanionTransport {
 }
 
 describe("CompanionWebController", () => {
+  it("rejects an artifact cap smaller than the irreducible empty render", () => {
+    expect(
+      () =>
+        new CompanionWebController({
+          sessionId: "impossible-render-policy",
+          transport: new ImmediateTransport(),
+          renderPolicy: { maxEstimatedArtifactBytes: 1 },
+        }),
+    ).toThrow(/maxEstimatedArtifactBytes must be at least/);
+  });
+
+  it("falls back to the empty render when scalar fields exceed a valid cap", () => {
+    const maxEstimatedArtifactBytes = 400;
+    const controller = new CompanionWebController({
+      sessionId: "scalar-render-source",
+      transport: new ImmediateTransport(),
+    });
+    const sink = new BoundedCompanionRenderSink({ maxEstimatedArtifactBytes });
+    const snapshot = sink.replaceFromClient({
+      ...controller.snapshot.client,
+      searchConversationId: `conversation-${"x".repeat(500)}`,
+    });
+
+    expect(snapshot.searchConversationId).toBeNull();
+    expect(snapshot.mountedTimelineRowCount).toBe(0);
+    expect(snapshot.estimatedArtifactBytes).toBeLessThanOrEqual(
+      maxEstimatedArtifactBytes,
+    );
+  });
+
   it("ignores a late timeline reply after a newer open owns the lane", async () => {
     const transport = new DeferredTransport();
     const controller = new CompanionWebController({

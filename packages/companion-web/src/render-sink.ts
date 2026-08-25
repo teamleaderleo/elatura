@@ -146,6 +146,8 @@ function emptyState(): MutableRenderState {
   };
 }
 
+const MINIMUM_ESTIMATED_ARTIFACT_BYTES = estimatedBytes(emptyState());
+
 /**
  * Copies only bounded view artifacts. Authoritative representations and prior
  * pages never enter this sink.
@@ -155,7 +157,13 @@ export class BoundedCompanionRenderSink {
   #state: MutableRenderState = emptyState();
 
   constructor(inputPolicy?: Partial<CompanionRenderPolicy>) {
-    this.#policy = resolvePolicy(inputPolicy);
+    const policy = resolvePolicy(inputPolicy);
+    if (policy.maxEstimatedArtifactBytes < MINIMUM_ESTIMATED_ARTIFACT_BYTES) {
+      throw new RangeError(
+        `maxEstimatedArtifactBytes must be at least ${MINIMUM_ESTIMATED_ARTIFACT_BYTES}.`,
+      );
+    }
+    this.#policy = policy;
   }
 
   get snapshot(): CompanionRenderSnapshot {
@@ -172,7 +180,7 @@ export class BoundedCompanionRenderSink {
   replaceFromClient(snapshot: CompanionClientSnapshot): CompanionRenderSnapshot {
     const timeline = copyTimeline(snapshot.page?.entries ?? [], this.#policy);
     const search = copySearch(snapshot.searchResults, this.#policy);
-    const candidate: MutableRenderState = {
+    let candidate: MutableRenderState = {
       conversations: structuredClone(
         snapshot.conversations.slice(0, this.#policy.maxConversationMetadata),
       ),
@@ -209,6 +217,9 @@ export class BoundedCompanionRenderSink {
       candidate.conversations.length > 0
     ) {
       candidate.conversations.pop();
+    }
+    if (estimatedBytes(candidate) > this.#policy.maxEstimatedArtifactBytes) {
+      candidate = emptyState();
     }
 
     this.#state = candidate;
