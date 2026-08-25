@@ -22,6 +22,13 @@
  * working set before and after one repeated action), so the parser refuses a
  * sample array longer than twice the declared cycles: such a manifest would
  * misattest its own provenance.
+ *
+ * The prescribed browser probes in packages/companion-web/src/probes.ts bind
+ * their exact round/cycle counts to this admission window: a switch probe
+ * emits `SWITCH_PROBE_ROUNDS × served conversations` samples (8 for the
+ * runbook's single-conversation server) and an open/close probe emits
+ * exactly `OPEN_CLOSE_PROBE_CYCLES × 2 = MAX_PROBE_SAMPLES` samples, so the
+ * documented procedure is schema-admissible by construction.
  */
 
 export const COMPANION_BROWSER_RUN_MANIFEST_SCHEMA_VERSION = 1 as const;
@@ -55,7 +62,13 @@ const CANONICAL_UTC =
 const BOUNDED_REVISION = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/u;
 const BOUNDED_VERSION_TOKEN = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$/u;
 
-const MAX_PROBE_SAMPLES = 32;
+/**
+ * Upper bound on recorded samples per probe, mirrored by the schema's
+ * `samples.maxItems` and by MAXIMUM_PROBE_SAMPLES in
+ * packages/companion-web/src/probes.ts (the prescribed browser probes derive
+ * their emissions from that constant; parity is asserted by test).
+ */
+export const MAX_PROBE_SAMPLES = 32;
 /**
  * Mirrors MINIMUM_PLATEAU_SAMPLES from
  * packages/companion-web/src/plateau.ts (the canonical plateau sample floor).

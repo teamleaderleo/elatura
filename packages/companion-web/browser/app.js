@@ -14,6 +14,11 @@ import {
   evaluateWorkingSetPlateau,
 } from "/vendor/@elatura/companion-web/plateau.js";
 import {
+  probeTranscriptLines,
+  runOpenCloseProbe,
+  runSwitchProbe,
+} from "/vendor/@elatura/companion-web/probes.js";
+import {
   projectCompanionBrowserViewModel,
 } from "/vendor/@elatura/companion-web/view-model.js";
 
@@ -331,17 +336,26 @@ function sampleWorkingSet() {
   };
 }
 
-function probeVerdictText(label, samples) {
+function verdictLine(label, samples) {
   const verdict = evaluateWorkingSetPlateau(samples);
-  const lines = samples.map((sample, index) =>
-    `${index} ${JSON.stringify(sample)}`,
-  );
-  lines.push(
-    verdict.ok
-      ? `${label}: plateau-ok firstHalfMax=${JSON.stringify(verdict.firstHalfMaxima)}`
-      : `${label}: plateau-failed ${verdict.failures.map((failure) => `${failure.code}:${failure.field}`).join(",")}`,
-  );
-  return lines.join("\n");
+  return verdict.ok
+    ? `${label}: plateau-ok firstHalfMax=${JSON.stringify(verdict.firstHalfMaxima)}`
+    : `${label}: plateau-failed ${verdict.failures.map((failure) => `${failure.code}:${failure.field}`).join(",")}`;
+}
+
+async function emitProbeTranscript(label, run) {
+  try {
+    const outcome = await run();
+    setText(elements["probe-output"], [
+      ...probeTranscriptLines(outcome.plan, outcome.samples),
+      verdictLine(label, outcome.samples),
+    ].join("\n"));
+  } catch (error) {
+    setText(
+      elements["probe-output"],
+      `${label}: refused ${error instanceof Error ? error.message : "inadmissible-plan"}`,
+    );
+  }
 }
 
 elements["run-switch-probe"].addEventListener("click", () => {
@@ -349,15 +363,14 @@ elements["run-switch-probe"].addEventListener("click", () => {
     elements["probe-output"].replaceChildren();
     const ids = controller.snapshot.client.conversations.map((item) => item.id);
     if (ids.length === 0) return;
-    const samples = [];
-    for (let round = 0; round < 3; round += 1) {
-      for (const id of ids) {
-        const opened = await controller.open(id);
+    await emitProbeTranscript("switch-probe", () => runSwitchProbe({
+      conversationIds: ids,
+      openConversation: async (conversationId) => {
+        const opened = await controller.open(conversationId);
         lastUsage = opened.usage ?? lastUsage;
-        samples.push(sampleWorkingSet());
-      }
-    }
-    setText(elements["probe-output"], probeVerdictText("switch-probe", samples));
+      },
+      sampleWorkingSet,
+    }));
     refresh();
   })();
 });
@@ -368,15 +381,19 @@ elements["run-open-close-probe"].addEventListener("click", () => {
     const id = currentConversationId()
       ?? controller.snapshot.client.conversations[0]?.id ?? null;
     if (!id) return;
-    const samples = [];
-    for (let cycle = 0; cycle < 24; cycle += 1) {
-      await controller.open(id);
-      samples.push(sampleWorkingSet());
-      await controller.close(id);
-      samples.push(sampleWorkingSet());
-    }
+    await emitProbeTranscript("open-close-probe", () => runOpenCloseProbe({
+      conversationId: id,
+      openConversation: async (conversationId) => {
+        const opened = await controller.open(conversationId);
+        lastUsage = opened.usage ?? lastUsage;
+      },
+      closeConversation: async (conversationId) => {
+        const closed = await controller.close(conversationId);
+        lastUsage = closed.usage ?? lastUsage;
+      },
+      sampleWorkingSet,
+    }));
     ledger.resetVolatileState();
-    setText(elements["probe-output"], probeVerdictText("open-close-probe", samples));
     refresh();
   })();
 });

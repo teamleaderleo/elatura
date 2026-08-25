@@ -220,7 +220,7 @@ export function staticAssetTable() {
       [`/vendor/@elatura/core/${name}.js`, `packages/core/dist/${name}.js`],
     ]),
     ...["browser-request-ledger", "controller", "http-companion-transport",
-      "index", "navigation", "plateau", "render-sink", "transport", "view-model",
+      "index", "navigation", "plateau", "probes", "render-sink", "transport", "view-model",
     ].flatMap((name) => [
       [`/vendor/@elatura/companion-web/${name}.js`, `packages/companion-web/dist/${name}.js`],
     ]),

@@ -27,7 +27,13 @@ client is compiled workspace ESM plus a static import map.
     code references no transport primitive;
   - `view-model.ts` — content-free projection into plain display rows;
   - `plateau.ts` — deterministic plateau evaluation for switching and
-    open/close probes.
+    open/close probes;
+  - `probes.ts` — prescribed probe plans, execution loops, and transcript
+    lines; explicit round/cycle constants derive each emission cardinality
+    and refuse configurations outside the run-manifest schema's 6–32 sample
+    window (8 recorded rounds × served conversations; 16 recorded open/close
+    cycles × 2), with unrecorded warm-up repetitions that reach the ledger
+    cache's bounded steady state before recording.
 - `packages/companion-web/browser/` — fixed static assets (`index.html`,
   `app.css`, `app.js`) mounted as plain text; no handler closes over a source
   entry, and every rendered value comes from the latest snapshots.

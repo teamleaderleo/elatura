@@ -145,7 +145,11 @@ export class CompanionWebController {
 
   #claim(lane: RequestLane): OwnedRequest {
     this.#cancelLane(lane);
-    const requestId = `web-${++this.#requestOrdinal}`;
+    // Fixed-width ordinals keep every envelope for the same operation at an
+    // identical byte size regardless of how many requests preceded it, so
+    // byte-accounting evidence (ledger cache bytes, artifact estimates)
+    // reflects content shape alone, not ordinal magnitude.
+    const requestId = `web-${String(++this.#requestOrdinal).padStart(6, "0")}`;
     const owned: OwnedRequest = {
       owner: ++this.#ownerOrdinal,
       requestId,

@@ -170,12 +170,13 @@
           "type": "integer",
           "minimum": 2,
           "maximum": 100000,
-          "description": "Completed probe repetitions that produced the attached samples; one cycle yields at most two samples."
+          "description": "Completed probe repetitions that produced the attached samples; one cycle yields at most two samples. The prescribed browser probes declare rounds x served-conversations switch cycles (8 for the runbook's single-conversation server) and 16 open/close cycles."
         },
         "samples": {
           "type": "array",
           "minItems": 6,
           "maxItems": 32,
+          "description": "Every raw probe sample in emission order; nothing may be hidden, aggregated, or truncated. Prescribed emissions: 8 samples per served conversation (switch probe) and exactly 32 samples (open/close probe).",
           "items": { "$ref": "#/$defs/sample" }
         }
       }

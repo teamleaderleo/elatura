@@ -23,7 +23,9 @@ require completed manifests from the matrix below.
   DOM nodes (when measurable), and artifact bytes;
 - browser request/cache ledger counters;
 - two probe sample arrays (6–32 samples each) of eight working-set counters,
-  each accompanied by the completed probe-cycle count;
+  each accompanied by the completed probe-cycle count; the prescribed page
+  probes emit 8 samples per served conversation (switch) and exactly 32
+  samples (open/close), so the documented procedure validates as recorded;
 - integrity: observed diagnostic state tokens and failure counters;
 - privacy flags pinned to exactly `false`.
 
@@ -43,6 +45,22 @@ in-page evaluator uses. `probes.*.cycles` records the number of completed
 probe repetitions that produced the attached samples; one cycle yields at most
 two samples (before and after one repeated action), and manifests whose
 sample count exceeds twice the declared cycles are refused as untruthful.
+
+The prescribed probes bind their emission counts to this admission window, so
+following the runbook is schema-admissible by construction:
+
+- the switch probe runs exactly 8 recorded rounds over every served
+  conversation and emits one sample per open: 8 samples for the runbook's
+  single-conversation server (at most 32 for four served conversations);
+- the open/close probe runs exactly 16 recorded cycles and emits exactly two
+  samples per cycle: 32 samples, on the schema ceiling;
+- before its recorded samples, each probe runs unrecorded warm-up
+  repetitions until the browser request ledger's bounded FIFO cache reaches
+  steady state, so recorded evidence shows sustained behavior rather than
+  measurement start-up; the transcript header binds the exact warm-up count;
+- a configuration whose derived emission would leave that window (for
+  example more than four served conversations) refuses to run with a fixed
+  diagnostic instead of emitting an inadmissible artifact.
 
 A monotonic retained-state, rendered-row, artifact-byte, or cache trend fails
 with fixed codes (`monotonic-growth`, `over-hard-bound`,
@@ -76,13 +94,16 @@ with fixed codes (`monotonic-growth`, `over-hard-bound`,
    - press Older/Newer at least twice each; record median `pageOlderMs` /
      `pageNewerMs`;
    - search a short synthetic token; record `searchMs`;
-   - run "Run switch probe" and transcribe **every raw numbered sample line**
-     from the probe output, in order, into the switch probe samples; record
-     the completed switch-probe cycles (rounds × conversations opened) as
-     `switchProbe.cycles`;
+   - run "Run switch probe" (it performs unrecorded warm-up opens before
+     recording) and transcribe **every raw numbered sample line**
+     from the probe output, in order, into the switch probe samples; the
+     output's first line binds the exact plan (`rounds`, `conversations`,
+     `warmup-opens`, `cycles`, `samples`) — record its `cycles` value
+     (rounds × conversations opened) as `switchProbe.cycles`;
    - run "Run open/close probe" and transcribe likewise into the open/close
-     probe samples; record the completed open/close cycles (each cycle emits
-     one sample before and one after close) as `openCloseProbe.cycles`;
+     probe samples; record the header line's `cycles` value (16 completed
+     recorded cycles; each emits one sample before and one after close) as
+     `openCloseProbe.cycles`;
    - ignore the final `plateau-ok/failed` line for transcription: it is a
      human summary, not evidence (see the plateau rule above);
    - exercise close/revoke once each and record final counters.
