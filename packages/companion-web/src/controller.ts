@@ -1,0 +1,305 @@
+// SPDX-License-Identifier: MPL-2.0
+import {
+  BoundedCompanionClientState,
+  COMPANION_PROTOCOL_VERSION,
+  type CompanionClientPolicy,
+  type CompanionClientSnapshot,
+  type CompanionOperation,
+  type CompanionRequestEnvelope,
+} from "@elatura/core/companion";
+import {
+  BoundedCompanionRenderSink,
+  type CompanionRenderPolicy,
+  type CompanionRenderSnapshot,
+} from "./render-sink.js";
+import type {
+  CompanionTransport,
+  CompanionTransportSnapshot,
+} from "./transport.js";
+
+type RequestLane = "list" | "timeline" | "search" | "code" | "lifecycle";
+
+type OwnedRequest = {
+  owner: number;
+  requestId: string;
+  abortController: AbortController;
+};
+
+export type CompanionWebControllerSnapshot = Readonly<{
+  client: CompanionClientSnapshot;
+  render: CompanionRenderSnapshot;
+  transport: CompanionTransportSnapshot;
+  pendingLaneCount: number;
+  requestOrdinal: number;
+}>;
+
+/**
+ * Content-free working-set counters only. No conversation ids, text, or other
+ * rendered content crosses this boundary, so the later browser benchmark
+ * packet can record resource behavior without recording representations.
+ */
+export type CompanionWebWorkingSetSnapshot = Readonly<{
+  pendingLaneCount: number;
+  requestOrdinal: number;
+  ownerOrdinal: number;
+  clientPendingRequestCount: number;
+  renderMountedConversationCount: number;
+  renderMountedTimelineRowCount: number;
+  renderMountedSearchResultCount: number;
+  renderMountedCodeTextCodeUnits: number;
+  renderEstimatedArtifactBytes: number;
+  transportDispatchedRequestCount: number;
+  transportCompletedRequestCount: number;
+  transportCancelledRequestCount: number;
+  transportInFlightRequestCount: number;
+}>;
+
+export type CompanionWebDispatchResult = Readonly<{
+  outcome: "applied" | "superseded" | "rejected";
+  requestId: string;
+  issueCodes: readonly string[];
+  snapshot: CompanionWebControllerSnapshot;
+}>;
+
+export type CompanionWebControllerOptions = Readonly<{
+  sessionId: string;
+  transport: CompanionTransport;
+  clientPolicy?: Partial<CompanionClientPolicy>;
+  renderPolicy?: Partial<CompanionRenderPolicy>;
+}>;
+
+/**
+ * Browser-independent controller for a small replacement-based view. Each lane
+ * owns at most one request, and late replies lose ownership before they can
+ * alter client or render state.
+ */
+export class CompanionWebController {
+  readonly #sessionId: string;
+  readonly #transport: CompanionTransport;
+  readonly #client: BoundedCompanionClientState;
+  readonly #render: BoundedCompanionRenderSink;
+  readonly #owned = new Map<RequestLane, OwnedRequest>();
+  #ownerOrdinal = 0;
+  #requestOrdinal = 0;
+
+  constructor(options: CompanionWebControllerOptions) {
+    this.#sessionId = options.sessionId;
+    this.#transport = options.transport;
+    this.#client = new BoundedCompanionClientState(
+      options.sessionId,
+      options.clientPolicy,
+    );
+    this.#render = new BoundedCompanionRenderSink(options.renderPolicy);
+  }
+
+  get snapshot(): CompanionWebControllerSnapshot {
+    return Object.freeze({
+      client: this.#client.snapshot,
+      render: this.#render.snapshot,
+      transport: this.#transport.snapshot,
+      pendingLaneCount: this.#owned.size,
+      requestOrdinal: this.#requestOrdinal,
+    });
+  }
+
+  get workingSetSnapshot(): CompanionWebWorkingSetSnapshot {
+    const client = this.#client.snapshot;
+    const render = this.#render.snapshot;
+    const transport = this.#transport.snapshot;
+    return Object.freeze({
+      pendingLaneCount: this.#owned.size,
+      requestOrdinal: this.#requestOrdinal,
+      ownerOrdinal: this.#ownerOrdinal,
+      clientPendingRequestCount: client.pendingRequestCount,
+      renderMountedConversationCount: render.conversations.length,
+      renderMountedTimelineRowCount: render.mountedTimelineRowCount,
+      renderMountedSearchResultCount: render.mountedSearchResultCount,
+      renderMountedCodeTextCodeUnits: render.mountedCodeTextCodeUnits,
+      renderEstimatedArtifactBytes: render.estimatedArtifactBytes,
+      transportDispatchedRequestCount: transport.dispatchedRequestCount,
+      transportCompletedRequestCount: transport.completedRequestCount,
+      transportCancelledRequestCount: transport.cancelledRequestCount,
+      transportInFlightRequestCount: transport.inFlightRequestCount,
+    });
+  }
+
+  #cancelLane(lane: RequestLane): void {
+    const pending = this.#owned.get(lane);
+    if (!pending) return;
+    pending.abortController.abort();
+    this.#client.cancel(pending.requestId);
+    this.#owned.delete(lane);
+  }
+
+  cancelPending(): CompanionWebControllerSnapshot {
+    for (const lane of [...this.#owned.keys()]) this.#cancelLane(lane);
+    return this.snapshot;
+  }
+
+  #claim(lane: RequestLane): OwnedRequest {
+    this.#cancelLane(lane);
+    const requestId = `web-${++this.#requestOrdinal}`;
+    const owned: OwnedRequest = {
+      owner: ++this.#ownerOrdinal,
+      requestId,
+      abortController: new AbortController(),
+    };
+    this.#owned.set(lane, owned);
+    return owned;
+  }
+
+  #isCurrent(lane: RequestLane, owned: OwnedRequest): boolean {
+    const current = this.#owned.get(lane);
+    return current?.owner === owned.owner && current.requestId === owned.requestId;
+  }
+
+  async #dispatch(
+    lane: RequestLane,
+    operation: CompanionOperation,
+    payload: Record<string, unknown>,
+  ): Promise<CompanionWebDispatchResult> {
+    const owned = this.#claim(lane);
+    const expected = this.#client.expect(owned.requestId, operation);
+    if (!expected.ok) {
+      this.#owned.delete(lane);
+      return Object.freeze({
+        outcome: "rejected",
+        requestId: owned.requestId,
+        issueCodes: Object.freeze(expected.issues.map((issue) => issue.code)),
+        snapshot: this.snapshot,
+      });
+    }
+
+    const request: CompanionRequestEnvelope = {
+      version: COMPANION_PROTOCOL_VERSION,
+      sessionId: this.#sessionId,
+      requestId: owned.requestId,
+      operation,
+      payload,
+    };
+
+    try {
+      const response = await this.#transport.dispatch(
+        request,
+        owned.abortController.signal,
+      );
+      if (!this.#isCurrent(lane, owned)) {
+        this.#client.cancel(owned.requestId);
+        return Object.freeze({
+          outcome: "superseded",
+          requestId: owned.requestId,
+          issueCodes: Object.freeze([]),
+          snapshot: this.snapshot,
+        });
+      }
+
+      this.#owned.delete(lane);
+      const applied = this.#client.apply(response);
+      if (!applied.ok) {
+        this.#client.cancel(owned.requestId);
+        return Object.freeze({
+          outcome: "rejected",
+          requestId: owned.requestId,
+          issueCodes: Object.freeze(applied.issues.map((issue) => issue.code)),
+          snapshot: this.snapshot,
+        });
+      }
+
+      if (operation === "revoke") {
+        this.#render.clear();
+      } else {
+        this.#render.replaceFromClient(applied.value);
+      }
+      return Object.freeze({
+        outcome: "applied",
+        requestId: owned.requestId,
+        issueCodes: Object.freeze([]),
+        snapshot: this.snapshot,
+      });
+    } catch {
+      const disowned = !this.#isCurrent(lane, owned);
+      if (!disowned) this.#owned.delete(lane);
+      this.#client.cancel(owned.requestId);
+      return Object.freeze({
+        outcome: disowned || owned.abortController.signal.aborted
+          ? "superseded"
+          : "rejected",
+        requestId: owned.requestId,
+        issueCodes: Object.freeze(
+          disowned || owned.abortController.signal.aborted ? [] : ["transport-failed"],
+        ),
+        snapshot: this.snapshot,
+      });
+    }
+  }
+
+  list(cursor: string | null = null, limit = 100): Promise<CompanionWebDispatchResult> {
+    return this.#dispatch("list", "list", { cursor, limit });
+  }
+
+  open(
+    conversationId: string,
+    options: Readonly<{
+      anchorEntryId?: string | null;
+      before?: number;
+      after?: number;
+    }> = {},
+  ): Promise<CompanionWebDispatchResult> {
+    return this.#dispatch("timeline", "open", {
+      conversationId,
+      anchorEntryId: options.anchorEntryId ?? null,
+      before: options.before ?? 24,
+      after: options.after ?? 25,
+    });
+  }
+
+  page(
+    conversationId: string,
+    cursor: string,
+    direction: "before" | "after",
+    limit = 50,
+  ): Promise<CompanionWebDispatchResult> {
+    return this.#dispatch("timeline", "page", {
+      conversationId,
+      cursor,
+      direction,
+      limit,
+    });
+  }
+
+  search(
+    conversationId: string,
+    query: string,
+    limit = 50,
+  ): Promise<CompanionWebDispatchResult> {
+    return this.#dispatch("search", "search", {
+      conversationId,
+      query,
+      limit,
+    });
+  }
+
+  code(
+    conversationId: string,
+    entryId: string,
+    blockIndex: number,
+  ): Promise<CompanionWebDispatchResult> {
+    return this.#dispatch("code", "code", {
+      conversationId,
+      entryId,
+      blockIndex,
+    });
+  }
+
+  async close(conversationId: string): Promise<CompanionWebDispatchResult> {
+    this.cancelPending();
+    const result = await this.#dispatch("lifecycle", "close", { conversationId });
+    if (result.outcome === "applied") this.#render.clearConversation(conversationId);
+    return Object.freeze({ ...result, snapshot: this.snapshot });
+  }
+
+  async revoke(): Promise<CompanionWebDispatchResult> {
+    this.cancelPending();
+    return this.#dispatch("lifecycle", "revoke", {});
+  }
+}

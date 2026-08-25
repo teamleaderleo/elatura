@@ -4,6 +4,7 @@
     { "path": "packages/core" },
     { "path": "packages/fixtures" },
     { "path": "packages/adapter-chatgpt" },
+    { "path": "packages/companion-web" },
     { "path": "benchmarks" },
     { "path": "extension/firefox" }
   ]
