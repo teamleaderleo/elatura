@@ -2,6 +2,8 @@
 
 Elatura's first companion contract is a pure, synthetic-only working-set experiment. It proves that a smaller client can browse a large validated read-only representation without receiving or retaining the complete source graph.
 
+A static browser surface and a loopback-only Node server over this contract are specified in [companion-browser-surface.md](companion-browser-surface.md); the content-free measurement packet lives in [companion-browser-benchmark.md](companion-browser-benchmark.md).
+
 This module does not start a server, read a browser profile, persist private content, inspect cookies, use native messaging, access the network, submit messages, or connect to a live application response.
 
 The public `@elatura/core/companion` entrypoint rejects every valid representation whose provenance does not explicitly declare `synthetic: true`. Malformed fixtures remain available as corrupt-source test cases, while valid private provenance never enters the synthetic runtime.
