@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'none'; font-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Elatura synthetic companion</title>
+<link rel="stylesheet" href="/app.css">
+<script type="importmap">
+{
+  "imports": {
+    "@elatura/core/companion": "/vendor/@elatura/core/companion.js"
+  }
+}
+</script>
+</head>
+<body>
+<header>
+  <h1>Elatura synthetic companion</h1>
+  <p>Synthetic fixtures only. Loopback-only protocol. No persistence, telemetry, or private content.</p>
+</header>
+
+<section id="status-bar" aria-live="polite">
+  <span id="status-token">session-idle</span>
+  <span id="freshness-token" hidden></span>
+  <span id="diagnostic-token" hidden></span>
+</section>
+
+<section id="counters-section">
+  <h2>Working-set counters</h2>
+  <dl id="counters"></dl>
+</section>
+
+<section id="probe-section">
+  <h2>Deterministic probes</h2>
+  <button id="run-switch-probe" type="button">Run switch probe</button>
+  <button id="run-open-close-probe" type="button">Run open/close probe</button>
+  <pre id="probe-output"></pre>
+</section>
+
+<section id="conversation-section">
+  <h2>Conversations</h2>
+  <button id="refresh-list" type="button">Refresh list</button>
+  <ul id="conversation-list"></ul>
+</section>
+
+<section id="timeline-section" hidden>
+  <h2>Timeline window</h2>
+  <div id="timeline-controls">
+    <button id="page-older" type="button">Older</button>
+    <button id="page-newer" type="button">Newer</button>
+    <button id="close-conversation" type="button">Close conversation</button>
+  </div>
+  <p><span id="timeline-truncated-note" hidden>window truncated</span></p>
+  <ol id="timeline-rows"></ol>
+</section>
+
+<section id="navigation-section" hidden>
+  <h2>Navigation</h2>
+  <dl id="navigation-details"></dl>
+</section>
+
+<section id="code-section" hidden>
+  <h2>Code block</h2>
+  <pre><code id="code-text"></code></pre>
+</section>
+
+<section id="search-section">
+  <h2>Bounded search</h2>
+  <form id="search-form">
+    <label for="search-input">Query</label>
+    <input id="search-input" name="query" type="text" maxlength="256" autocomplete="off" required>
+    <button type="submit">Search</button>
+  </form>
+  <p><span id="search-truncated-note" hidden>results truncated</span></p>
+  <ul id="search-results"></ul>
+</section>
+
+<section id="session-controls">
+  <button id="revoke-session" type="button">Revoke session</button>
+</section>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

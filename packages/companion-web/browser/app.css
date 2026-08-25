@@ -1,0 +1,64 @@
+/* SPDX-License-Identifier: MPL-2.0 */
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+  line-height: 1.4;
+}
+body {
+  margin: 0 auto;
+  max-width: 48rem;
+  padding: 1rem;
+}
+h1 { font-size: 1.25rem; }
+h2 { font-size: 1rem; }
+header p { font-size: 0.8rem; opacity: 0.75; }
+section {
+  border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+}
+#status-bar span {
+  display: inline-block;
+  margin-right: 0.75rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+}
+#diagnostic-token { font-weight: 700; }
+#counters {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.15rem 1rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+}
+#counters dt { opacity: 0.8; }
+button {
+  font: inherit;
+  margin-right: 0.5rem;
+}
+ul, ol {
+  list-style: none;
+  margin: 0.25rem 0;
+  padding: 0;
+}
+#timeline-rows li {
+  border-bottom: 1px dotted color-mix(in srgb, currentColor 20%, transparent);
+  padding: 0.35rem 0;
+}
+.row-meta {
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  opacity: 0.75;
+}
+.row-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.jump-back { font-size: 0.75rem; opacity: 0.8; }
+#probe-output, #code-text {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  display: block;
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+  padding: 0.5rem;
+  white-space: pre-wrap;
+}
+[hidden] { display: none !important; }
