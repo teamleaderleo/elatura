@@ -9,10 +9,35 @@ import org.junit.Test
 
 class DiagnosticsTest {
     @Test
-    fun summarizesSignalQualityAndLatencyWithoutUsingTokenValues() {
+    fun summarizesSignalQualityLatencyAndNotificationMetadata() {
+        val sharedKey = "hmac-sha256:${"a".repeat(64)}"
         val hints = listOf(
-            stored(3L, hint(observedAt = 2_400L, postedAt = 2_000L, isOngoing = false)),
-            stored(2L, hint(observedAt = 2_200L, postedAt = 2_000L, isOngoing = true)),
+            stored(
+                3L,
+                hint(
+                    observedAt = 2_400L,
+                    postedAt = 2_000L,
+                    notificationKeyHash = sharedKey,
+                    isOngoing = false,
+                    notificationIdHash = "hmac-sha256:${"b".repeat(64)}",
+                    tagHash = "hmac-sha256:${"c".repeat(64)}",
+                    channelIdHash = "hmac-sha256:${"d".repeat(64)}",
+                    shortcutIdHash = "hmac-sha256:${"e".repeat(64)}",
+                    isGroupSummary = true,
+                    isClearable = true,
+                    hasProgress = true,
+                    isProgressIndeterminate = true,
+                ),
+            ),
+            stored(
+                2L,
+                hint(
+                    observedAt = 2_200L,
+                    postedAt = 2_000L,
+                    notificationKeyHash = sharedKey,
+                    isOngoing = true,
+                ),
+            ),
             stored(
                 1L,
                 hint(
@@ -23,6 +48,8 @@ class DiagnosticsTest {
                     textToken = null,
                     groupKeyHash = null,
                     confidence = HintConfidence.UNKNOWN.wireValue,
+                    removalReasonCode = 19,
+                    removalReason = "timeout",
                 ),
             ),
         )
@@ -36,6 +63,16 @@ class DiagnosticsTest {
         assertEquals(2, summary.withTitleToken)
         assertEquals(2, summary.withTextToken)
         assertEquals(2, summary.grouped)
+        assertEquals(3, summary.withNotificationId)
+        assertEquals(3, summary.withTag)
+        assertEquals(3, summary.withChannelId)
+        assertEquals(3, summary.withShortcutId)
+        assertEquals(1, summary.groupSummaries)
+        assertEquals(3, summary.clearable)
+        assertEquals(1, summary.withProgress)
+        assertEquals(1, summary.indeterminateProgress)
+        assertEquals(1, summary.removalsWithReason)
+        assertEquals(1, summary.reusedNotificationKeyEvents)
         assertEquals(2, summary.latencySamples)
         assertEquals(200L, summary.latencyMinimumMs)
         assertEquals(400L, summary.latencyMaximumMs)
@@ -43,9 +80,13 @@ class DiagnosticsTest {
     }
 
     @Test
-    fun contentFreeReportOmitsOpaqueTokenValuesAndKeepsUsefulMetadata() {
+    fun contentFreeReportOmitsAllOpaqueValuesAndKeepsUsefulMetadata() {
         val token = "title:length=22:h=super-secret-token"
         val keyHash = "hmac-sha256:super-secret-key-hash"
+        val notificationIdHash = "hmac-sha256:secret-notification-id"
+        val tagHash = "hmac-sha256:secret-tag"
+        val channelHash = "hmac-sha256:secret-channel"
+        val shortcutHash = "hmac-sha256:secret-shortcut"
         val lastCase = VerifiedTestCase(
             recordedAt = 4_500L,
             notificationArrived = true,
@@ -58,8 +99,19 @@ class DiagnosticsTest {
                     hint(
                         observedAt = 4_000L,
                         postedAt = 3_500L,
+                        kind = HintKind.REMOVED.wireValue,
                         titleToken = token,
                         notificationKeyHash = keyHash,
+                        notificationIdHash = notificationIdHash,
+                        tagHash = tagHash,
+                        channelIdHash = channelHash,
+                        shortcutIdHash = shortcutHash,
+                        isGroupSummary = true,
+                        isClearable = true,
+                        hasProgress = true,
+                        isProgressIndeterminate = false,
+                        removalReasonCode = 19,
+                        removalReason = "timeout",
                     ),
                 ),
             ),
@@ -105,8 +157,14 @@ class DiagnosticsTest {
             listenerConfirmedInCurrentProcess = true,
             generatedAt = 5_000L,
         )
-        assertFalse(report.contains(token))
-        assertFalse(report.contains(keyHash))
+        listOf(
+            token,
+            keyHash,
+            notificationIdHash,
+            tagHash,
+            channelHash,
+            shortcutHash,
+        ).forEach { secret -> assertFalse(report.contains(secret)) }
         assertTrue(report.contains("elaturaVersion=0.1.0"))
         assertTrue(report.contains("buildSha=abcdef1234567890"))
         assertTrue(report.contains("deviceModel=Phone 1"))
@@ -120,20 +178,37 @@ class DiagnosticsTest {
         assertTrue(report.contains("verifiedDeepLinkFailed=1"))
         assertTrue(report.contains("verifiedDeepLinkNotTested=1"))
         assertTrue(report.contains("lastVerifiedCaseDeepLinkResult=not-tested"))
-        assertTrue(report.contains("possibleCompletions=1"))
+        assertTrue(report.contains("notificationId=true"))
+        assertTrue(report.contains("tag=true"))
+        assertTrue(report.contains("channelId=true"))
+        assertTrue(report.contains("shortcutId=true"))
+        assertTrue(report.contains("groupSummary=true"))
+        assertTrue(report.contains("clearable=true"))
+        assertTrue(report.contains("progress=true"))
+        assertTrue(report.contains("removalReasonCode=19"))
+        assertTrue(report.contains("removalReason=timeout"))
+        assertTrue(report.contains("possibleCompletions=0"))
         assertTrue(report.contains("titleToken=true"))
         assertTrue(report.contains("latencyMs=500"))
         assertTrue(report.contains("duplicates=1"))
     }
 
     @Test
-    fun exactEventIdentityIgnoresObservationTimeButDetectsPayloadChanges() {
+    fun exactEventIdentityIgnoresObservationTimeButDetectsMetadataChanges() {
         val first = hint(observedAt = 2_000L, postedAt = 1_000L)
         val laterDuplicate = first.copy(observedAt = 5_000L)
-        val changed = first.copy(textToken = "text:length=9:h=different")
+        val changedText = first.copy(textToken = "text:length=9:h=different")
+        val changedChannel = first.copy(channelIdHash = "hmac-sha256:${"f".repeat(64)}")
+        val removed = first.copy(
+            kind = HintKind.REMOVED.wireValue,
+            removalReasonCode = 19,
+            removalReason = "timeout",
+        )
 
         assertEquals(first.exactEventSignature(), laterDuplicate.exactEventSignature())
-        assertNotEquals(first.exactEventSignature(), changed.exactEventSignature())
+        assertNotEquals(first.exactEventSignature(), changedText.exactEventSignature())
+        assertNotEquals(first.exactEventSignature(), changedChannel.exactEventSignature())
+        assertNotEquals(first.exactEventSignature(), removed.exactEventSignature())
     }
 
     private fun stored(sequence: Long, hint: CompletionHintRecord): StoredCompletionHint = StoredCompletionHint(
@@ -146,11 +221,21 @@ class DiagnosticsTest {
         postedAt: Long,
         kind: String = HintKind.POSTED.wireValue,
         isOngoing: Boolean = false,
-        notificationKeyHash: String = "hmac-sha256:key0000000000000000000000000000000000000000000000000000000000000",
-        titleToken: String? = "title:length=8:h=abc123",
-        textToken: String? = "text:length=12:h=def456",
-        groupKeyHash: String? = "hmac-sha256:group00000000000000000000000000000000000000000000000000000000000",
+        notificationKeyHash: String = "hmac-sha256:${"1".repeat(64)}",
+        titleToken: String? = "title:length=8:h=${"a".repeat(24)}",
+        textToken: String? = "text:length=12:h=${"b".repeat(24)}",
+        groupKeyHash: String? = "hmac-sha256:${"2".repeat(64)}",
         confidence: String = HintConfidence.PROBABLE.wireValue,
+        notificationIdHash: String? = "hmac-sha256:${"3".repeat(64)}",
+        tagHash: String? = "hmac-sha256:${"4".repeat(64)}",
+        channelIdHash: String? = "hmac-sha256:${"5".repeat(64)}",
+        shortcutIdHash: String? = "hmac-sha256:${"6".repeat(64)}",
+        isGroupSummary: Boolean = false,
+        isClearable: Boolean = true,
+        hasProgress: Boolean = false,
+        isProgressIndeterminate: Boolean = false,
+        removalReasonCode: Int? = null,
+        removalReason: String? = null,
     ): CompletionHintRecord = CompletionHintRecord(
         sourcePackage = CHATGPT_PACKAGE,
         observedAt = observedAt,
@@ -163,5 +248,15 @@ class DiagnosticsTest {
         isOngoing = isOngoing,
         kind = kind,
         confidence = confidence,
+        notificationIdHash = notificationIdHash,
+        tagHash = tagHash,
+        channelIdHash = channelIdHash,
+        shortcutIdHash = shortcutIdHash,
+        isGroupSummary = isGroupSummary,
+        isClearable = isClearable,
+        hasProgress = hasProgress,
+        isProgressIndeterminate = isProgressIndeterminate,
+        removalReasonCode = removalReasonCode,
+        removalReason = removalReason,
     )
 }

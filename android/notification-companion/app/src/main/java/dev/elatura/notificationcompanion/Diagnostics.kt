@@ -63,6 +63,16 @@ internal data class HintDiagnosticsSummary(
     val withTextToken: Int,
     val grouped: Int,
     val withCategory: Int,
+    val withNotificationId: Int,
+    val withTag: Int,
+    val withChannelId: Int,
+    val withShortcutId: Int,
+    val groupSummaries: Int,
+    val clearable: Int,
+    val withProgress: Int,
+    val indeterminateProgress: Int,
+    val removalsWithReason: Int,
+    val reusedNotificationKeyEvents: Int,
     val probableConfidence: Int,
     val unknownConfidence: Int,
     val latencySamples: Int,
@@ -97,6 +107,26 @@ internal fun CompletionHintRecord.exactEventSignature(): String = buildString {
     append(kind)
     append('\u0000')
     append(confidence)
+    append('\u0000')
+    append(notificationIdHash)
+    append('\u0000')
+    append(tagHash)
+    append('\u0000')
+    append(channelIdHash)
+    append('\u0000')
+    append(shortcutIdHash)
+    append('\u0000')
+    append(isGroupSummary)
+    append('\u0000')
+    append(isClearable)
+    append('\u0000')
+    append(hasProgress)
+    append('\u0000')
+    append(isProgressIndeterminate)
+    append('\u0000')
+    append(removalReasonCode)
+    append('\u0000')
+    append(removalReason)
 }
 
 internal fun summarizeHints(hints: List<StoredCompletionHint>): HintDiagnosticsSummary {
@@ -108,11 +138,22 @@ internal fun summarizeHints(hints: List<StoredCompletionHint>): HintDiagnosticsS
     var withTextToken = 0
     var grouped = 0
     var withCategory = 0
+    var withNotificationId = 0
+    var withTag = 0
+    var withChannelId = 0
+    var withShortcutId = 0
+    var groupSummaries = 0
+    var clearable = 0
+    var withProgress = 0
+    var indeterminateProgress = 0
+    var removalsWithReason = 0
+    var reusedNotificationKeyEvents = 0
     var probableConfidence = 0
     var unknownConfidence = 0
     var negativeLatencyCount = 0
     var latencyOutlierCount = 0
     val latencies = ArrayList<Long>(hints.size)
+    val seenNotificationKeys = HashSet<String>(hints.size)
 
     for (stored in hints) {
         val hint = stored.hint
@@ -126,6 +167,16 @@ internal fun summarizeHints(hints: List<StoredCompletionHint>): HintDiagnosticsS
         if (hint.textToken != null) withTextToken += 1
         if (hint.groupKeyHash != null) grouped += 1
         if (hint.category != null) withCategory += 1
+        if (hint.notificationIdHash != null) withNotificationId += 1
+        if (hint.tagHash != null) withTag += 1
+        if (hint.channelIdHash != null) withChannelId += 1
+        if (hint.shortcutIdHash != null) withShortcutId += 1
+        if (hint.isGroupSummary) groupSummaries += 1
+        if (hint.isClearable) clearable += 1
+        if (hint.hasProgress) withProgress += 1
+        if (hint.isProgressIndeterminate) indeterminateProgress += 1
+        if (hint.removalReason != null) removalsWithReason += 1
+        if (!seenNotificationKeys.add(hint.notificationKeyHash)) reusedNotificationKeyEvents += 1
         when (hint.confidence) {
             HintConfidence.PROBABLE.wireValue -> probableConfidence += 1
             HintConfidence.UNKNOWN.wireValue -> unknownConfidence += 1
@@ -150,6 +201,16 @@ internal fun summarizeHints(hints: List<StoredCompletionHint>): HintDiagnosticsS
         withTextToken = withTextToken,
         grouped = grouped,
         withCategory = withCategory,
+        withNotificationId = withNotificationId,
+        withTag = withTag,
+        withChannelId = withChannelId,
+        withShortcutId = withShortcutId,
+        groupSummaries = groupSummaries,
+        clearable = clearable,
+        withProgress = withProgress,
+        indeterminateProgress = indeterminateProgress,
+        removalsWithReason = removalsWithReason,
+        reusedNotificationKeyEvents = reusedNotificationKeyEvents,
         probableConfidence = probableConfidence,
         unknownConfidence = unknownConfidence,
         latencySamples = latencies.size,
@@ -172,6 +233,9 @@ internal fun buildContentFreeReport(
 ): String {
     val summary = summarizeHints(snapshot.hints)
     val lastCase = snapshot.lastVerifiedTestCase
+    val notificationKeyCounts = snapshot.hints
+        .groupingBy { stored -> stored.hint.notificationKeyHash }
+        .eachCount()
     return buildString {
         appendLine("Elatura Android notification diagnostic")
         appendLine("elaturaVersion=${environment.elaturaVersion}")
@@ -219,6 +283,16 @@ internal fun buildContentFreeReport(
         appendLine("withTextToken=${summary.withTextToken}")
         appendLine("grouped=${summary.grouped}")
         appendLine("withCategory=${summary.withCategory}")
+        appendLine("withNotificationId=${summary.withNotificationId}")
+        appendLine("withTag=${summary.withTag}")
+        appendLine("withChannelId=${summary.withChannelId}")
+        appendLine("withShortcutId=${summary.withShortcutId}")
+        appendLine("groupSummaries=${summary.groupSummaries}")
+        appendLine("clearable=${summary.clearable}")
+        appendLine("withProgress=${summary.withProgress}")
+        appendLine("indeterminateProgress=${summary.indeterminateProgress}")
+        appendLine("removalsWithReason=${summary.removalsWithReason}")
+        appendLine("reusedNotificationKeyEvents=${summary.reusedNotificationKeyEvents}")
         appendLine("probableConfidence=${summary.probableConfidence}")
         appendLine("unknownConfidence=${summary.unknownConfidence}")
         appendLine("latencySamples=${summary.latencySamples}")
@@ -242,6 +316,17 @@ internal fun buildContentFreeReport(
             append(" textToken=${hint.textToken != null}")
             append(" grouped=${hint.groupKeyHash != null}")
             append(" category=${hint.category != null}")
+            append(" notificationId=${hint.notificationIdHash != null}")
+            append(" tag=${hint.tagHash != null}")
+            append(" channelId=${hint.channelIdHash != null}")
+            append(" shortcutId=${hint.shortcutIdHash != null}")
+            append(" groupSummary=${hint.isGroupSummary}")
+            append(" clearable=${hint.isClearable}")
+            append(" progress=${hint.hasProgress}")
+            append(" progressIndeterminate=${hint.isProgressIndeterminate}")
+            append(" removalReasonCode=${hint.removalReasonCode ?: -1}")
+            append(" removalReason=${hint.removalReason ?: "none"}")
+            append(" reusedNotificationKey=${notificationKeyCounts[hint.notificationKeyHash]?.let { it > 1 } ?: false}")
             append(" confidence=${hint.confidence}")
             appendLine(" latencyMs=$latency")
         }

@@ -5,10 +5,12 @@ internal const val CHATGPT_PACKAGE = "com.openai.chatgpt"
 internal const val COMPLETION_HINT_PROTOCOL_VERSION = 1
 internal const val MAX_EPHEMERAL_TEXT_CODE_UNITS = 4_096
 private const val MAX_CATEGORY_CODE_UNITS = 128
+private const val MAX_REMOVAL_REASON_CODE = 1_024
 private const val DISPLAY_DIGEST_HEX = 24
 private val REQUIRED_HASH_PATTERN = Regex("^hmac-sha256:[0-9a-f]{64}$")
 private val TITLE_TOKEN_PATTERN = Regex("^title:length=[0-9]{1,10}:h=[0-9a-f]{24}$")
 private val TEXT_TOKEN_PATTERN = Regex("^text:length=[0-9]{1,10}:h=[0-9a-f]{24}$")
+private val REMOVAL_REASON_PATTERN = Regex("^[a-z0-9-]{1,64}$")
 
 internal enum class HintKind(val wireValue: String) {
     POSTED("posted"),
@@ -29,6 +31,16 @@ internal data class NotificationFields(
     val category: String?,
     val groupKey: String?,
     val isOngoing: Boolean,
+    val notificationId: Int,
+    val tag: String?,
+    val channelId: String?,
+    val shortcutId: String?,
+    val isGroupSummary: Boolean,
+    val isClearable: Boolean,
+    val hasProgress: Boolean,
+    val isProgressIndeterminate: Boolean,
+    val removalReasonCode: Int?,
+    val removalReason: String?,
 )
 
 internal data class CompletionHintRecord(
@@ -44,6 +56,16 @@ internal data class CompletionHintRecord(
     val isOngoing: Boolean,
     val kind: String,
     val confidence: String,
+    val notificationIdHash: String? = null,
+    val tagHash: String? = null,
+    val channelIdHash: String? = null,
+    val shortcutIdHash: String? = null,
+    val isGroupSummary: Boolean = false,
+    val isClearable: Boolean = false,
+    val hasProgress: Boolean = false,
+    val isProgressIndeterminate: Boolean = false,
+    val removalReasonCode: Int? = null,
+    val removalReason: String? = null,
 )
 
 internal fun CompletionHintRecord.validatePersisted(): CompletionHintRecord {
@@ -56,7 +78,30 @@ internal fun CompletionHintRecord.validatePersisted(): CompletionHintRecord {
     require(textToken == null || TEXT_TOKEN_PATTERN.matches(textToken)) { "Invalid text token" }
     require(category == null || category.length <= MAX_CATEGORY_CODE_UNITS) { "Invalid category" }
     require(groupKeyHash == null || REQUIRED_HASH_PATTERN.matches(groupKeyHash)) { "Invalid group-key hash" }
+    require(notificationIdHash == null || REQUIRED_HASH_PATTERN.matches(notificationIdHash)) {
+        "Invalid notification-id hash"
+    }
+    require(tagHash == null || REQUIRED_HASH_PATTERN.matches(tagHash)) { "Invalid notification-tag hash" }
+    require(channelIdHash == null || REQUIRED_HASH_PATTERN.matches(channelIdHash)) {
+        "Invalid channel-id hash"
+    }
+    require(shortcutIdHash == null || REQUIRED_HASH_PATTERN.matches(shortcutIdHash)) {
+        "Invalid shortcut-id hash"
+    }
+    require(!isProgressIndeterminate || hasProgress) { "Indeterminate progress requires progress metadata" }
+    require(removalReasonCode == null || removalReasonCode in 0..MAX_REMOVAL_REASON_CODE) {
+        "Invalid removal reason code"
+    }
+    require(removalReason == null || REMOVAL_REASON_PATTERN.matches(removalReason)) {
+        "Invalid removal reason"
+    }
+    require((removalReasonCode == null) == (removalReason == null)) {
+        "Removal reason code and name must be present together"
+    }
     require(kind == HintKind.POSTED.wireValue || kind == HintKind.REMOVED.wireValue) { "Invalid hint kind" }
+    require(kind != HintKind.POSTED.wireValue || removalReason == null) {
+        "Posted hints cannot contain a removal reason"
+    }
     require(
         confidence == HintConfidence.PROBABLE.wireValue ||
             confidence == HintConfidence.UNKNOWN.wireValue,
@@ -80,6 +125,9 @@ internal class CompletionHintProjector(
         require(observedAt >= 0) { "observedAt must be non-negative" }
         require(fields.postedAt >= 0) { "postedAt must be non-negative" }
         require(fields.notificationKey.isNotBlank()) { "notification key must not be blank" }
+        require(kind == HintKind.REMOVED || fields.removalReasonCode == null) {
+            "Posted notification fields cannot include a removal reason"
+        }
 
         val titleToken = textToken("title", fields.title)
         val textToken = textToken("text", fields.text)
@@ -100,13 +148,20 @@ internal class CompletionHintProjector(
             titleToken = titleToken,
             textToken = textToken,
             category = fields.category?.take(MAX_CATEGORY_CODE_UNITS),
-            groupKeyHash = fields.groupKey
-                ?.takeIf { it.isNotBlank() }
-                ?.take(MAX_EPHEMERAL_TEXT_CODE_UNITS)
-                ?.let { requiredHash("group-key", it) },
+            groupKeyHash = optionalHash("group-key", fields.groupKey),
             isOngoing = fields.isOngoing,
             kind = kind.wireValue,
             confidence = confidence.wireValue,
+            notificationIdHash = requiredHash("notification-id", fields.notificationId.toString()),
+            tagHash = optionalHash("notification-tag", fields.tag),
+            channelIdHash = optionalHash("channel-id", fields.channelId),
+            shortcutIdHash = optionalHash("shortcut-id", fields.shortcutId),
+            isGroupSummary = fields.isGroupSummary,
+            isClearable = fields.isClearable,
+            hasProgress = fields.hasProgress,
+            isProgressIndeterminate = fields.hasProgress && fields.isProgressIndeterminate,
+            removalReasonCode = fields.removalReasonCode,
+            removalReason = fields.removalReason,
         ).validatePersisted()
     }
 
@@ -121,6 +176,15 @@ internal class CompletionHintProjector(
             ?: return null
         val digest = signer.hmacSha256Hex(label, bounded)
         return "$label:length=$originalLength:h=${digest.take(DISPLAY_DIGEST_HEX)}"
+    }
+
+    private fun optionalHash(label: String, input: String?): String? {
+        val bounded = input
+            ?.take(MAX_EPHEMERAL_TEXT_CODE_UNITS)
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?: return null
+        return requiredHash(label, bounded)
     }
 
     private fun requiredHash(label: String, input: String): String {
