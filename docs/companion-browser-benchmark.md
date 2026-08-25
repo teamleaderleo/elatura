@@ -22,7 +22,8 @@ require completed manifests from the matrix below.
 - resident companion counts; retained client record counts; rendered rows,
   DOM nodes (when measurable), and artifact bytes;
 - browser request/cache ledger counters;
-- two probe sample arrays (≤32 samples each) of eight working-set counters;
+- two probe sample arrays (6–32 samples each) of eight working-set counters,
+  each accompanied by the completed probe-cycle count;
 - integrity: observed diagnostic state tokens and failure counters;
 - privacy flags pinned to exactly `false`.
 
@@ -37,9 +38,22 @@ A manifest passes only when **both** required probes reach a bounded plateau:
   companion/client/render/ledger defaults);
 - the second half of each probe's samples never exceeds the first half.
 
+Both probes need at least six recorded samples — the same canonical floor the
+in-page evaluator uses. `probes.*.cycles` records the number of completed
+probe repetitions that produced the attached samples; one cycle yields at most
+two samples (before and after one repeated action), and manifests whose
+sample count exceeds twice the declared cycles are refused as untruthful.
+
 A monotonic retained-state, rendered-row, artifact-byte, or cache trend fails
 with fixed codes (`monotonic-growth`, `over-hard-bound`,
 `insufficient-samples`) per field. Trends are never narrated away.
+
+> Transcription rule: record **every raw numbered sample line** from the
+> page's probe output, in order, into `probes.*.samples`. Never transcribe the
+> maxima from the final `plateau-ok/failed` line: a passing verdict's maxima
+> already satisfy the second-half rule by construction, so arrays built from
+> them structurally cannot fail and would confirm any run regardless of its
+> actual behavior. The verdict line is a summary for humans, not evidence.
 
 ## Desktop runbook
 
@@ -62,9 +76,15 @@ with fixed codes (`monotonic-growth`, `over-hard-bound`,
    - press Older/Newer at least twice each; record median `pageOlderMs` /
      `pageNewerMs`;
    - search a short synthetic token; record `searchMs`;
-   - run "Run switch probe" three times; transcribe the final
-     `plateau-ok/failed` line's maxima into the switch probe samples;
-   - run "Run open/close probe" three times; transcribe likewise;
+   - run "Run switch probe" and transcribe **every raw numbered sample line**
+     from the probe output, in order, into the switch probe samples; record
+     the completed switch-probe cycles (rounds × conversations opened) as
+     `switchProbe.cycles`;
+   - run "Run open/close probe" and transcribe likewise into the open/close
+     probe samples; record the completed open/close cycles (each cycle emits
+     one sample before and one after close) as `openCloseProbe.cycles`;
+   - ignore the final `plateau-ok/failed` line for transcription: it is a
+     human summary, not evidence (see the plateau rule above);
    - exercise close/revoke once each and record final counters.
 5. Capture memory only via an external process monitor reading the whole
    browser process class; record the peak as `peakProcessBytes` or omit with

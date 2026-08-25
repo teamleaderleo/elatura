@@ -186,6 +186,15 @@ export class BoundedCompanionRenderSink {
     this.#policy = policy;
   }
 
+  /**
+   * The instance's resolved navigation relationship cap. Exposed as an
+   * immutable scalar so extraction bounds can be sourced from the exact
+   * configured policy without handing out a policy handle.
+   */
+  get maxNavigationRelationshipIds(): number {
+    return this.#policy.maxNavigationRelationshipIds;
+  }
+
   get snapshot(): CompanionRenderSnapshot {
     const copied = structuredClone(this.#state);
     return Object.freeze({
@@ -215,6 +224,16 @@ export class BoundedCompanionRenderSink {
       return this.snapshot;
     }
     this.#state = candidate;
+    return this.snapshot;
+  }
+
+  /**
+   * Drops any retained navigation record without touching other view state.
+   * Used when a navigate reply cannot be extracted, so a refused reply can
+   * never leave stale relationships mounted as though they were current.
+   */
+  clearNavigation(): CompanionRenderSnapshot {
+    this.#state.navigation = null;
     return this.snapshot;
   }
 

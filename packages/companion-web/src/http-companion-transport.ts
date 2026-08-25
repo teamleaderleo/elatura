@@ -36,6 +36,17 @@ export class HttpCompanionTransportError extends Error {}
 const ORIGIN = /^https?:\/\/[A-Za-z0-9._~-]+(?::\d{1,5})?$/u;
 const OPERATION_TOKEN = /^[a-z][a-z0-9_-]{0,63}$/u;
 
+const TEXT_ENCODER = new TextEncoder();
+
+/**
+ * True UTF-8 wire-byte length of a serialized document. String `.length`
+ * counts UTF-16 code units and under-measures multibyte bodies, so ceilings
+ * are always enforced against encoded bytes.
+ */
+function utf8ByteLength(value: string): number {
+  return TEXT_ENCODER.encode(value).length;
+}
+
 function operationToken(request: CompanionRequestEnvelope): string {
   return OPERATION_TOKEN.test(request.requestId)
     ? `op-${request.operation}`
@@ -44,9 +55,10 @@ function operationToken(request: CompanionRequestEnvelope): string {
 
 /**
  * A bounded loopback-only transport. Requests are serialized once, measured
- * against fixed byte ceilings, sent to exactly `${origin}${COMPANION_PATH}`,
- * and answered by a response whose byte length is capped before parsing.
- * Every settled outcome is recorded in the separately bounded ledger.
+ * against fixed UTF-8 wire-byte ceilings, sent to exactly
+ * `${origin}${COMPANION_PATH}`, and answered by a response whose encoded byte
+ * length is capped before parsing. Every settled outcome is recorded in the
+ * separately bounded ledger.
  */
 export class HttpCompanionTransport implements CompanionTransport {
   readonly #origin: string;
@@ -92,9 +104,10 @@ export class HttpCompanionTransport implements CompanionTransport {
       this.#ledger.recordFailedRequest(token);
       throw new HttpCompanionTransportError("request-serialization-failed");
     }
+    const requestBytes = utf8ByteLength(body);
     if (
-      body.length === 0 ||
-      body.length > this.#maxRequestSerializedBytes
+      requestBytes === 0 ||
+      requestBytes > this.#maxRequestSerializedBytes
     ) {
       this.#ledger.recordFailedRequest(token);
       throw new HttpCompanionTransportError("request-over-serialized-limit");
@@ -122,12 +135,13 @@ export class HttpCompanionTransport implements CompanionTransport {
         this.#ledger.recordFailedRequest(token);
         throw new HttpCompanionTransportError("transport-post-failed");
       }
-      if (raw.length > this.#maxResponseSerializedBytes) {
+      const responseBytes = utf8ByteLength(raw);
+      if (responseBytes > this.#maxResponseSerializedBytes) {
         this.#ledger.recordCompletedRequest(
           request.requestId,
           token,
-          body.length,
-          raw.length,
+          requestBytes,
+          responseBytes,
         );
         throw new HttpCompanionTransportError("response-over-serialized-limit");
       }
@@ -145,8 +159,8 @@ export class HttpCompanionTransport implements CompanionTransport {
       this.#ledger.recordCompletedRequest(
         request.requestId,
         token,
-        body.length,
-        raw.length,
+        requestBytes,
+        responseBytes,
       );
       return parsed;
     } finally {

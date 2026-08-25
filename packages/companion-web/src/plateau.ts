@@ -56,6 +56,14 @@ export type PlateauEvaluationOptions = Readonly<{
   hardBounds?: Partial<Record<PlateauTrackedField, number>>;
 }>;
 
+/**
+ * Canonical minimum number of valid samples for any plateau evaluation. This
+ * is the default for {@link evaluateWorkingSetPlateau} and the floor mirrored
+ * by the benchmark run-manifest contract, so both evaluators admit exactly
+ * the same minimum evidence.
+ */
+export const MINIMUM_PLATEAU_SAMPLES = 6;
+
 function isPlateauSample(value: unknown): value is CompanionPlateauSample {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
@@ -74,9 +82,11 @@ export function evaluateWorkingSetPlateau(
   samples: readonly unknown[],
   options: PlateauEvaluationOptions = {},
 ): PlateauVerdict {
-  const minimumSamples = options.minimumSamples ?? 6;
+  const minimumSamples = options.minimumSamples ?? MINIMUM_PLATEAU_SAMPLES;
   const bounds = { ...DEFAULT_PLATEAU_HARD_BOUNDS, ...options.hardBounds };
   const valid = samples.filter(isPlateauSample);
+  // The absolute floor of 4 also guards explicit lower custom minimums: fewer
+  // than two samples per half can never demonstrate a plateau.
   if (valid.length < minimumSamples || valid.length < 4) {
     return Object.freeze({
       ok: false,

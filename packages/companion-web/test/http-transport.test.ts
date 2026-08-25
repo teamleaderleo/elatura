@@ -190,4 +190,69 @@ describe("HttpCompanionTransport", () => {
     });
     expect(called).toBe(0);
   });
+
+  it("refuses multibyte request bodies by true UTF-8 wire bytes, not code units", async () => {
+    const ledger = new BoundedBrowserRequestLedger();
+    let called = 0;
+    const multibyte = listRequest("multibyte");
+    // Each "é" is one UTF-16 code unit but two UTF-8 wire bytes, so the
+    // serialization is 8 code units long but 16% larger on the wire.
+    multibyte.payload = { cursor: null, limit: 10, filler: "é".repeat(8) };
+    const serialized = JSON.stringify(multibyte);
+    const unitLength = serialized.length;
+    const byteLength = Buffer.byteLength(serialized, "utf8");
+    expect(byteLength).toBeGreaterThan(unitLength);
+    // A ceiling at byteLength - 1 admits the code-unit length yet must
+    // refuse the encoded wire size, proving the check measures bytes.
+    const transport = new HttpCompanionTransport({
+      origin: ORIGIN,
+      ledger,
+      maxRequestSerializedBytes: byteLength - 1,
+      post: async () => {
+        called += 1;
+        return "{}";
+      },
+    });
+    await expect(transport.dispatch(multibyte)).rejects.toMatchObject({
+      message: "request-over-serialized-limit",
+    });
+    expect(called).toBe(0);
+    expect(ledger.snapshot.dispatchedRequestCount).toBe(1);
+    expect(ledger.snapshot.completedRequestCount).toBe(0);
+  });
+
+  it("refuses multibyte responses by true UTF-8 wire bytes before parsing", async () => {
+    const ledger = new BoundedBrowserRequestLedger({ maxCacheEntryBytes: 16 });
+    const transport = new HttpCompanionTransport({
+      origin: ORIGIN,
+      ledger,
+      maxResponseSerializedBytes: 20,
+      post: async () => "é".repeat(15),
+    });
+    await expect(transport.dispatch(listRequest("multibyte-resp"))).rejects
+      .toMatchObject({ message: "response-over-serialized-limit" });
+    const snapshot = ledger.snapshot;
+    expect(snapshot.refusedOverLimitRequestCount).toBe(1);
+    expect(snapshot.cacheEntryCount).toBe(0);
+    expect(snapshot.logEntryCount).toBe(1);
+  });
+
+  it("records true UTF-8 wire-byte counts into the ledger", async () => {
+    const ledger = new BoundedBrowserRequestLedger();
+    const envelope = envelopeFor(listRequest("bytes-1"));
+    const raw = JSON.stringify({
+      ...envelope,
+      payload: { items: [], nextCursor: "é" },
+    });
+    const transport = new HttpCompanionTransport({
+      origin: ORIGIN,
+      ledger,
+      post: async () => raw,
+    });
+    await transport.dispatch(listRequest("bytes-1"));
+    // The cached footprint is the encoded wire size; the two-byte character
+    // makes it exceed the decoded code-unit count.
+    expect(ledger.snapshot.cacheTotalBytes).toBe(Buffer.byteLength(raw, "utf8"));
+    expect(ledger.snapshot.cacheTotalBytes).toBeGreaterThan(raw.length - 1);
+  });
 });

@@ -11,10 +11,17 @@
  * cannot pass validation.
  *
  * The plateau rule matches `evaluateWorkingSetPlateau` in
- * packages/companion-web/src/plateau.ts: every tracked counter must stay
- * within its hard bound and the second half of each probe's samples must
+ * packages/companion-web/src/plateau.ts: both share the canonical
+ * `MINIMUM_PLATEAU_SAMPLES` (6) sample floor, every tracked counter must stay
+ * within its hard bound, and the second half of each probe's samples must
  * never exceed the first half. Monotonic retained-state trends fail with a
  * fixed code instead of being narrated away.
+ *
+ * `probes.*.cycles` records the number of completed probe repetitions that
+ * produced the attached samples. One cycle yields at most two samples (the
+ * working set before and after one repeated action), so the parser refuses a
+ * sample array longer than twice the declared cycles: such a manifest would
+ * misattest its own provenance.
  */
 
 export const COMPANION_BROWSER_RUN_MANIFEST_SCHEMA_VERSION = 1 as const;
@@ -49,7 +56,15 @@ const BOUNDED_REVISION = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/u;
 const BOUNDED_VERSION_TOKEN = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$/u;
 
 const MAX_PROBE_SAMPLES = 32;
-const MINIMUM_PROBE_SAMPLES = 6;
+/**
+ * Mirrors MINIMUM_PLATEAU_SAMPLES from
+ * packages/companion-web/src/plateau.ts (the canonical plateau sample floor).
+ * A test in packages/companion-web asserts both constants stay identical.
+ */
+export const MINIMUM_PROBE_SAMPLES = 6;
+/** One probe cycle yields at most two samples (before and after one action). */
+const MAX_SAMPLES_PER_CYCLE = 2;
+export const MINIMUM_PROBE_CYCLES = 2;
 
 /**
  * Mirrors DEFAULT_PLATEAU_HARD_BOUNDS from
@@ -321,13 +336,18 @@ function uuid(value: unknown, path: string): string {
 function parseProbe(input: unknown, path: string): ParsedCompanionProbe {
   const probe = record(input, path);
   exactKeys(probe, ["cycles", "samples"], path);
-  const cycles = integer(probe.cycles, `${path}.cycles`, 1, 100_000);
+  const cycles = integer(probe.cycles, `${path}.cycles`, MINIMUM_PROBE_CYCLES, 100_000);
   if (!Array.isArray(probe.samples)) {
     throw new TypeError(`${path}.samples must be an array.`);
   }
   if (probe.samples.length > MAX_PROBE_SAMPLES) {
     throw new TypeError(
       `${path}.samples must contain at most ${MAX_PROBE_SAMPLES} samples.`,
+    );
+  }
+  if (probe.samples.length > cycles * MAX_SAMPLES_PER_CYCLE) {
+    throw new TypeError(
+      `${path} declares ${cycles} cycles, which cannot have produced ${probe.samples.length} samples (at most ${MAX_SAMPLES_PER_CYCLE} per cycle).`,
     );
   }
   const samples = probe.samples.map((candidate, index) => {
@@ -542,7 +562,7 @@ function evaluateProbe(
   probe: ParsedCompanionProbe,
 ): { failures: CompanionProbePlateauFailure[]; first: Record<PlateauSampleField, number>; second: Record<PlateauSampleField, number> } {
   const failures: CompanionProbePlateauFailure[] = [];
-  if (probe.samples.length < Math.min(MINIMUM_PROBE_SAMPLES, 4)) {
+  if (probe.samples.length < MINIMUM_PROBE_SAMPLES) {
     failures.push(Object.freeze({
       code: "insufficient-samples" as const,
       probe: probeName,

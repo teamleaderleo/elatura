@@ -27,13 +27,6 @@ type OwnedRequest = {
   abortController: AbortController;
 };
 
-/**
- * Navigation records are additionally bounded by the render policy default so
- * a controller without an explicit render policy still refuses inflated
- * relationship lists.
- */
-const DEFAULT_MAX_NAVIGATION_RELATIONSHIP_IDS = 64;
-
 export type CompanionWebControllerSnapshot = Readonly<{
   client: CompanionClientSnapshot;
   render: CompanionRenderSnapshot;
@@ -225,12 +218,20 @@ export class CompanionWebController {
       if (operation === "revoke") {
         this.#render.clear();
       } else if (operation === "navigate") {
+        // The extraction bound comes from this instance's resolved render
+        // policy, so custom caps bind the navigate lane exactly.
         const navigation = extractNavigationRecord(
           response.payload,
-          DEFAULT_MAX_NAVIGATION_RELATIONSHIP_IDS,
+          this.#render.maxNavigationRelationshipIds,
         );
-        if (navigation) this.#render.replaceNavigation(navigation);
-        else this.#render.replaceFromClient(applied.value);
+        if (navigation) {
+          this.#render.replaceNavigation(navigation);
+        } else {
+          this.#render.replaceFromClient(applied.value);
+          // A refused extraction must not silently retain the prior record as
+          // though it described the current entry; drop it instead.
+          this.#render.clearNavigation();
+        }
       } else {
         this.#render.replaceFromClient(applied.value);
       }

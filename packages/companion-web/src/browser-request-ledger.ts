@@ -95,10 +95,13 @@ export class BoundedBrowserRequestLedger {
   }
 
   /**
-   * Records one settled request and admits its byte footprint into the bounded
-   * FIFO cache under the caller-supplied entry key. Returns false when any
-   * identifier or byte count exceeds the ledger bounds; refused records never
-   * enter the cache.
+   * Records one settled request. Invalid identifiers or negative/unsafe byte
+   * counts return false and nothing is counted or logged. A valid record is
+   * always logged and counted as dispatched; when its byte footprint exceeds
+   * the per-entry cache bound it increments refusedOverLimitRequestCount and
+   * returns true WITHOUT entering the cache (the request did settle, it was
+   * only too large to cache). Otherwise the footprint is admitted into the
+   * bounded FIFO cache and the request counts as completed.
    */
   recordCompletedRequest(
     entryKey: string,

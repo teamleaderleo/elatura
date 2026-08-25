@@ -2,10 +2,12 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PLATEAU_HARD_BOUNDS,
+  MINIMUM_PLATEAU_SAMPLES,
   PLATEAU_TRACKED_FIELDS,
   evaluateWorkingSetPlateau,
 } from "../src/plateau.js";
 import {
+  MINIMUM_PROBE_SAMPLES as MANIFEST_MINIMUM_SAMPLES,
   PLATEAU_HARD_BOUNDS as MANIFEST_BOUNDS,
   PLATEAU_SAMPLE_FIELDS,
 } from "../../../benchmarks/src/companion-browser-manifest.js";
@@ -87,5 +89,20 @@ describe("working-set plateau evaluation", () => {
     for (const field of PLATEAU_TRACKED_FIELDS) {
       expect(DEFAULT_PLATEAU_HARD_BOUNDS[field]).toBe(MANIFEST_BOUNDS[field]);
     }
+  });
+
+  it("keeps the canonical sample floor identical across both evaluators", () => {
+    expect(MANIFEST_MINIMUM_SAMPLES).toBe(MINIMUM_PLATEAU_SAMPLES);
+    // The default evaluator admits exactly the canonical floor.
+    expect(
+      evaluateWorkingSetPlateau(
+        Array.from({ length: MINIMUM_PLATEAU_SAMPLES - 1 }, () => sample()),
+      ).ok,
+    ).toBe(false);
+    expect(
+      evaluateWorkingSetPlateau(
+        Array.from({ length: MINIMUM_PLATEAU_SAMPLES }, () => sample()),
+      ).ok,
+    ).toBe(true);
   });
 });

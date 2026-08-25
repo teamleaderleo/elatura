@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  MINIMUM_PROBE_CYCLES,
   PLATEAU_HARD_BOUNDS,
   evaluateCompanionBrowserPlateau,
   parseCompanionBrowserRunManifest,
@@ -24,10 +30,10 @@ function validManifest(overrides: Record<string, unknown> = {}, probeOverrides: 
   switchSamples?: number[];
   openCloseSamples?: number[];
 } = {}) {
-  const switchSamples = (probeOverrides.switchSamples ?? [1, 1, 1, 1]).map((step) =>
+  const switchSamples = (probeOverrides.switchSamples ?? [1, 1, 1, 1, 1, 1]).map((step) =>
     sample({ residentEntries: 40 + step }),
   );
-  const openCloseSamples = (probeOverrides.openCloseSamples ?? [1, 1, 1, 1]).map(() =>
+  const openCloseSamples = (probeOverrides.openCloseSamples ?? [1, 1, 1, 1, 1, 1]).map(() =>
     sample(),
   );
   return {
@@ -197,5 +203,94 @@ describe("companion browser plateau evaluation", () => {
     );
     expect(verdict.ok).toBe(false);
     expect(verdict.failures.every((f) => f.code === "insufficient-samples")).toBe(true);
+  });
+
+  it("applies the canonical six-sample floor shared with evaluateWorkingSetPlateau", () => {
+    // Five samples used to slip through the weakened floor of 4.
+    const five = validManifest(
+      {},
+      { switchSamples: [1, 1, 1, 1, 1], openCloseSamples: [1, 1, 1, 1, 1, 1] },
+    );
+    const verdict = evaluateCompanionBrowserPlateau(
+      parseCompanionBrowserRunManifest(five),
+    );
+    expect(verdict.ok).toBe(false);
+    expect(verdict.failures).toEqual([
+      { code: "insufficient-samples", probe: "switchProbe", field: "samples:5" },
+    ]);
+
+    // Exactly the canonical floor is admissible when flat and in-bounds.
+    const exact = validManifest(
+      {},
+      { switchSamples: [1, 1, 1, 1, 1, 1], openCloseSamples: [1, 1, 1, 1, 1, 1] },
+    );
+    expect(
+      evaluateCompanionBrowserPlateau(parseCompanionBrowserRunManifest(exact)).ok,
+    ).toBe(true);
+  });
+
+  it("refuses sample arrays that exceed what the declared cycles produced", () => {
+    // Seven samples from three cycles is impossible provenance (max two per
+    // cycle), so admission fails instead of evaluating a fabricated packet.
+    const mismatched = validManifest({
+      probes: {
+        switchProbe: { cycles: 3, samples: Array.from({ length: 7 }, () => sample()) },
+        openCloseProbe: { cycles: 24, samples: Array.from({ length: 6 }, () => sample()) },
+      },
+    } as Record<string, unknown>);
+    expect(() => parseCompanionBrowserRunManifest(mismatched))
+      .toThrow(/cannot have produced/u);
+
+    const singleCycle = validManifest();
+    (
+      (singleCycle.probes as { switchProbe: { cycles: number } }).switchProbe
+    ).cycles = 1;
+    expect(() => parseCompanionBrowserRunManifest(singleCycle))
+      .toThrow(/must be an integer between 2 and 100000/u);
+    expect(MINIMUM_PROBE_CYCLES).toBe(2);
+  });
+});
+
+describe("companion browser run validator CLI", () => {
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const scriptPath = join(repoRoot, "scripts", "check-companion-browser-runs.mjs");
+  const scratch = mkdtempSync(join(tmpdir(), "elatura-browser-runs-"));
+
+  function runCli(manifests: Record<string, unknown>[]) {
+    const paths = manifests.map((manifest, index) => {
+      const path = join(scratch, `run-${index}.json`);
+      writeFileSync(path, JSON.stringify(manifest));
+      return path;
+    });
+    try {
+      return spawnSync(process.execPath, [scriptPath, ...paths], { encoding: "utf8" });
+    } finally {
+      for (const path of paths) rmSync(path, { force: true });
+    }
+  }
+
+  it("exits zero only for manifests that parse and reach a bounded plateau", () => {
+    const passing = runCli([validManifest()]);
+    expect(passing.status).toBe(0);
+    expect(passing.stdout).toContain("pass fixture=synthetic-10000");
+
+    const thin = validManifest({}, { openCloseSamples: [1, 1] });
+    const insufficient = runCli([thin]);
+    expect(insufficient.status).toBe(1);
+    expect(insufficient.stderr).toContain("fail plateau insufficient-samples");
+
+    const mismatched = validManifest({
+      probes: {
+        switchProbe: { cycles: 3, samples: Array.from({ length: 7 }, () => sample()) },
+        openCloseProbe: { cycles: 24, samples: Array.from({ length: 6 }, () => sample()) },
+      },
+    } as Record<string, unknown>);
+    const refused = runCli([mismatched]);
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain("fail schema-invalid");
+
+    // Mixed batches stay truthful: one failing manifest fails the batch.
+    const mixed = runCli([validManifest(), thin]);
+    expect(mixed.status).toBe(1);
   });
 });
