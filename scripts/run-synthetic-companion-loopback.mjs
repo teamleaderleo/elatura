@@ -80,6 +80,15 @@ export const SCENARIO_REGISTRY = Object.freeze({
     needsLargeSourcePolicy: true,
     driftProfile: false,
   }),
+  "held-out-100000": Object.freeze({
+    turnGroups: 2_439,
+    hiddenNodesPerTurn: 39,
+    seed: 88,
+    freshness: FRESHNESS_FRESH,
+    needsLargeSourcePolicy: true,
+    driftProfile: false,
+    heldOutViewport: true,
+  }),
   "branch-heavy": Object.freeze({
     turnGroups: 40,
     branchEvery: 4,
@@ -139,16 +148,129 @@ export const SCENARIO_REGISTRY = Object.freeze({
 export const SCENARIO_IDS = Object.freeze(Object.keys(SCENARIO_REGISTRY));
 const DEFAULT_SCENARIOS = Object.freeze(["synthetic-100"]);
 
+export const HELD_OUT_VIEWPORT_SCENARIO_ID = "held-out-100000";
+function heldOutNodeId(turn, offset, kind) {
+  return `synthetic-2g-${1 + (turn - 1) * 41 + offset}-${kind}`;
+}
+
+export const HELD_OUT_VIEWPORT_GOLD = Object.freeze({
+  conversationId: HELD_OUT_VIEWPORT_SCENARIO_ID,
+  entryCount: 100_000,
+  provenance: Object.freeze({ synthetic: true }),
+  approvedProfile: Object.freeze({
+    query: "APPROVED_PROFILE_LINK",
+    clueEntryId: heldOutNodeId(700, 0, "user"),
+    factEntryId: heldOutNodeId(701, 1, "assistant"),
+    profile: "approved-canary-v3",
+    route: "search -> open -> page-after",
+  }),
+  rollbackPolicy: Object.freeze({
+    query: "ROLLBACK_THRESHOLD_LINK",
+    clueEntryId: heldOutNodeId(1500, 0, "user"),
+    factEntryId: heldOutNodeId(1499, 1, "assistant"),
+    threshold: 7,
+    cadence: "15m",
+    route: "search -> open -> page-before",
+  }),
+  recoveryCommand: Object.freeze({
+    query: "RECOVERY_COMMAND_LINK",
+    entryId: heldOutNodeId(2200, 1, "assistant"),
+    command: "elatura recover --profile approved-canary-v3 --window 15m --confirm-threshold 7",
+    route: "search -> get-resource",
+  }),
+});
+
+function messageParts(node) {
+  const parts = node?.message?.content?.parts;
+  return Array.isArray(parts) && parts.every((part) => typeof part === "string") ? parts : null;
+}
+
+function annotateHeldOutNode(fixture, turn, kind, text) {
+  const node = Object.values(fixture.mapping).find(
+    (candidate) => candidate.elatura_fixture?.turnGroup === `turn-${turn}` && candidate.elatura_fixture?.kind === kind,
+  );
+  if (!node || !messageParts(node)) throw new TypeError(`Held-out clue node missing: turn-${turn}/${kind}.`);
+  node.message.content.parts = [text];
+  return node.id;
+}
+
+function heldOutViewportFixture() {
+  const fixture = generateSyntheticConversation({
+    turnGroups: 2_439,
+    branchEvery: 0,
+    hiddenNodesPerTurn: 39,
+    payloadBytesPerMessage: 16,
+    seed: 88,
+  });
+  const approvedClueId = annotateHeldOutNode(
+    fixture,
+    700,
+    "user",
+    "[HELD-OUT APPROVED_PROFILE_LINK] The approved profile fact is 42 sequence positions later. Open this entry, then page-after using the returned cursor until APPROVED_PROFILE_FACT appears. Decoy profile references remain non-authoritative.",
+  );
+  const approvedFactId = annotateHeldOutNode(
+    fixture,
+    701,
+    "assistant",
+    "[HELD-OUT APPROVED_PROFILE_FACT] profile=approved-canary-v3; authority=synthetic-control; action=use-approved-profile",
+  );
+  const rollbackFactId = annotateHeldOutNode(
+    fixture,
+    1499,
+    "assistant",
+    "[HELD-OUT ROLLBACK_POLICY_FACT] threshold=7 failures; cadence=15m; action=rollback-on-threshold",
+  );
+  const rollbackClueId = annotateHeldOutNode(
+    fixture,
+    1500,
+    "user",
+    "[HELD-OUT ROLLBACK_THRESHOLD_LINK] The rollback threshold and cadence are linked in the previous page; inspect page-before for the policy fact. Nearby threshold notes are decoys.",
+  );
+  const recoveryCommandId = annotateHeldOutNode(
+    fixture,
+    2200,
+    "assistant",
+    "[HELD-OUT RECOVERY_COMMAND_LINK] Search this marker, then request the code resource for the exact recovery command.\n```sh\nelatura recover --profile approved-canary-v3 --window 15m --confirm-threshold 7\n```",
+  );
+  const decoyAId = annotateHeldOutNode(
+    fixture,
+    701,
+    "hidden",
+    "[HELD-OUT DECOY] approved profile discussion is illustrative only; do not use as authority.",
+  );
+  const decoyBId = annotateHeldOutNode(
+    fixture,
+    1500,
+    "hidden",
+    "[HELD-OUT DECOY] rollback threshold example is illustrative only; do not use as policy.",
+  );
+  fixture.elatura_fixture = { ...fixture.elatura_fixture, heldOutViewport: true };
+  return Object.freeze({
+    fixture,
+    clueIds: Object.freeze({
+      approvedClueId,
+      approvedFactId,
+      rollbackFactId,
+      rollbackClueId,
+      recoveryCommandId,
+      decoyAId,
+      decoyBId,
+    }),
+  });
+}
+
 function buildRepresentation(scenarioId) {
   const scenario = SCENARIO_REGISTRY[scenarioId];
   if (!scenario) throw new TypeError(`Unknown scenario ${scenarioId}.`);
-  const fixture = generateSyntheticConversation({
-    turnGroups: scenario.turnGroups,
-    branchEvery: scenario.branchEvery ?? 0,
-    hiddenNodesPerTurn: scenario.hiddenNodesPerTurn ?? 0,
-    payloadBytesPerMessage: 16,
-    seed: scenario.seed,
-  });
+  const fixture = scenario.heldOutViewport
+    ? heldOutViewportFixture().fixture
+    : generateSyntheticConversation({
+      turnGroups: scenario.turnGroups,
+      branchEvery: scenario.branchEvery ?? 0,
+      hiddenNodesPerTurn: scenario.hiddenNodesPerTurn ?? 0,
+      payloadBytesPerMessage: 16,
+      seed: scenario.seed,
+    });
   const validated = validateChatGptConversation(fixture);
   if (!validated.ok) {
     throw new TypeError("Generated fixture failed adapter validation.");
@@ -177,6 +299,11 @@ function buildRepresentation(scenarioId) {
     return source;
   }
   return represented.value;
+}
+
+/** Builds the held-out 100,000-entry viewport source for control and route tests. */
+export function buildHeldOutViewportRepresentation() {
+  return buildRepresentation(HELD_OUT_VIEWPORT_SCENARIO_ID);
 }
 
 /** Builds the single guarded companion for the selected scenarios. */
