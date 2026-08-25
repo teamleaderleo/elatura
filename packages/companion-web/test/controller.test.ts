@@ -262,6 +262,35 @@ describe("CompanionWebController", () => {
     expect(controller.snapshot.client.pendingRequestCount).toBe(0);
   });
 
+  it("emits stable six-digit request ids on the ordinary dispatch path", async () => {
+    const transport = new DeferredTransport();
+    const controller = new CompanionWebController({
+      sessionId: "id-width-session",
+      transport,
+    });
+
+    const conversations = ["id-a", "id-b", "id-c"];
+    const openings = conversations.map((conversationId) =>
+      controller.open(conversationId),
+    );
+    for (const [index, pending] of transport.pending.entries()) {
+      pending.resolve(
+        success(pending.request, pagePayload(conversations[index]!, 1)),
+      );
+    }
+    const results = await Promise.all(openings);
+
+    expect(results.map((result) => result.requestId)).toEqual([
+      "web-000001",
+      "web-000002",
+      "web-000003",
+    ]);
+    for (const requestId of results.map((result) => result.requestId)) {
+      expect(requestId).toMatch(/^web-[0-9]{6}$/u);
+    }
+    expect(controller.snapshot.requestOrdinal).toBe(3);
+  });
+
   it("mounts only the configured number of timeline rows", async () => {
     const transport = new DeferredTransport();
     const controller = new CompanionWebController({

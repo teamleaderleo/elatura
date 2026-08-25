@@ -95,8 +95,11 @@ function webController(
   };
 }
 
-function requestIdSuffix(requestId: string): number {
-  const match = /^web-([0-9]+)$/u.exec(requestId);
+function requestIdSuffix(requestId: string | null): number {
+  if (requestId === null) {
+    throw new Error("Refused dispatch carries no controller request id.");
+  }
+  const match = /^web-([0-9]{6})$/u.exec(requestId);
   if (!match) throw new Error(`Unexpected controller request id ${requestId}.`);
   return Number(match[1]);
 }
@@ -226,7 +229,7 @@ describe("companion web deterministic synthetic coverage", () => {
 
     const opened = await controller.open("sized-100");
     expect(opened.outcome).toBe("applied");
-    expect(opened.requestId).toMatch(/^web-[0-9]+$/u);
+    expect(opened.requestId).toMatch(/^web-[0-9]{6}$/u);
 
     const page = controller.snapshot.client.page;
     expect(page?.conversationId).toBe("sized-100");

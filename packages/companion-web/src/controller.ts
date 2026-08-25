@@ -14,6 +14,7 @@ import {
   type CompanionRenderSnapshot,
 } from "./render-sink.js";
 import { extractNavigationRecord } from "./navigation.js";
+import { nextCompanionRequestId } from "./request-id.js";
 import type {
   CompanionTransport,
   CompanionTransportSnapshot,
@@ -32,6 +33,7 @@ export type CompanionWebControllerSnapshot = Readonly<{
   render: CompanionRenderSnapshot;
   transport: CompanionTransportSnapshot;
   pendingLaneCount: number;
+  /** Requests created so far; capped by COMPANION_REQUEST_ORDINAL_MAX. */
   requestOrdinal: number;
 }>;
 
@@ -42,6 +44,7 @@ export type CompanionWebControllerSnapshot = Readonly<{
  */
 export type CompanionWebWorkingSetSnapshot = Readonly<{
   pendingLaneCount: number;
+  /** Requests created so far; capped by COMPANION_REQUEST_ORDINAL_MAX. */
   requestOrdinal: number;
   ownerOrdinal: number;
   clientPendingRequestCount: number;
@@ -58,7 +61,12 @@ export type CompanionWebWorkingSetSnapshot = Readonly<{
 
 export type CompanionWebDispatchResult = Readonly<{
   outcome: "applied" | "superseded" | "rejected";
-  requestId: string;
+  /**
+   * The wire request id of the dispatched request, or null exactly when the
+   * dispatch was refused at the request-ordinal lifetime bound before any
+   * request existed.
+   */
+  requestId: string | null;
   issueCodes: readonly string[];
   /**
    * Content-free companion working-set usage from the settled response, when a
@@ -143,13 +151,8 @@ export class CompanionWebController {
     return this.snapshot;
   }
 
-  #claim(lane: RequestLane): OwnedRequest {
+  #claim(lane: RequestLane, requestId: string): OwnedRequest {
     this.#cancelLane(lane);
-    // Fixed-width ordinals keep every envelope for the same operation at an
-    // identical byte size regardless of how many requests preceded it, so
-    // byte-accounting evidence (ledger cache bytes, artifact estimates)
-    // reflects content shape alone, not ordinal magnitude.
-    const requestId = `web-${String(++this.#requestOrdinal).padStart(6, "0")}`;
     const owned: OwnedRequest = {
       owner: ++this.#ownerOrdinal,
       requestId,
@@ -169,7 +172,21 @@ export class CompanionWebController {
     operation: CompanionOperation,
     payload: Record<string, unknown>,
   ): Promise<CompanionWebDispatchResult> {
-    const owned = this.#claim(lane);
+    // Enforced request-ordinal lifetime bound (see request-id.ts): refusing
+    // here creates nothing, registers nothing, dispatches nothing, emits
+    // nothing, and leaves pending lane ownership and counters untouched.
+    const gate = nextCompanionRequestId(this.#requestOrdinal);
+    if (!gate.ok) {
+      return Object.freeze({
+        outcome: "rejected",
+        requestId: null,
+        issueCodes: Object.freeze([gate.code]),
+        usage: null,
+        snapshot: this.snapshot,
+      });
+    }
+    this.#requestOrdinal += 1;
+    const owned = this.#claim(lane, gate.requestId);
     const expected = this.#client.expect(owned.requestId, operation);
     if (!expected.ok) {
       this.#owned.delete(lane);
