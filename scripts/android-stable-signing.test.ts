@@ -20,6 +20,7 @@ function walk(directory: string): string[] {
 describe("Android stable private signing", () => {
   it("uses an owner-triggered protected environment rather than pull-request secrets", () => {
     const workflow = read(".github/workflows/android-notification-companion-stable.yml");
+    const releaseGate = read("scripts/release-policy-gate.mjs");
 
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).not.toContain("pull_request:");
@@ -27,6 +28,10 @@ describe("Android stable private signing", () => {
     expect(workflow).toContain("if: github.ref == 'refs/heads/main'");
     expect(workflow).toContain("permissions:\n  contents: read");
     expect(workflow).toContain("cancel-in-progress: false");
+    expect(releaseGate).toContain(
+      'const PROTECTED_ANDROID_SIGNING_WORKFLOW = "android-notification-companion-stable.yml"',
+    );
+    expect(releaseGate).toContain("entry.name === PROTECTED_ANDROID_SIGNING_WORKFLOW");
   });
 
   it("requires every signing input and never embeds private material in source", () => {
