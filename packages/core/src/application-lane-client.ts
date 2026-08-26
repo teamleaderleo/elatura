@@ -39,9 +39,9 @@ export type ApplicationLaneResponseMatchDecisionV1 = Readonly<{
  * are the complete generic correlation fence available to a consumer.
  *
  * For bounded observations this function also re-measures returned JSON against
- * the caller's requested text and serialized-byte budgets. `maxItems` remains
- * an adapter/content-type semantic limit because the generic protocol cannot
- * infer what one provider-specific observation considers an item.
+ * the caller's requested aggregate text and serialized-byte budgets. `maxItems`
+ * remains an adapter/content-type semantic limit because the generic protocol
+ * cannot infer what one provider-specific observation considers an item.
  *
  * A mismatch returns `response: null` so callers cannot accidentally consume a
  * parsed but stale/wrong-lane result. This function performs no application or
@@ -87,12 +87,15 @@ function observationFitsRequestedBudget(
   const payload = response.payload;
   if (!isObservationPayload(payload)) return false;
   const budget = request.payload as ApplicationLaneObservationBudgetV1;
-  return measureBoundedJson(payload.content, {
+  const measured = measureBoundedJson(payload.content, {
     maxDepth: 32,
     maxNodes: 10_000,
     maxStringCodeUnits: budget.maxTextCodeUnits,
     maxSerializedBytes: budget.maxSerializedBytes,
-  }).ok;
+  });
+  return measured.ok
+    && measured.value.stringCodeUnits <= budget.maxTextCodeUnits
+    && measured.value.serializedBytes <= budget.maxSerializedBytes;
 }
 
 function isObservationPayload(
