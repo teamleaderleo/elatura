@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MPL-2.0
 
 let composerRecorded = false;
+const chatGptProjectionRef = crypto.randomUUID();
 
 type ContentPageMetric = {
   kind: "dom-content-loaded" | "composer-like-input";
   elapsedMs: number;
   recordedAt: string;
 };
-
 type SlimContentControllerModule = typeof import("./slim-content-controller.js");
 type ChatGptLaneActivityProducerModule =
   typeof import("./chatgpt-lane-activity-producer.js");
@@ -46,6 +46,13 @@ addEventListener(
   { once: true },
 );
 
+void browser.runtime.sendMessage({
+  type: "elatura:register-chatgpt-lane-projection",
+  projectionRef: chatGptProjectionRef,
+}).catch(() => {
+  // Page metrics remain usable if projection registration is unavailable.
+});
+
 void (import(browser.runtime.getURL("slim-content-controller.js")) as Promise<SlimContentControllerModule>)
   .then((controller) => controller.bootSlimContentController())
   .catch(() => {
@@ -55,7 +62,7 @@ void (import(browser.runtime.getURL("slim-content-controller.js")) as Promise<Sl
 void (
   import(browser.runtime.getURL("chatgpt-lane-activity-producer.js")) as Promise<ChatGptLaneActivityProducerModule>
 )
-  .then((producer) => producer.bootFirefoxChatGptLaneActivityProducer())
+  .then((producer) => producer.bootFirefoxChatGptLaneActivityProducer(chatGptProjectionRef))
   .catch(() => {
     // Existing page metrics remain available when the optional activity producer cannot load.
   });
