@@ -39,7 +39,10 @@ function tabIdFrom(value) {
 function parseCommand(message) {
   if (!isPlainRecord(message) || typeof message.type !== "string") return null;
   if (message.type === "list" && exactKeys(message, ["type"])) return Object.freeze({ type: "list" });
-  if ((message.type === "discard" || message.type === "wake") && exactKeys(message, ["type", "tabId"])) {
+  if (
+    (message.type === "discard" || message.type === "wake" || message.type === "keep-warm")
+    && exactKeys(message, ["type", "tabId"])
+  ) {
     const tabId = tabIdFrom(message.tabId);
     return tabId === null ? null : Object.freeze({ type: message.type, tabId });
   }
@@ -136,6 +139,40 @@ async function discardTab(tabId) {
   });
 }
 
+async function keepWarm(tabId) {
+  const current = await freshTab(tabId);
+  if (current === null) return failure("tab-unavailable");
+
+  let resulting = current;
+  let reloadRequested = false;
+  try {
+    if (resulting.autoDiscardable) {
+      const protectedTab = await chrome.tabs.update(tabId, { autoDiscardable: false });
+      if (protectedTab === undefined) return failure("tab-unavailable");
+      resulting = protectedTab;
+    }
+    if (resulting.discarded === true) {
+      reloadRequested = true;
+      await chrome.tabs.reload(tabId);
+      const refreshed = await freshTab(tabId);
+      if (refreshed !== null) resulting = refreshed;
+    }
+  } catch {
+    return failure("operation-failed");
+  }
+
+  const projection = await freshProjection(resulting);
+  if (projection === null) return failure("window-unavailable");
+  return Object.freeze({
+    protocolVersion: PROTOCOL_VERSION,
+    ok: true,
+    operation: "keep-warm",
+    authority: "explicit-operator-browser-action",
+    reloadRequested,
+    projection,
+  });
+}
+
 async function wakeTab(tabId) {
   const current = await freshTab(tabId);
   if (current === null) return failure("tab-unavailable");
@@ -192,6 +229,8 @@ async function handleCommand(message) {
       return listProjections();
     case "discard":
       return discardTab(command.tabId);
+    case "keep-warm":
+      return keepWarm(command.tabId);
     case "wake":
       return wakeTab(command.tabId);
     case "set-protection":
