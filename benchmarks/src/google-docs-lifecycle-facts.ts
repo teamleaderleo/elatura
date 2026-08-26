@@ -36,6 +36,9 @@ export type GoogleDocsLifecycleEligibilityV1 = Readonly<{
   blockers: readonly ApplicationLaneLifecycleBlocker[];
 }>;
 
+const APPLICATION_UNKNOWN_BLOCKERS: readonly ApplicationLaneLifecycleBlocker[] =
+  Object.freeze(["application_unknown"]);
+
 function exactEnum<T extends string>(value: unknown, values: readonly T[], label: string): T {
   if (typeof value !== "string" || !values.includes(value as T)) {
     throw new TypeError(`${label} is invalid.`);
@@ -139,7 +142,7 @@ export function classifyGoogleDocsLifecycleEligibilityV1(
     return Object.freeze({
       freezeEligibility: "unknown",
       discardEligibility: "unknown",
-      blockers: Object.freeze(["application_unknown"]),
+      blockers: APPLICATION_UNKNOWN_BLOCKERS,
     });
   }
 
@@ -157,7 +160,7 @@ export function classifyGoogleDocsLifecycleEligibilityV1(
     return Object.freeze({
       freezeEligibility,
       discardEligibility: "unknown",
-      blockers: Object.freeze(["application_unknown"]),
+      blockers: APPLICATION_UNKNOWN_BLOCKERS,
     });
   }
 
