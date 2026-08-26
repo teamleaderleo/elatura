@@ -6,6 +6,7 @@
     { "path": "packages/adapter-chatgpt" },
     { "path": "packages/companion-web" },
     { "path": "benchmarks" },
-    { "path": "extension/firefox" }
+    { "path": "extension/firefox" },
+    { "path": "extension/chromium" }
   ]
 }
