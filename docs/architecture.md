@@ -4,7 +4,7 @@
 
 Elatura is a local adaptive access layer for heavyweight authenticated web applications.
 
-Its runtime unit is an **application lane**: a logical, consumer-neutral managed live view of one useful application target inside a genuine signed-in application context.
+Its runtime unit is an **application lane**: a logical, consumer-neutral managed live view of one useful application target through a genuine signed-in application context.
 
 ```text
 heavyweight authenticated application
@@ -24,16 +24,18 @@ The authenticated application remains authoritative. Elatura owns working-set po
 
 ## Identity and projection
 
-Application-lane identity is logical. Browser objects implement a current projection of that lane.
+Application-lane identity is logical. Browser objects and signed-in browser sessions implement a current access projection of that lane.
 
 Potential durable local identity inputs include:
 
-- application/adapter class where known;
-- owning browser profile or managed application context;
-- an opaque application-local target/navigation key where one can be recovered safely;
-- freshness/generation state.
+- an opaque Elatura-local lane key;
+- application/adapter class where needed for routing;
+- an opaque application-native target/navigation locator where one can be recovered safely and stably enough;
+- target freshness/generation state where the application exposes it.
 
-Tab ids, CDP target ids, renderer process ids, window ids, and remote-workspace ids are ephemeral projection handles. The runtime should be able to reacquire a usable projection after navigation, discard, crash, restart, or host migration.
+Browser profile/session handles, tab ids, CDP target ids, renderer process ids, window ids, and remote-workspace ids are ephemeral projection handles. The runtime should be able to reacquire a usable projection after navigation, discard, crash, restart, profile replacement, or host migration.
+
+Reusable browser credentials, cookies, authorization material, and provider session secrets remain inside the authoritative browser/application context and never become lane identity.
 
 This contract intentionally differs from a Stensibly work/agent lane. Stensibly owns mission, responsibility, scheduling, dispatch, wake routing, and continuation. An Elatura lane provides application access and observations that Stensibly may consume.
 
@@ -129,7 +131,7 @@ screenshot / visual inspection
 full genuine-application interaction
 ```
 
-A human and a computer-using agent should consume the same lane and current application session. Screenshots are one rung in the ladder, used when pixels contain useful information beyond cheaper semantic observation.
+A human and a computer-using agent should consume the same lane through the same authoritative application access path. Screenshots are one rung in the ladder, used when pixels contain useful information beyond cheaper semantic observation.
 
 ### Cache and derived local state
 
