@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Elatura projections</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <strong>Elatura Chromium</strong>
+          <div class="subtitle">Unbound browser projections</div>
+        </div>
+        <button id="refresh" type="button">Refresh</button>
+      </header>
+      <p class="notice">Application-lane planning requires an exact laneRef + generation binding. This view has none.</p>
+      <p id="status" role="status">Loading…</p>
+      <div id="projections" class="projections"></div>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
