@@ -1,5 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 import {
+  acceptFirefoxChatGptActivityPanelDiscoveryV1,
+  acceptFirefoxChatGptActivityPanelSampleV1,
+  createFirefoxChatGptActivityPanelDiscoveryMessageV1,
+  createFirefoxChatGptActivityPanelSampleMessageV1,
+  parseFirefoxChatGptActivityPanelTargetV1,
+  type FirefoxChatGptActivityPanelBindingV1,
+  type FirefoxChatGptActivityPanelObservationV1,
+} from "./chatgpt-lane-activity-panel.js";
+import {
   buildObservationReport,
   hasObservationData,
   type StoredObservationState,
@@ -41,6 +50,8 @@ type SlimRuntimeSnapshot = {
     placeholderCount: number;
   };
 };
+
+let activityPanelBinding: FirefoxChatGptActivityPanelBindingV1 | null = null;
 
 function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`;
@@ -184,6 +195,153 @@ function updateSlimControls(
   restore.disabled = slim.mode === "stock" && slim.status === "stock";
 }
 
+function setActivityPanelStatus(message: string): void {
+  document.querySelector("#activity-panel-status")!.textContent = message;
+}
+
+function setActivityBindingState(value: string): void {
+  document.querySelector("#activity-binding")!.textContent = value;
+}
+
+function renderActivityObservation(
+  observation: FirefoxChatGptActivityPanelObservationV1 | null,
+): void {
+  const values: Record<string, string> = observation
+    ? {
+        "activity-confidence": observation.confidence,
+        "activity-generation": observation.generation,
+        "activity-composer": observation.composer,
+        "activity-composition": observation.composition,
+        "activity-modal": observation.modal,
+        "activity-media": observation.mediaOrDevice,
+        "activity-download": observation.download,
+        "activity-transient": observation.otherTransient,
+      }
+    : {
+        "activity-confidence": "—",
+        "activity-generation": "—",
+        "activity-composer": "—",
+        "activity-composition": "—",
+        "activity-modal": "—",
+        "activity-media": "—",
+        "activity-download": "—",
+        "activity-transient": "—",
+      };
+  for (const [id, value] of Object.entries(values)) {
+    document.querySelector(`#${id}`)!.textContent = value;
+  }
+}
+
+function updateActivityPanelControls(): void {
+  document.querySelector<HTMLButtonElement>("#activity-sample")!.disabled =
+    activityPanelBinding === null;
+}
+
+function clearActivityPanelBinding(message: string): void {
+  activityPanelBinding = null;
+  setActivityBindingState("unbound");
+  renderActivityObservation(null);
+  updateActivityPanelControls();
+  setActivityPanelStatus(message);
+}
+
+function activityRequestRef(prefix: string): string {
+  return `${prefix}-${crypto.randomUUID()}`;
+}
+
+async function bindActivityPanelToActivePage(): Promise<void> {
+  let target;
+  try {
+    target = parseFirefoxChatGptActivityPanelTargetV1(
+      document.querySelector<HTMLInputElement>("#activity-lane-ref")!.value,
+      document.querySelector<HTMLInputElement>("#activity-lane-generation")!.value,
+    );
+  } catch {
+    clearActivityPanelBinding("Enter a valid lane reference and positive generation.");
+    return;
+  }
+
+  const tabId = await activeTabId();
+  if (tabId === null) {
+    clearActivityPanelBinding("No active Firefox tab is available.");
+    return;
+  }
+
+  const requestRef = activityRequestRef("popup-discover");
+  let response: unknown;
+  try {
+    response = await browser.runtime.sendMessage(
+      createFirefoxChatGptActivityPanelDiscoveryMessageV1(tabId, requestRef),
+    );
+  } catch {
+    clearActivityPanelBinding("Document projection discovery failed.");
+    return;
+  }
+
+  const result = acceptFirefoxChatGptActivityPanelDiscoveryV1(
+    target,
+    tabId,
+    requestRef,
+    response,
+  );
+  activityPanelBinding = result.binding;
+  renderActivityObservation(null);
+  updateActivityPanelControls();
+  if (result.status === "bound" && result.binding) {
+    setActivityBindingState(`bound · generation ${result.binding.laneGeneration}`);
+    setActivityPanelStatus("Active ChatGPT page bound for this popup session.");
+  } else if (result.status === "unavailable") {
+    setActivityBindingState("unbound");
+    setActivityPanelStatus("Open the target ChatGPT page and bind again.");
+  } else {
+    setActivityBindingState("unbound");
+    setActivityPanelStatus("Document projection response was invalid.");
+  }
+}
+
+async function sampleActivityPanel(): Promise<void> {
+  const binding = activityPanelBinding;
+  if (binding === null) {
+    clearActivityPanelBinding("Bind the active ChatGPT page before sampling.");
+    return;
+  }
+
+  const requestRef = activityRequestRef("popup-sample");
+  let response: unknown;
+  try {
+    response = await browser.runtime.sendMessage(
+      createFirefoxChatGptActivityPanelSampleMessageV1(binding, requestRef),
+    );
+  } catch {
+    clearActivityPanelBinding("Activity sampling failed; bind the page again.");
+    return;
+  }
+
+  const result = acceptFirefoxChatGptActivityPanelSampleV1(
+    binding,
+    requestRef,
+    response,
+  );
+  activityPanelBinding = result.binding;
+  updateActivityPanelControls();
+  if (result.status === "sampled" && result.observation) {
+    renderActivityObservation(result.observation);
+    setActivityBindingState(`bound · generation ${binding.laneGeneration}`);
+    setActivityPanelStatus("Content-free blocker state sampled.");
+    return;
+  }
+
+  renderActivityObservation(null);
+  setActivityBindingState("unbound");
+  if (result.status === "stale") {
+    setActivityPanelStatus("ChatGPT page epoch changed; bind the active page again.");
+  } else if (result.status === "unavailable") {
+    setActivityPanelStatus("Activity route unavailable; bind the active page again.");
+  } else {
+    setActivityPanelStatus("Activity receipt was invalid; bind the active page again.");
+  }
+}
+
 async function render(
   state?: StoredObservationState,
   safety?: TransformSafetyState,
@@ -309,6 +467,22 @@ document.querySelector("#restore-stock")!.addEventListener("click", async () => 
   await render(undefined, undefined, undefined, slim);
 });
 
+document.querySelector("#activity-lane-ref")!.addEventListener("input", () => {
+  clearActivityPanelBinding("Lane target changed; bind the active page again.");
+});
+
+document.querySelector("#activity-lane-generation")!.addEventListener("input", () => {
+  clearActivityPanelBinding("Lane target changed; bind the active page again.");
+});
+
+document.querySelector("#activity-bind")!.addEventListener("click", async () => {
+  await bindActivityPanelToActivePage();
+});
+
+document.querySelector("#activity-sample")!.addEventListener("click", async () => {
+  await sampleActivityPanel();
+});
+
 document.querySelector("#record-opt-in")!.addEventListener("click", async () => {
   if (!allOptInAcknowledgementsChecked()) {
     setStatus("Review every fixed acknowledgement before recording opt-in intent.");
@@ -344,4 +518,7 @@ document.querySelector("#emergency-disable")!.addEventListener("click", async ()
   await render(undefined, safety, undefined, slim);
 });
 
+setActivityBindingState("unbound");
+renderActivityObservation(null);
+updateActivityPanelControls();
 void render();
