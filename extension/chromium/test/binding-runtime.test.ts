@@ -391,6 +391,7 @@ describe("ChromiumBindingRuntime current planning", () => {
         current,
         request(lane, "reclaimable"),
         applicationFacts({
+          freezeEligibility: "blocked",
           discardEligibility: "blocked",
           blockers: ["unsaved_interaction"],
         }),
