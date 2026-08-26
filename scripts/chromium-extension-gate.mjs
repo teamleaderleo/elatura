@@ -12,6 +12,7 @@ const POPUP_HTML_PATH = "extension/chromium/static/popup.html";
 const POPUP_CSS_PATH = "extension/chromium/static/popup.css";
 const PROJECTION_PATH = "extension/chromium/src/projection.ts";
 const BINDING_PATH = "extension/chromium/src/binding.ts";
+const BINDING_RUNTIME_PATH = "extension/chromium/src/binding-runtime.ts";
 const EFFECT_PATH = "extension/chromium/src/effect.ts";
 
 const ALLOWED_MANIFEST_KEYS = [
@@ -159,6 +160,21 @@ function verifyBinding(source) {
   assert.equal(/\bchrome\./u.test(source), false, "Pure Chromium binding must not invoke browser APIs");
 }
 
+function verifyBindingRuntime(source) {
+  const required = [
+    "planBoundChromiumResidencyV1(",
+    '"generation-advanced-unbound"',
+    "#projectionOwners",
+    "grantsWorkAuthority: false",
+    "authorizesWorkDispatch: false",
+  ];
+  for (const token of required) {
+    assert.equal(source.includes(token), true, `Chromium binding runtime missing reviewed token: ${token}`);
+  }
+  assert.equal(/\bchrome\./u.test(source), false, "Chromium binding runtime must not invoke browser APIs");
+  assert.equal(/\b(?:localStorage|sessionStorage|indexedDB)\b/u.test(source), false, "Chromium binding runtime must remain volatile");
+}
+
 function verifyEffect(source) {
   const required = [
     'chromiumExecutableResidencyEffects = ["keep_warm", "discard"]',
@@ -203,7 +219,17 @@ function runSelfTests() {
 
 async function main() {
   runSelfTests();
-  const [manifestText, background, popup, popupHtml, popupCss, projection, binding, effect] = await Promise.all([
+  const [
+    manifestText,
+    background,
+    popup,
+    popupHtml,
+    popupCss,
+    projection,
+    binding,
+    bindingRuntime,
+    effect,
+  ] = await Promise.all([
     readFile(join(ROOT, MANIFEST_PATH), "utf8"),
     readFile(join(ROOT, BACKGROUND_PATH), "utf8"),
     readFile(join(ROOT, POPUP_PATH), "utf8"),
@@ -211,6 +237,7 @@ async function main() {
     readFile(join(ROOT, POPUP_CSS_PATH), "utf8"),
     readFile(join(ROOT, PROJECTION_PATH), "utf8"),
     readFile(join(ROOT, BINDING_PATH), "utf8"),
+    readFile(join(ROOT, BINDING_RUNTIME_PATH), "utf8"),
     readFile(join(ROOT, EFFECT_PATH), "utf8"),
   ]);
 
@@ -218,6 +245,7 @@ async function main() {
   verifyBackground(background);
   verifyPopup(popup);
   verifyBinding(binding);
+  verifyBindingRuntime(bindingRuntime);
   verifyEffect(effect);
 
   const findings = [
@@ -225,6 +253,7 @@ async function main() {
     ...scanJavaScript(POPUP_PATH, popup),
     ...scanJavaScript(PROJECTION_PATH, projection),
     ...scanJavaScript(BINDING_PATH, binding),
+    ...scanJavaScript(BINDING_RUNTIME_PATH, bindingRuntime),
     ...scanJavaScript(EFFECT_PATH, effect),
     ...scanPatterns(POPUP_HTML_PATH, popupHtml, REMOTE_ASSET_PATTERNS),
     ...scanPatterns(POPUP_CSS_PATH, popupCss, REMOTE_ASSET_PATTERNS),
