@@ -7,7 +7,7 @@ import {
 } from "../src/identities.js";
 import { validateChatGptConversation } from "../src/index.js";
 import {
-  assessChatGptLaneActivityV1,
+  assessChatGptLaneTransitionV1,
   parseChatGptLaneActivityObservationV1,
   type ChatGptLaneActivityObservationV1,
 } from "../src/lane-activity.js";
@@ -111,7 +111,7 @@ describe("ChatGPT lane activity admission", () => {
 
 describe("ChatGPT lane transition safety", () => {
   it("earns resident freeze from exact fresh idle state while keeping discard unknown", () => {
-    const result = assessChatGptLaneActivityV1(
+    const result = assessChatGptLaneTransitionV1(
       descriptor(),
       verifiedRecovery(),
       activity(),
@@ -141,10 +141,10 @@ describe("ChatGPT lane transition safety", () => {
     ["download", "active", "download_active"],
     ["otherTransient", "active", "application_unknown"],
   ] as const)("maps %s activity to %s", (field, value, blocker) => {
-    const result = assessChatGptLaneActivityV1(
+    const result = assessChatGptLaneTransitionV1(
       descriptor(),
       verifiedRecovery(),
-      activity({ [field]: value }),
+      activity({ [field]: value } as Partial<ChatGptLaneActivityObservationV1>),
       NOW + 100,
     );
 
@@ -161,13 +161,13 @@ describe("ChatGPT lane transition safety", () => {
   });
 
   it("keeps weak or partially unknown observations conservative", () => {
-    const probable = assessChatGptLaneActivityV1(
+    const probable = assessChatGptLaneTransitionV1(
       descriptor(),
       verifiedRecovery(),
       activity({ confidence: "probable" }),
       NOW + 100,
     );
-    const unknown = assessChatGptLaneActivityV1(
+    const unknown = assessChatGptLaneTransitionV1(
       descriptor(),
       verifiedRecovery(),
       activity({ composition: "unknown" }),
@@ -195,14 +195,14 @@ describe("ChatGPT lane transition safety", () => {
   });
 
   it("expires stale observations and rejects future observations", () => {
-    const stale = assessChatGptLaneActivityV1(
+    const stale = assessChatGptLaneTransitionV1(
       descriptor(),
       verifiedRecovery(),
       activity({ observedAtMs: NOW - 5_001 }),
       NOW,
       5_000,
     );
-    const future = assessChatGptLaneActivityV1(
+    const future = assessChatGptLaneTransitionV1(
       descriptor(),
       verifiedRecovery(),
       activity({ observedAtMs: NOW + 1 }),
@@ -216,7 +216,7 @@ describe("ChatGPT lane transition safety", () => {
   });
 
   it("blocks a mismatched lane generation without weakening verified recovery identity", () => {
-    const result = assessChatGptLaneActivityV1(
+    const result = assessChatGptLaneTransitionV1(
       descriptor(),
       verifiedRecovery(),
       activity({ laneGeneration: 8 }),
@@ -246,7 +246,7 @@ describe("ChatGPT lane transition safety", () => {
       NOW - 50,
     );
 
-    const result = assessChatGptLaneActivityV1(
+    const result = assessChatGptLaneTransitionV1(
       lane,
       failedRecovery,
       activity(),
@@ -265,7 +265,7 @@ describe("ChatGPT lane transition safety", () => {
   });
 
   it("never upgrades destructive discard eligibility in protocol v1", () => {
-    const result = assessChatGptLaneActivityV1(
+    const result = assessChatGptLaneTransitionV1(
       descriptor(),
       verifiedRecovery(),
       activity(),
