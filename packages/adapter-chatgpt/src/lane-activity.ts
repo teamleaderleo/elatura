@@ -208,6 +208,29 @@ export function assessChatGptLaneTransitionV1(
     MAX_CHATGPT_LANE_ACTIVITY_MAX_AGE_MS,
   );
 
+  // Recovery evidence belongs to one exact canonical lane generation. Refuse a
+  // cross-lane/cross-generation recovery result before its verified status can
+  // influence current transition permission.
+  if (recovery.laneRef !== descriptor.laneRef) {
+    return assessment(
+      descriptor,
+      activity,
+      assessedAtMs,
+      "mismatched",
+      "lane_mismatch",
+      blockedFidelity("attention_required", ["application_unknown"]),
+    );
+  }
+  if (recovery.laneGeneration !== descriptor.generation) {
+    return assessment(
+      descriptor,
+      activity,
+      assessedAtMs,
+      "mismatched",
+      "generation_mismatch",
+      blockedFidelity("attention_required", ["application_unknown"]),
+    );
+  }
   if (recovery.status !== "verified" || recovery.identityContinuity !== "verified") {
     return assessment(
       descriptor,
