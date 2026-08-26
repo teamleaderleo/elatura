@@ -10,7 +10,7 @@ Human-first dogfood: #118
 
 Elatura should become a local adaptive access layer for heavyweight authenticated web applications.
 
-Its live unit is an **application lane**: a consumer-neutral managed view of one useful application target inside a genuine signed-in application context.
+Its live unit is an **application lane**: a consumer-neutral managed view of one useful application target through a genuine signed-in application context.
 
 ```text
 heavyweight authenticated web application
@@ -36,13 +36,14 @@ A lane is a logical application-access unit. Browser implementation objects are 
 
 A durable lane reference should eventually identify only enough local context to recover the intended application target, for example:
 
-- application/adapter class where known;
-- owning local browser profile or managed application context;
-- an opaque application-local target/navigation key when one can be recovered safely;
-- freshness/generation information;
-- current projection state.
+- an opaque Elatura-local lane key;
+- application/adapter class where needed for routing;
+- an opaque application-native target/navigation locator when one can be recovered safely and stably enough;
+- target freshness/generation information where the application exposes it.
 
-Browser tab ids, CDP target ids, renderer process ids, window ids, remote-workspace ids, and similar handles belong to the current projection. They can disappear and be reacquired after navigation, discard, crash, restart, or host migration.
+The current signed-in browser/application session is a runtime access binding, not lane identity. Browser profile/session handles, tab ids, CDP target ids, renderer process ids, window ids, remote-workspace ids, and similar handles belong to the current projection. They can disappear and be reacquired after navigation, discard, crash, restart, profile replacement, or host migration.
+
+Reusable browser credentials, cookies, authorization material, and provider session secrets stay inside the authoritative browser/application context and never enter the lane reference.
 
 This distinction also keeps an Elatura application lane separate from a Stensibly work or agent lane. Stensibly may retain a reference to an Elatura lane; Elatura does not inherit mission, ownership, scheduling, or dispatch authority from that association.
 
@@ -66,7 +67,7 @@ For an agent, useful outcomes include:
 - activating and operating the genuine application when interaction or verification requires it;
 - receiving explicit freshness, omission, and recovery state from any bounded view.
 
-Human and agent consumers should share the same application session and intervention policy. Agent use should not require a parallel browser product with a second copy of application state.
+Human and agent consumers should share the same authoritative application access path and intervention policy. Agent use should not require a parallel browser product with a second copy of application state.
 
 ## Observation ladder
 
@@ -142,7 +143,7 @@ The companion becomes interesting again when a bounded semantic view saves a liv
 
 The Android work proves that bounded content-minimized completion hints can be handled conservatively. Such hints can feed a lane's observation state when physical-device evidence supports them.
 
-Provider notification identity stays advisory. Lane identity comes from the authoritative browser/application context and can survive missing, grouped, delayed, or ambiguous notification events.
+Provider notification identity stays advisory. Lane identity comes from the logical application target and can survive missing, grouped, delayed, or ambiguous notification events. Correlation into the current authoritative browser/application projection remains explicit and confidence-bounded.
 
 ### Persistent remote Firefox is a host/offload option
 
@@ -182,8 +183,8 @@ Project memory, reusable evidence selection, and long-lived work narratives live
 
 #116 should pin a content-free experiment manifest covering:
 
-- logical lane reference versus current browser projection ids;
-- current application target/navigation token class;
+- opaque logical lane reference versus current browser/session projection ids;
+- application-native target/navigation locator class without reusable credentials;
 - lane freshness and recovery state;
 - current intervention level;
 - emitted signal class and confidence;
@@ -242,7 +243,7 @@ If the live browser comparison shows little gain, retain the earned Firefox resc
 Use these product-facing terms going forward:
 
 - **application lane** — logical managed live access unit;
-- **browser projection** — current tab/target/window/process realization of a lane;
+- **browser projection** — current profile/session/tab/target/window/process realization of a lane;
 - **working set** — bounded currently retained/observed application state;
 - **signal** — local observation with confidence/freshness;
 - **bounded view** — semantic/DOM/accessibility/application region with explicit omission;
