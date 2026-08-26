@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://elatura.invalid/schema/agent-viewport-benchmark-v1.schema.json",
+  "title": "Elatura agent viewport benchmark result",
+  "description": "Content-free broad-control versus bounded-viewport result. Transcript text, URLs, credentials, and composite scores are not part of this schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "experimentId", "generatedAt", "scenario", "privacy", "routes"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "agent-viewport-benchmark" },
+    "experimentId": { "$ref": "#/$defs/token" },
+    "generatedAt": { "$ref": "#/$defs/timestamp" },
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "entries"],
+      "properties": {
+        "id": { "$ref": "#/$defs/token" },
+        "entries": { "$ref": "#/$defs/entries" }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["responseBodiesCaptured", "messageTextCaptured", "queryStringsCaptured", "rawIdentifiersCaptured", "credentialsCaptured", "remoteTranscriptStored", "automaticSubmission", "navigationAuthority", "clickAuthority"],
+      "properties": {
+        "responseBodiesCaptured": { "const": false },
+        "messageTextCaptured": { "const": false },
+        "queryStringsCaptured": { "const": false },
+        "rawIdentifiersCaptured": { "const": false },
+        "credentialsCaptured": { "const": false },
+        "remoteTranscriptStored": { "const": false },
+        "automaticSubmission": { "const": false },
+        "navigationAuthority": { "const": false },
+        "clickAuthority": { "const": false }
+      }
+    },
+    "routes": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/route" }
+    }
+  },
+  "$defs": {
+    "token": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{3})?Z$" },
+    "count": { "type": "integer", "minimum": 0, "maximum": 10000000 },
+    "entries": { "type": "integer", "minimum": 0, "maximum": 10000000 },
+    "bytes": { "type": "integer", "minimum": 0, "maximum": 1073741824 },
+    "criterion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expected", "observed", "exact"],
+      "properties": {
+        "expected": { "type": "boolean" },
+        "observed": { "type": "boolean" },
+        "exact": { "type": "boolean" }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["route", "worker", "sourceState", "outcome", "objective", "metrics", "retained", "plateau", "explicitness"],
+      "properties": {
+        "route": { "enum": ["broad-control", "bounded-viewport"] },
+        "worker": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["workerId", "threadId", "fresh"],
+          "properties": {
+            "workerId": { "$ref": "#/$defs/token" },
+            "threadId": { "$ref": "#/$defs/token" },
+            "fresh": { "const": true }
+          }
+        },
+        "sourceState": { "enum": ["fresh", "stale", "drifted", "UNKNOWN"] },
+        "outcome": { "enum": ["success", "incorrect", "stale", "drifted", "UNKNOWN"] },
+        "objective": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["facts", "resource", "action", "evidence"],
+          "properties": {
+            "facts": { "$ref": "#/$defs/criterion" },
+            "resource": { "$ref": "#/$defs/criterion" },
+            "action": { "$ref": "#/$defs/criterion" },
+            "evidence": { "$ref": "#/$defs/criterion" }
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["wallTimeMs", "steps", "toolCalls", "sourceBytesAccessible", "sourceEntriesAccessible", "agentVisibleBytes", "uniqueEntriesExposed", "searches", "opens", "expansions", "resourceCalls", "jumpBackCalls", "irrelevantEntries", "irrelevantExpansions"],
+          "properties": {
+            "wallTimeMs": { "type": "integer", "minimum": 0, "maximum": 86400000 },
+            "steps": { "$ref": "#/$defs/count" },
+            "toolCalls": { "$ref": "#/$defs/count" },
+            "sourceBytesAccessible": { "$ref": "#/$defs/bytes" },
+            "sourceEntriesAccessible": { "$ref": "#/$defs/entries" },
+            "agentVisibleBytes": { "$ref": "#/$defs/bytes" },
+            "uniqueEntriesExposed": { "$ref": "#/$defs/entries" },
+            "searches": { "$ref": "#/$defs/count" },
+            "opens": { "$ref": "#/$defs/count" },
+            "expansions": { "$ref": "#/$defs/count" },
+            "resourceCalls": { "$ref": "#/$defs/count" },
+            "jumpBackCalls": { "$ref": "#/$defs/count" },
+            "irrelevantEntries": { "$ref": "#/$defs/entries" },
+            "irrelevantExpansions": { "$ref": "#/$defs/count" }
+          }
+        },
+        "retained": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxEntries", "finalEntries", "maxBytes", "finalBytes"],
+          "properties": {
+            "maxEntries": { "$ref": "#/$defs/entries" },
+            "finalEntries": { "$ref": "#/$defs/entries" },
+            "maxBytes": { "$ref": "#/$defs/bytes" },
+            "finalBytes": { "$ref": "#/$defs/bytes" }
+          }
+        },
+        "plateau": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stable", "samples"],
+          "properties": {
+            "stable": { "type": "boolean" },
+            "samples": { "$ref": "#/$defs/count" }
+          }
+        },
+        "explicitness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["provenance", "omission", "freshness", "zeroAuthority"],
+          "properties": {
+            "provenance": { "type": "boolean" },
+            "omission": { "type": "boolean" },
+            "freshness": { "type": "boolean" },
+            "zeroAuthority": { "type": "boolean" }
+          }
+        }
+      }
+    }
+  }
+}
