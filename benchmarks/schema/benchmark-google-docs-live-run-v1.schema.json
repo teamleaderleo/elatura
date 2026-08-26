@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://elatura.local/schemas/benchmark-google-docs-live-run-v1.schema.json",
+  "title": "Elatura content-free Google Docs live workload run",
+  "description": "Research-only benchmark record for a human-operated Google Docs workload. The record accepts generated fixture identities, bounded numeric telemetry, fixed lifecycle tokens, and fidelity verdicts. Document text, titles, URLs, account identifiers, collaborator identities, screenshots, clipboard contents, and free-form notes are excluded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "recordedAt",
+    "workload",
+    "variant",
+    "fixture",
+    "environment",
+    "samples",
+    "fidelity",
+    "privacy"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "format": "uuid" },
+    "recordedAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}Z$"
+    },
+    "workload": { "enum": ["docs-large-text-v1", "docs-switch-8-v1"] },
+    "variant": {
+      "enum": [
+        "stock-resident",
+        "stock-memory-saver",
+        "elatura-observe",
+        "elatura-freeze",
+        "elatura-discard"
+      ]
+    },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "generator",
+        "documentCount",
+        "totalTextCodeUnits",
+        "perDocumentTextCodeUnits",
+        "manifestSha256"
+      ],
+      "properties": {
+        "generator": { "const": "google-docs-workload-v1" },
+        "documentCount": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "totalTextCodeUnits": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+        "perDocumentTextCodeUnits": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": { "type": "integer", "minimum": 1, "maximum": 1000000 }
+        },
+        "manifestSha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "osClass",
+        "browserVersionToken",
+        "profileClass",
+        "memorySaver",
+        "energySaver",
+        "instrumentation",
+        "hardwareMemoryBytes"
+      ],
+      "properties": {
+        "osClass": { "enum": ["macos", "windows", "linux", "chromeos"] },
+        "browserVersionToken": {
+          "type": "string",
+          "pattern": "^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$"
+        },
+        "profileClass": { "const": "dedicated-signed-in" },
+        "memorySaver": {
+          "enum": ["off", "moderate", "balanced", "maximum", "unknown"]
+        },
+        "energySaver": { "enum": ["off", "on", "unknown"] },
+        "instrumentation": {
+          "enum": ["none", "bounded-cdp", "bounded-cdp-plus-extension"]
+        },
+        "hardwareMemoryBytes": { "type": ["integer", "null"], "minimum": 1 }
+      }
+    },
+    "samples": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/sample" }
+    },
+    "fidelity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "editCanarySaved",
+        "undoRedo",
+        "caretContinuity",
+        "selectionContinuity",
+        "autosaveContinuity",
+        "collaborationContinuity",
+        "unexpectedReloadCount",
+        "operatorVisibleFailureCount"
+      ],
+      "properties": {
+        "editCanarySaved": { "$ref": "#/$defs/verdict" },
+        "undoRedo": { "$ref": "#/$defs/verdict" },
+        "caretContinuity": { "$ref": "#/$defs/verdict" },
+        "selectionContinuity": { "$ref": "#/$defs/verdict" },
+        "autosaveContinuity": { "$ref": "#/$defs/verdict" },
+        "collaborationContinuity": { "$ref": "#/$defs/verdict" },
+        "unexpectedReloadCount": { "type": "integer", "minimum": 0 },
+        "operatorVisibleFailureCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "documentTextCaptured",
+        "documentTitlesCaptured",
+        "urlsCaptured",
+        "accountIdsCaptured",
+        "collaboratorIdsCaptured",
+        "screenshotsCaptured",
+        "clipboardCaptured",
+        "freeFormNotesCaptured"
+      ],
+      "properties": {
+        "documentTextCaptured": { "const": false },
+        "documentTitlesCaptured": { "const": false },
+        "urlsCaptured": { "const": false },
+        "accountIdsCaptured": { "const": false },
+        "collaboratorIdsCaptured": { "const": false },
+        "screenshotsCaptured": { "const": false },
+        "clipboardCaptured": { "const": false },
+        "freeFormNotesCaptured": { "const": false }
+      }
+    }
+  },
+  "$defs": {
+    "verdict": {
+      "enum": ["pass", "fail", "unmeasured"]
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "phase",
+        "activeDocumentOrdinal",
+        "openDocumentTabs",
+        "frozenDocumentTabs",
+        "discardedDocumentTabs",
+        "pageTargetCount",
+        "rendererProcessCount",
+        "browserTreeResidentBytes",
+        "docsRendererResidentBytes",
+        "gpuResidentBytes",
+        "jsHeapUsedBytes",
+        "domNodes",
+        "jsEventListeners",
+        "rendererCpuSeconds",
+        "activationToEditableMs",
+        "editEchoMs",
+        "saveSettledMs"
+      ],
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "phase": {
+          "enum": ["initial", "active", "background", "reactivated", "idle"]
+        },
+        "activeDocumentOrdinal": { "type": ["integer", "null"], "minimum": 0, "maximum": 9 },
+        "openDocumentTabs": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "frozenDocumentTabs": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "discardedDocumentTabs": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "pageTargetCount": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "rendererProcessCount": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "browserTreeResidentBytes": { "type": ["integer", "null"], "minimum": 1 },
+        "docsRendererResidentBytes": { "type": ["integer", "null"], "minimum": 1 },
+        "gpuResidentBytes": { "type": ["integer", "null"], "minimum": 1 },
+        "jsHeapUsedBytes": { "type": ["integer", "null"], "minimum": 0 },
+        "domNodes": { "type": ["integer", "null"], "minimum": 0 },
+        "jsEventListeners": { "type": ["integer", "null"], "minimum": 0 },
+        "rendererCpuSeconds": { "type": ["number", "null"], "minimum": 0 },
+        "activationToEditableMs": { "type": ["number", "null"], "minimum": 0 },
+        "editEchoMs": { "type": ["number", "null"], "minimum": 0 },
+        "saveSettledMs": { "type": ["number", "null"], "minimum": 0 }
+      }
+    }
+  }
+}
