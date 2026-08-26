@@ -58,6 +58,7 @@ const REQUIRED = [
   "elatura-revision",
   "firefox-intervention",
   "chromium-intervention",
+  "chromium-transport",
 ];
 
 function usage() {
@@ -71,6 +72,7 @@ function usage() {
     "  --elatura-revision <token>",
     "  --firefox-intervention <lowercase-token>",
     "  --chromium-intervention <lowercase-token>",
+    "  --chromium-transport extension-only|extension-cdp",
     "Optional: --out <new-path>",
   ].join("\n");
 }
@@ -101,6 +103,13 @@ function versionToken(value, option) {
 function lowerToken(value, option) {
   if (typeof value !== "string" || !/^[a-z0-9][a-z0-9._-]{0,95}$/u.test(value)) {
     throw new Error(`--${option} must be a bounded lowercase token`);
+  }
+  return value;
+}
+
+function chromiumTransport(value) {
+  if (value !== "extension-only" && value !== "extension-cdp") {
+    throw new Error("--chromium-transport must be extension-only or extension-cdp");
   }
   return value;
 }
@@ -188,6 +197,7 @@ function createPlan(values) {
         values.get("chromium-intervention"),
         "chromium-intervention",
       ),
+      chromiumTransport: chromiumTransport(values.get("chromium-transport")),
     },
     protocol: {
       samplePeriodMs: 2000,
