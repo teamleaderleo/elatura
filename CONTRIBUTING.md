@@ -11,13 +11,35 @@ Elatura is still defining its safety and compatibility boundaries. Small, eviden
 5. **Preserve unknown data.** A transform must not silently discard fields or content types it does not understand.
 6. **Respect capability boundaries.** Adapter support, build authorization, and runtime reachability are separate decisions.
 
-## Before opening a pull request
+## Developer workflow
 
-Install exactly the committed dependency graph and run the complete repository gate:
+Use Node 22 (the repository includes `.nvmrc`) and install exactly the committed dependency graph:
 
 ```bash
+nvm use
 npm ci --ignore-scripts
+```
+
+For ordinary code/test iteration:
+
+```bash
+npm run check:code
+```
+
+For one focused test file:
+
+```bash
+npm test -- path/to/file.test.ts
+```
+
+See [`docs/developer-workflow.md`](docs/developer-workflow.md) for the repository map, extension commands, benchmark operator flow, and the distinction between local iteration checks and evidence/merge gates.
+
+## Before opening a pull request
+
+Run the complete repository gate:
+
+```bash
 npm run check
 ```
 
-Explain which measured problem the change addresses, how failure behaves, which project gate applies, and which issue #12 handoff consumes the result.
+Explain which measured or observed problem the change addresses, how failure behaves, which project gate applies, and which #12 coordination-board owner consumes the result. For branches that depend on current contracts, revalidate the exact combined head after `main` moves.
