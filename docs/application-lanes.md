@@ -177,6 +177,38 @@ Elatura can emit `changed` or `possible_completion`. Stensibly decides whether t
 
 Project memory, reusable evidence selection, and long-lived work narratives live outside the Elatura lane contract.
 
+## Opportunistic multi-lane working set
+
+The normal multi-lane loop should be opportunistic and cheap. Elatura does not need a periodic scheduler whose main purpose is waking itself to poll applications.
+
+The current `ApplicationLaneRuntimeV1` already retains a bounded content-free inventory: current descriptor, latest admitted event, pending-request count, and recent-event count for each tracked lane. Its default `maxLanes: 64` is an implementation ceiling for volatile runtime ownership, not a product target, account-wide quota, or promise that every tracked lane should stay resident.
+
+A consumer can use that inventory as the first rung of a portfolio scan:
+
+```text
+bounded lane runtime snapshot
+        ↓
+interesting or uncertain lane?
+  no  → leave it alone
+  yes → bounded observation if needed
+              ↓
+       screenshot only if useful
+              ↓
+       activate the genuine application only when earned
+```
+
+A consumer may keep private revisit hints such as a `next_check_at` timestamp. Such a value is only an eligibility lower bound when the consumer is already awake for a real decision. It does not belong in the application-lane protocol, does not request a timer or heartbeat, and does not oblige Elatura to inspect the lane when the time arrives. Event-native changes, an operator return, or another real decision trigger can cause an earlier useful look.
+
+Resource posture remains a separate cross-boundary input. The existing `responsive | suspended | reclaimable` residency request is sufficient for a consumer to say how available one exact lane generation should remain. Elatura then decides whether the current browser/application projection can safely stay loaded, freeze, discard, wake, or require recovery. The consumer does not need browser tab ids or lifecycle implementation details to make that request.
+
+Resource limits are ceilings, not quotas. A small hot set can remain responsive while a larger set of useful lanes stays suspended or reclaimable. Under pressure, only background lanes whose current application/browser fidelity permits the transition should become colder. Active generation, unsaved interaction, saving, composition, collaboration, media/device use, manual protection, and unknown application state continue to block aggressive reclamation through the lifecycle contract.
+
+Browser tab groups, browser workspaces, windows, and similar organization are useful human ergonomics and may help keep projections visually tidy. They remain ephemeral projection metadata. Regrouping a tab, moving it between windows, losing a group, or reconstructing a browser workspace must not change `laneRef + laneGeneration`, work authority, or the Stensibly binding.
+
+For #116, scale the multi-lane benchmark around the observed transition region instead of choosing a universal count in advance. Current runtime bounds make several-dozen-lane experiments possible; the benchmark should find the useful-lane capacity frontier from measured memory, recovery latency, fidelity, and unnecessary visits. A host that can track many logical lanes while keeping only a smaller responsive resident set is a successful outcome if recovery stays truthful and cheap enough.
+
+Events remain application facts. They can reduce useless visits or make a lane worth inspecting; they do not rank project work, choose the next task, or grant dispatch authority.
+
 ## Experiment sequence
 
 ### 1. Define the live-lane contract before expanding implementation
