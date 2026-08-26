@@ -29,6 +29,10 @@
       "types": "./dist/conformance.d.ts",
       "default": "./dist/conformance.js"
     },
+    "./lane-governor": {
+      "types": "./dist/lane-governor.d.ts",
+      "default": "./dist/lane-governor.js"
+    },
     "./orchestration": {
       "types": "./dist/orchestration.d.ts",
       "default": "./dist/orchestration.js"
