@@ -271,12 +271,11 @@ function adapterIdentity(value: unknown): AdapterIdentity {
 }
 
 function references(value: unknown): readonly string[] {
-  if (!Array.isArray(value)) throw new TypeError("Lane source references must be an array");
-  if (value.length > MAX_SOURCE_REFS) throw new RangeError(`Lane source references exceed ${MAX_SOURCE_REFS} entries`);
-  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const inspected = inspectArray(value, "Lane source references");
+  if (inspected.length > MAX_SOURCE_REFS) throw new RangeError(`Lane source references exceed ${MAX_SOURCE_REFS} entries`);
   const output: string[] = [];
-  for (let index = 0; index < value.length; index += 1) {
-    const descriptor = descriptors[String(index)];
+  for (let index = 0; index < inspected.length; index += 1) {
+    const descriptor = inspected.descriptors[String(index)];
     if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) throw new TypeError("Lane source references must be dense data");
     output.push(identifier(descriptor.value, `Lane source reference ${index + 1}`, MAX_SOURCE_REF));
   }
@@ -286,12 +285,11 @@ function references(value: unknown): readonly string[] {
 }
 
 function enumList<const Values extends readonly string[]>(value: unknown, values: Values, label: string): readonly Values[number][] {
-  if (!Array.isArray(value)) throw new TypeError(`${label} list must be an array`);
-  if (value.length < 1 || value.length > values.length) throw new RangeError(`${label} list must contain between 1 and ${values.length} entries`);
-  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const inspected = inspectArray(value, `${label} list`);
+  if (inspected.length < 1 || inspected.length > values.length) throw new RangeError(`${label} list must contain between 1 and ${values.length} entries`);
   const output: Values[number][] = [];
-  for (let index = 0; index < value.length; index += 1) {
-    const descriptor = descriptors[String(index)];
+  for (let index = 0; index < inspected.length; index += 1) {
+    const descriptor = inspected.descriptors[String(index)];
     if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) throw new TypeError(`${label} list must be dense data`);
     output.push(exactEnum(descriptor.value, values, `${label} ${index + 1}`));
   }
@@ -301,19 +299,70 @@ function enumList<const Values extends readonly string[]>(value: unknown, values
 }
 
 function record(value: unknown, label: string, keys: readonly string[]): Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${label} must be an object`);
-  const prototype = Object.getPrototypeOf(value);
+  if (value === null || typeof value !== "object") throw new TypeError(`${label} must be an object`);
+  let array: boolean;
+  try {
+    array = Array.isArray(value);
+  } catch {
+    throw new TypeError(`${label} inspection failed`);
+  }
+  if (array) throw new TypeError(`${label} must be an object`);
+
+  let prototype: object | null;
+  let descriptors: PropertyDescriptorMap;
+  try {
+    prototype = Object.getPrototypeOf(value);
+    descriptors = Object.getOwnPropertyDescriptors(value);
+  } catch {
+    throw new TypeError(`${label} inspection failed`);
+  }
   if (prototype !== Object.prototype && prototype !== null) throw new TypeError(`${label} must be a plain object`);
-  if (Object.getOwnPropertySymbols(value).length > 0) throw new TypeError(`${label} contains symbol decoration`);
-  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const descriptorKeys = Reflect.ownKeys(descriptors);
+  if (descriptorKeys.some((key) => typeof key === "symbol")) throw new TypeError(`${label} contains symbol decoration`);
+
   const output: Record<string, unknown> = {};
-  for (const [key, descriptor] of Object.entries(descriptors)) {
-    if (!descriptor.enumerable || !("value" in descriptor)) throw new TypeError(`${label} must contain enumerable data properties`);
+  for (const key of descriptorKeys as string[]) {
+    const descriptor = descriptors[key];
+    if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) throw new TypeError(`${label} must contain enumerable data properties`);
     if (!keys.includes(key)) throw new TypeError(`${label} contains unsupported field ${key}`);
     output[key] = descriptor.value;
   }
   for (const key of keys) if (!Object.prototype.hasOwnProperty.call(output, key)) throw new TypeError(`${label} is missing required field ${key}`);
   return output;
+}
+
+function inspectArray(
+  value: unknown,
+  label: string,
+): Readonly<{ length: number; descriptors: PropertyDescriptorMap }> {
+  let array: boolean;
+  try {
+    array = Array.isArray(value);
+  } catch {
+    throw new TypeError(`${label} inspection failed`);
+  }
+  if (!array) throw new TypeError(`${label} must be an array`);
+
+  let descriptors: PropertyDescriptorMap;
+  try {
+    descriptors = Object.getOwnPropertyDescriptors(value);
+  } catch {
+    throw new TypeError(`${label} inspection failed`);
+  }
+  const lengthDescriptor = descriptors.length;
+  if (
+    !lengthDescriptor ||
+    !("value" in lengthDescriptor) ||
+    typeof lengthDescriptor.value !== "number" ||
+    !Number.isSafeInteger(lengthDescriptor.value) ||
+    lengthDescriptor.value < 0
+  ) {
+    throw new TypeError(`${label} has invalid array length`);
+  }
+  return Object.freeze({
+    length: lengthDescriptor.value,
+    descriptors,
+  });
 }
 
 function emptyPayload(value: unknown, label: string): Readonly<Record<string, never>> {
