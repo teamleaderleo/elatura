@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Elatura Chromium Projection Host",
+  "version": "0.0.1",
+  "description": "Local browser-lifecycle controls for Elatura application-lane projections.",
+  "minimum_chrome_version": "132",
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  }
+}
