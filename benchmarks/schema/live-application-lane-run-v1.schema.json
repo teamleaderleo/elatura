@@ -82,7 +82,7 @@
           "properties": {
             "present": { "type": "boolean" },
             "mode": { "enum": ["none", "passive", "managed"] },
-            "transport": { "enum": ["none", "firefox-extension", "chromium-extension-cdp"] },
+            "transport": { "enum": ["none", "firefox-extension", "chromium-extension", "chromium-extension-cdp"] },
             "revision": { "oneOf": [{ "$ref": "#/$defs/versionToken" }, { "type": "null" }] },
             "interventionToken": { "oneOf": [{ "$ref": "#/$defs/token" }, { "type": "null" }] }
           },
@@ -103,7 +103,7 @@
               "then": {
                 "properties": {
                   "mode": { "enum": ["passive", "managed"] },
-                  "transport": { "enum": ["firefox-extension", "chromium-extension-cdp"] }
+                  "transport": { "enum": ["firefox-extension", "chromium-extension", "chromium-extension-cdp"] }
                 }
               }
             }
