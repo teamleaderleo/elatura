@@ -43,6 +43,7 @@
         <div class="compact-actions">
           <button id="activity-bind" type="button">Bind active page</button>
           <button id="activity-sample" type="button" disabled>Sample state</button>
+          <button id="activity-diagnostic-export" type="button" disabled>Export diagnostic</button>
         </div>
         <dl class="compact activity-readout">
           <div><dt>Binding</dt><dd id="activity-binding">unbound</dd></div>
@@ -57,6 +58,9 @@
         </dl>
         <output id="activity-panel-status" class="panel-status" aria-live="polite">
           Enter a lane target, then bind the active ChatGPT page.
+        </output>
+        <output id="activity-diagnostic-status" class="panel-status" aria-live="polite">
+          Bind the active ChatGPT page to enable canonical diagnostic export.
         </output>
       </fieldset>
 
@@ -101,5 +105,6 @@
       <output id="status" aria-live="polite"></output>
     </main>
     <script type="module" src="popup.js"></script>
+    <script type="module" src="chatgpt-lane-activity-diagnostic-popup.js"></script>
   </body>
 </html>
