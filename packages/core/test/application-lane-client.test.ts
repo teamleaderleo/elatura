@@ -58,15 +58,21 @@ describe("application lane response binding", () => {
     ["request_id_mismatch", { requestId: "req-other" }],
     ["lane_ref_mismatch", { laneRef: "lane-other" }],
     ["lane_generation_mismatch", { laneGeneration: 8 }],
-    ["operation_mismatch", { operation: "status", payload: {
-      version: 1,
-      laneRef: observeRequest.laneRef,
-      generation: observeRequest.laneGeneration,
-      adapter: { id: "chatgpt", version: "1" },
-      capabilities: ["events", "observe", "activate", "screenshot"],
-      state: "active",
-      observedAt: "2026-08-27T00:00:00.000Z",
-    } }],
+    [
+      "operation_mismatch",
+      {
+        operation: "status",
+        payload: {
+          version: 1,
+          laneRef: observeRequest.laneRef,
+          generation: observeRequest.laneGeneration,
+          adapter: { id: "chatgpt", version: "1" },
+          capabilities: ["events", "observe", "activate", "screenshot"],
+          state: "active",
+          observedAt: "2026-08-27T00:00:00.000Z",
+        },
+      },
+    ],
   ] as const)("rejects %s before the response can be consumed", (reason, patch) => {
     const decision = matchApplicationLaneResponseV1(observeRequest, {
       ...observeResponse,
@@ -76,12 +82,31 @@ describe("application lane response binding", () => {
     expect(decision).toMatchObject({ matched: false, reason, response: null });
   });
 
-  it("re-measures observation content against the caller's narrower text budget", () => {
+  it("re-measures one oversized observation string against the caller's text budget", () => {
     const decision = matchApplicationLaneResponseV1(observeRequest, {
       ...observeResponse,
       payload: {
         ...observeResponse.payload,
         content: { excerpt: "x".repeat(65) },
+      },
+    });
+
+    expect(decision).toMatchObject({
+      matched: false,
+      reason: "observation_budget_exceeded",
+      response: null,
+    });
+  });
+
+  it("enforces the caller's aggregate observation text budget across several strings", () => {
+    const decision = matchApplicationLaneResponseV1(observeRequest, {
+      ...observeResponse,
+      payload: {
+        ...observeResponse.payload,
+        content: {
+          first: "a".repeat(40),
+          second: "b".repeat(40),
+        },
       },
     });
 
