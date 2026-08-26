@@ -12,7 +12,7 @@
         <strong>Elatura</strong>
         <span class="mode" id="mode">idle</span>
       </header>
-      <p>Observe content-free page costs and inspect a fail-open slimming prototype for the active ChatGPT tab.</p>
+      <p>Observe content-free page costs and inspect fail-open ChatGPT diagnostics for the active tab.</p>
       <dl>
         <div><dt>Run</dt><dd id="run">none</dd></div>
         <div><dt>Requests</dt><dd id="requests">—</dd></div>
@@ -21,6 +21,44 @@
         <div><dt>Transform safety</dt><dd id="transform-safety">locked</dd></div>
         <div><dt>Transform opt-in</dt><dd id="transform-opt-in">not recorded</dd></div>
       </dl>
+
+      <fieldset id="activity-panel-controls">
+        <legend>ChatGPT lane activity</legend>
+        <p class="note">
+          Volatile diagnostics only. Enter the canonical lane target, bind the active ChatGPT page,
+          then sample fixed blocker state. Closing the popup clears the private binding.
+        </p>
+        <div class="lane-target-grid">
+          <label for="activity-lane-ref">Lane ref</label>
+          <input
+            id="activity-lane-ref"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="elatura:lane:…"
+          />
+          <label for="activity-lane-generation">Generation</label>
+          <input id="activity-lane-generation" type="number" min="1" step="1" value="1" />
+        </div>
+        <div class="compact-actions">
+          <button id="activity-bind" type="button">Bind active page</button>
+          <button id="activity-sample" type="button" disabled>Sample state</button>
+        </div>
+        <dl class="compact activity-readout">
+          <div><dt>Binding</dt><dd id="activity-binding">unbound</dd></div>
+          <div><dt>Confidence</dt><dd id="activity-confidence">—</dd></div>
+          <div><dt>Generation</dt><dd id="activity-generation">—</dd></div>
+          <div><dt>Composer</dt><dd id="activity-composer">—</dd></div>
+          <div><dt>IME</dt><dd id="activity-composition">—</dd></div>
+          <div><dt>Modal</dt><dd id="activity-modal">—</dd></div>
+          <div><dt>Media/device</dt><dd id="activity-media">—</dd></div>
+          <div><dt>Download</dt><dd id="activity-download">—</dd></div>
+          <div><dt>Other transient</dt><dd id="activity-transient">—</dd></div>
+        </dl>
+        <output id="activity-panel-status" class="panel-status" aria-live="polite">
+          Enter a lane target, then bind the active ChatGPT page.
+        </output>
+      </fieldset>
 
       <fieldset id="slim-controls">
         <legend>Active ChatGPT page prototype</legend>
