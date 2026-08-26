@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,9 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const createPlanScript = join(repoRoot, "scripts", "create-live-application-lane-plan.mjs");
 const verifyPlanScript = join(repoRoot, "scripts", "verify-live-application-lane-plan.mjs");
 const checkSessionScript = join(repoRoot, "scripts", "check-live-application-lane-session.mjs");
+const planSchemaPath = join(repoRoot, "benchmarks", "schema", "live-application-lane-plan-v1.schema.json");
+const runSchemaPath = join(repoRoot, "benchmarks", "schema", "live-application-lane-run-v1.schema.json");
+const projectionSchemaPath = join(repoRoot, "benchmarks", "schema", "live-application-lane-projection-v1.schema.json");
 const scratch: string[] = [];
 
 const generatorArgs = [
@@ -72,6 +75,27 @@ describe("live application lane experiment packet", () => {
       .toEqual([{ ordinal: 1, mode: "passive" }, { ordinal: 2, mode: "managed" }]);
     expect(plan.stages[0].blocks[1].slots.find((slot: any) => slot.conditionCode === "FE").physicalSubruns)
       .toEqual([{ ordinal: 1, mode: "managed" }, { ordinal: 2, mode: "passive" }]);
+  });
+
+  it("keeps benchmark pairing, browser projection, and Elatura lane identity separate", () => {
+    const projectionSchema = JSON.parse(readFileSync(projectionSchemaPath, "utf8"));
+    const lane = projectionSchema.$defs.lane;
+    expect(lane.required).toContain("benchmarkLaneToken");
+    expect(lane.required).toContain("browserProjectionGeneration");
+    expect(lane.required).toContain("elaturaLane");
+    expect(lane.required).not.toContain("tabId");
+    expect(projectionSchema.$defs.elaturaLane.required).toEqual(["laneRef", "laneGeneration", "state"]);
+    expect(projectionSchema.$defs.event.properties.confidence.enum).toEqual(["exact", "probable", "unknown"]);
+    expect(projectionSchema.$defs.event.properties.grantsWorkAuthority.const).toBe(false);
+    expect(projectionSchema.$defs.event.properties.authorizesWorkDispatch.const).toBe(false);
+  });
+
+  it("admits a preregistered extension-only Chromium transport without weakening the plan", () => {
+    const planSchema = JSON.parse(readFileSync(planSchemaPath, "utf8"));
+    const runSchema = JSON.parse(readFileSync(runSchemaPath, "utf8"));
+    expect(planSchema.properties.elatura.properties.chromiumTransport.enum).toEqual(["extension-only", "extension-cdp"]);
+    expect(runSchema.properties.condition.properties.elatura.properties.transport.enum).toContain("chromium-extension");
+    expect(runSchema.properties.condition.properties.elatura.properties.transport.enum).toContain("chromium-extension-cdp");
   });
 
   it("accepts the generated plan and rejects a rewritten condition order", () => {
