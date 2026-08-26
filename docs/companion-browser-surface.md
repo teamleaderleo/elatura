@@ -2,8 +2,28 @@
 
 A minimal framework-free static browser client over the merged bounded
 companion stack (`CompanionWebController`, `BoundedCompanionRenderSink`,
-`SyntheticCompanion`). It is the first user-visible product surface for #83 and
-remains synthetic-only and loopback-only end to end.
+`SyntheticCompanion`). It remains synthetic-only and loopback-only end to end.
+
+## Product position after #114 / PR #115
+
+This surface is a reusable **bounded-view and lifecycle test bench**, rather
+than the assumed primary Elatura product shell.
+
+PR #115 showed that the bounded agent viewport lost decisively to ordinary
+local JSONL + `rg` when both could operate over an already clean local
+representation. Preserve that result: direct local/API tools should win that
+class of task whenever they are cheaper and sufficient.
+
+The companion machinery remains valuable for application lanes where a bounded
+semantic view can avoid a live heavyweight application read, help a human
+navigate an oversized application, or serve as the semantic rung before a
+screenshot or full application activation. Its strongest reusable evidence is
+bounded replacement state, explicit freshness/provenance/omission, lifecycle
+cleanup, and retained-state plateau accounting.
+
+See [application-lanes.md](application-lanes.md) for the current product model.
+
+## Safety boundary
 
 This surface does not read a browser profile, touch cookies or authorization
 headers, submit messages, persist anything, load remote assets or fonts,
