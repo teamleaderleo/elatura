@@ -123,32 +123,39 @@ function boundedDocumentProjectionRef(value: unknown): string {
 export function parseFirefoxChatGptLaneActivityTargetV2(
   value: unknown,
 ): FirefoxChatGptLaneActivityTargetV2 {
-  if (!isPlainRecord(value) || !exactKeys(value, ["laneRef", "laneGeneration", "documentProjectionRef"])) {
+  try {
+    if (
+      !isPlainRecord(value) ||
+      !exactKeys(value, ["laneRef", "laneGeneration", "documentProjectionRef"])
+    ) {
+      throw new TypeError();
+    }
+    const laneRef = ownData(value, "laneRef");
+    const laneGeneration = ownData(value, "laneGeneration");
+    const documentProjectionRef = ownData(value, "documentProjectionRef");
+    if (
+      typeof laneRef !== "string" ||
+      laneRef.length < 1 ||
+      laneRef.length > MAX_LANE_REF_LENGTH ||
+      !LANE_REF_PATTERN.test(laneRef)
+    ) {
+      throw new TypeError();
+    }
+    if (
+      typeof laneGeneration !== "number" ||
+      !Number.isSafeInteger(laneGeneration) ||
+      laneGeneration < 1
+    ) {
+      throw new TypeError();
+    }
+    return Object.freeze({
+      laneRef,
+      laneGeneration,
+      documentProjectionRef: boundedDocumentProjectionRef(documentProjectionRef),
+    });
+  } catch {
     throw new TypeError("Firefox ChatGPT activity target is invalid");
   }
-  const laneRef = ownData(value, "laneRef");
-  const laneGeneration = ownData(value, "laneGeneration");
-  const documentProjectionRef = ownData(value, "documentProjectionRef");
-  if (
-    typeof laneRef !== "string" ||
-    laneRef.length < 1 ||
-    laneRef.length > MAX_LANE_REF_LENGTH ||
-    !LANE_REF_PATTERN.test(laneRef)
-  ) {
-    throw new TypeError("Firefox ChatGPT activity target is invalid");
-  }
-  if (
-    typeof laneGeneration !== "number" ||
-    !Number.isSafeInteger(laneGeneration) ||
-    laneGeneration < 1
-  ) {
-    throw new TypeError("Firefox ChatGPT activity target is invalid");
-  }
-  return Object.freeze({
-    laneRef,
-    laneGeneration,
-    documentProjectionRef: boundedDocumentProjectionRef(documentProjectionRef),
-  });
 }
 
 export function createFirefoxChatGptDocumentProjectionState(
