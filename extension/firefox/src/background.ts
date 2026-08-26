@@ -318,9 +318,14 @@ browser.webRequest.onBeforeRequest.addListener(
   { urls: ["https://chatgpt.com/*"], types: ["xmlhttprequest", "other"] },
 );
 
-browser.runtime.onMessage.addListener((message) => {
+browser.runtime.onMessage.addListener((message, sender) => {
   const activityRequest = parseFirefoxChatGptActivityRouteMessageV1(message);
-  if (activityRequest !== null) return sampleChatGptLaneActivityOnTab(activityRequest);
+  if (activityRequest !== null) {
+    // Content scripts may report their own page metrics, but only extension
+    // contexts can route an explicit lane-generation target to another tab.
+    if (sender?.tab?.id !== undefined) return undefined;
+    return sampleChatGptLaneActivityOnTab(activityRequest);
+  }
 
   if (!message || typeof message !== "object") return undefined;
   const candidate = message as { type?: string; metric?: unknown; acknowledgements?: unknown };
