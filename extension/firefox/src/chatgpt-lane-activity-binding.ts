@@ -9,6 +9,23 @@ export const FIREFOX_CHATGPT_ACTIVITY_BINDING_VERSION = 1 as const;
 export const DEFAULT_FIREFOX_ACTIVITY_BINDING_LIMIT = 64;
 const MAX_BINDINGS = 256;
 const PROJECTION_REF = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const OBSERVATION_KEYS = [
+  "version",
+  "laneRef",
+  "laneGeneration",
+  "observedAtMs",
+  "source",
+  "confidence",
+  "generation",
+  "composer",
+  "composition",
+  "modal",
+  "mediaOrDevice",
+  "download",
+  "otherTransient",
+  "grantsWorkAuthority",
+  "authorizesWorkDispatch",
+] as const;
 
 export type FirefoxChatGptActivityBindingStatus =
   | "bound"
@@ -79,39 +96,120 @@ function projectionKey(tab: number, ref: string): string {
   return `${tab}:${ref}`;
 }
 
-function exactEnvelope(value: unknown): FirefoxChatGptActivityResponseEnvelopeV1 | null {
+function plainRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  let keys: (string | symbol)[];
   try {
     const prototype = Object.getPrototypeOf(value);
-    if (prototype !== Object.prototype && prototype !== null) return null;
-    keys = Reflect.ownKeys(value);
+    return prototype === Object.prototype || prototype === null
+      ? value as Record<string, unknown>
+      : null;
   } catch {
     return null;
   }
-  if (keys.length !== 2 || !keys.includes("projectionRef") || !keys.includes("observation")) {
+}
+
+function exactDataRecord(
+  value: unknown,
+  expectedKeys: readonly string[],
+): Record<string, unknown> | null {
+  const record = plainRecord(value);
+  if (!record) return null;
+  let keys: (string | symbol)[];
+  try {
+    keys = Reflect.ownKeys(record);
+  } catch {
     return null;
   }
-  const record = value as Record<string, unknown>;
-  const projectionDescriptor = Object.getOwnPropertyDescriptor(record, "projectionRef");
-  const observationDescriptor = Object.getOwnPropertyDescriptor(record, "observation");
+  const expected = new Set(expectedKeys);
   if (
-    !projectionDescriptor || !("value" in projectionDescriptor) || !projectionDescriptor.enumerable ||
-    !observationDescriptor || !("value" in observationDescriptor) || !observationDescriptor.enumerable
+    keys.length !== expected.size ||
+    keys.some((key) => typeof key !== "string" || !expected.has(key))
   ) {
     return null;
   }
-  let projectionRef: string;
+  for (const key of expectedKeys) {
+    const descriptor = Object.getOwnPropertyDescriptor(record, key);
+    if (!descriptor || !("value" in descriptor) || !descriptor.enumerable) return null;
+  }
+  return record;
+}
+
+function data(record: Record<string, unknown>, key: string): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(record, key);
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
+}
+
+function oneOf<T extends string>(value: unknown, values: readonly T[]): value is T {
+  return typeof value === "string" && values.includes(value as T);
+}
+
+function exactObservation(value: unknown): FirefoxChatGptLaneActivityObservationV1 | null {
+  const record = exactDataRecord(value, OBSERVATION_KEYS);
+  if (!record) return null;
+  const laneRef = data(record, "laneRef");
+  const laneGeneration = data(record, "laneGeneration");
+  let target: FirefoxChatGptLaneActivityTargetV1;
   try {
-    projectionRef = parseFirefoxChatGptProjectionRefV1(projectionDescriptor.value);
+    target = parseFirefoxChatGptLaneActivityTargetV1({ laneRef, laneGeneration });
   } catch {
     return null;
   }
-  if (typeof observationDescriptor.value !== "object" || observationDescriptor.value === null) return null;
+  const observedAtMs = data(record, "observedAtMs");
+  const confidence = data(record, "confidence");
+  const generation = data(record, "generation");
+  const composer = data(record, "composer");
+  const composition = data(record, "composition");
+  const modal = data(record, "modal");
+  const mediaOrDevice = data(record, "mediaOrDevice");
+  if (
+    data(record, "version") !== 1 ||
+    typeof observedAtMs !== "number" ||
+    !Number.isSafeInteger(observedAtMs) ||
+    observedAtMs < 0 ||
+    data(record, "source") !== "reviewed-live-sentinel" ||
+    !oneOf(confidence, ["exact", "probable"] as const) ||
+    !oneOf(generation, ["active", "inactive", "unknown"] as const) ||
+    !oneOf(composer, ["clean", "dirty", "unknown"] as const) ||
+    !oneOf(composition, ["active", "inactive"] as const) ||
+    !oneOf(modal, ["active", "inactive"] as const) ||
+    !oneOf(mediaOrDevice, ["active", "unknown"] as const) ||
+    data(record, "download") !== "unknown" ||
+    data(record, "otherTransient") !== "unknown" ||
+    data(record, "grantsWorkAuthority") !== false ||
+    data(record, "authorizesWorkDispatch") !== false
+  ) {
+    return null;
+  }
   return Object.freeze({
-    projectionRef,
-    observation: observationDescriptor.value as FirefoxChatGptLaneActivityObservationV1,
+    version: 1,
+    laneRef: target.laneRef,
+    laneGeneration: target.laneGeneration,
+    observedAtMs,
+    source: "reviewed-live-sentinel",
+    confidence,
+    generation,
+    composer,
+    composition,
+    modal,
+    mediaOrDevice,
+    download: "unknown",
+    otherTransient: "unknown",
+    grantsWorkAuthority: false,
+    authorizesWorkDispatch: false,
   });
+}
+
+function exactEnvelope(value: unknown): FirefoxChatGptActivityResponseEnvelopeV1 | null {
+  const record = exactDataRecord(value, ["projectionRef", "observation"]);
+  if (!record) return null;
+  let projectionRef: string;
+  try {
+    projectionRef = parseFirefoxChatGptProjectionRefV1(data(record, "projectionRef"));
+  } catch {
+    return null;
+  }
+  const observation = exactObservation(data(record, "observation"));
+  return observation === null ? null : Object.freeze({ projectionRef, observation });
 }
 
 export class FirefoxChatGptActivityBindingRuntimeV1 {
@@ -177,19 +275,16 @@ export class FirefoxChatGptActivityBindingRuntimeV1 {
     const target = parseFirefoxChatGptLaneActivityTargetV1(targetInput);
     const tab = tabId(tabIdInput);
     const ref = parseFirefoxChatGptProjectionRefV1(projectionRefInput);
-
     const observed = this.observeTarget(target);
     if (observed.status === "stale_generation" || observed.status === "capacity_exceeded") {
       return observed;
     }
     if (this.#projectionByTab.get(tab) !== ref) return receipt(target, "stale_projection");
-
     const key = projectionKey(tab, ref);
     const projectionOwner = this.#laneByProjection.get(key);
     if (projectionOwner !== undefined && projectionOwner !== target.laneRef) {
       return receipt(target, "projection_in_use");
     }
-
     this.#dropBinding(target.laneRef);
     const binding = Object.freeze({
       laneRef: target.laneRef,
@@ -203,8 +298,7 @@ export class FirefoxChatGptActivityBindingRuntimeV1 {
   }
 
   currentProjection(tabIdInput: unknown): string | null {
-    const tab = tabId(tabIdInput);
-    return this.#projectionByTab.get(tab) ?? null;
+    return this.#projectionByTab.get(tabId(tabIdInput)) ?? null;
   }
 
   async sample(
@@ -228,14 +322,12 @@ export class FirefoxChatGptActivityBindingRuntimeV1 {
       this.#dropBinding(target.laneRef);
       return Object.freeze({ receipt: receipt(target, "stale_projection"), observation: null });
     }
-
     let response: unknown;
     try {
       response = await send(binding.tabId, binding.projectionRef, target);
     } catch {
       return Object.freeze({ receipt: receipt(target, "browser_error"), observation: null });
     }
-
     const stillCurrent = this.#bindingByLane.get(target.laneRef);
     if (
       stillCurrent !== binding ||
@@ -244,7 +336,6 @@ export class FirefoxChatGptActivityBindingRuntimeV1 {
     ) {
       return Object.freeze({ receipt: receipt(target, "stale_projection"), observation: null });
     }
-
     const envelope = exactEnvelope(response);
     if (
       envelope === null ||
@@ -254,7 +345,6 @@ export class FirefoxChatGptActivityBindingRuntimeV1 {
     ) {
       return Object.freeze({ receipt: receipt(target, "response_mismatch"), observation: null });
     }
-
     return Object.freeze({
       receipt: receipt(target, "observed"),
       observation: envelope.observation,
