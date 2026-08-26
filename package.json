@@ -28,7 +28,8 @@
     "baseline:check": "npm run build && node scripts/check-baseline-session.mjs",
     "benchmark:synthetic-materialization": "npm run build && node --expose-gc scripts/benchmark-synthetic-materialization.mjs",
     "companion:loopback": "node scripts/run-synthetic-companion-loopback.mjs",
-    "benchmark:companion-browser": "node scripts/check-companion-browser-runs.mjs"
+    "benchmark:companion-browser": "node scripts/check-companion-browser-runs.mjs",
+    "benchmark:google-docs-live": "npm run build && node scripts/check-google-docs-live-runs.mjs"
   },
   "engines": {
     "node": ">=22"
