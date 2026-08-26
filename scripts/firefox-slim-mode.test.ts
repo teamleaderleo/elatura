@@ -22,6 +22,10 @@ describe("Firefox slim-mode prototype", () => {
       "webRequestFilterResponse",
     ]);
     expect(manifest.host_permissions).toEqual(["https://chatgpt.com/*"]);
+    expect(manifest.background).toEqual({
+      scripts: ["background.js", "chatgpt-lane-activity-background.js"],
+      type: "module",
+    });
     expect(manifest.web_accessible_resources).toEqual([
       {
         resources: [
@@ -44,7 +48,10 @@ describe("Firefox slim-mode prototype", () => {
     expect(content).toContain(
       'import(browser.runtime.getURL("chatgpt-lane-activity-producer.js"))',
     );
-    expect(content).toContain("producer.bootFirefoxChatGptLaneActivityProducer()");
+    expect(content).toContain(
+      "producer.bootFirefoxChatGptLaneActivityProducer(chatGptProjectionRef)",
+    );
+    expect(content).toContain('type: "elatura:register-chatgpt-lane-projection"');
     expect(content).toContain("The observer remains usable");
     expect(content).toContain("Existing page metrics remain available");
     expect(content).not.toContain("element.remove()");
@@ -56,7 +63,9 @@ describe("Firefox slim-mode prototype", () => {
     const controller = read("extension/firefox/src/slim-content-controller.ts");
     const discovery = read("extension/firefox/src/slim-live-discovery.ts");
     const activityProducer = read("extension/firefox/src/chatgpt-lane-activity-producer.ts");
-    const surface = `${content}\n${controller}\n${discovery}\n${activityProducer}`;
+    const activityBinding = read("extension/firefox/src/chatgpt-lane-activity-binding.ts");
+    const activityBackground = read("extension/firefox/src/chatgpt-lane-activity-background.ts");
+    const surface = `${content}\n${controller}\n${discovery}\n${activityProducer}\n${activityBinding}\n${activityBackground}`;
 
     expect(surface).not.toMatch(/\bbrowser\.storage\b/u);
     expect(surface).not.toMatch(/\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b/u);
@@ -70,8 +79,10 @@ describe("Firefox slim-mode prototype", () => {
     const controller = read("extension/firefox/src/slim-content-controller.ts");
     const discovery = read("extension/firefox/src/slim-live-discovery.ts");
     const activityProducer = read("extension/firefox/src/chatgpt-lane-activity-producer.ts");
+    const activityBinding = read("extension/firefox/src/chatgpt-lane-activity-binding.ts");
+    const activityBackground = read("extension/firefox/src/chatgpt-lane-activity-background.ts");
     const background = read("extension/firefox/src/background.ts");
-    const surface = `${content}\n${controller}\n${discovery}\n${activityProducer}`;
+    const surface = `${content}\n${controller}\n${discovery}\n${activityProducer}\n${activityBinding}\n${activityBackground}`;
 
     expect(surface).not.toContain("filterResponseData");
     expect(surface).not.toContain("TextDecoder");
