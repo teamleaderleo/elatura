@@ -66,6 +66,7 @@ function snapshotFromTab(tab, nowMs) {
     tabId: projection.tabId,
     windowId: projection.windowId,
     tabIndex: projection.tabIndex,
+    audioState: projection.audioState,
     lifecycle: projection.lifecycle,
     decision,
     manualDiscard: projection.manualDiscard,
