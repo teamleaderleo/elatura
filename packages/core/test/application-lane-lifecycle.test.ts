@@ -5,6 +5,7 @@ import {
   type ApplicationLaneDescriptorV1,
 } from "../src/application-lane.js";
 import {
+  applicationLaneLifecycleBlockers,
   createApplicationLaneLifecycleFactsV1,
   createApplicationLaneResidencyRequestV1,
   planApplicationLaneResidencyV1,
@@ -106,6 +107,8 @@ describe("application lane lifecycle facts", () => {
     const lane = descriptor();
     expect(
       facts(lane, {
+        freezeEligibility: "blocked",
+        discardEligibility: "blocked",
         blockers: ["manual_protection", "active_generation"],
       }).blockers,
     ).toEqual(["active_generation", "manual_protection"]);
@@ -121,6 +124,76 @@ describe("application lane lifecycle facts", () => {
         blockers: Array.from({ length: 17 }, () => "manual_protection"),
       }),
     ).toThrow("exceed 16 entries");
+  });
+
+  it("rejects every current blocker paired with explicit freeze or discard permission", () => {
+    const lane = descriptor();
+    for (const blocker of applicationLaneLifecycleBlockers) {
+      expect(() =>
+        facts(lane, {
+          freezeEligibility: "allowed",
+          discardEligibility: "blocked",
+          blockers: [blocker],
+        }),
+      ).toThrow("cannot accompany allowed freeze eligibility");
+
+      expect(() =>
+        facts(lane, {
+          freezeEligibility: "blocked",
+          discardEligibility: "allowed",
+          blockers: [blocker],
+        }),
+      ).toThrow("cannot accompany allowed discard eligibility");
+    }
+  });
+
+  it("keeps blockers compatible with conservative blocked or unknown eligibility", () => {
+    const lane = descriptor();
+    expect(
+      facts(lane, {
+        freezeEligibility: "blocked",
+        discardEligibility: "unknown",
+        blockers: ["application_unknown"],
+      }),
+    ).toMatchObject({
+      freezeEligibility: "blocked",
+      discardEligibility: "unknown",
+      blockers: ["application_unknown"],
+    });
+  });
+
+  it("rechecks blocker consistency when a caller hand-builds the exported facts type", () => {
+    const lane = descriptor();
+    const safe = facts(lane, {
+      freezeEligibility: "blocked",
+      discardEligibility: "blocked",
+      blockers: ["unsaved_interaction"],
+    });
+    const contradictoryFreeze: ApplicationLaneLifecycleFactsV1 = Object.freeze({
+      ...safe,
+      freezeEligibility: "allowed",
+    });
+    expect(() =>
+      planApplicationLaneResidencyV1(
+        lane,
+        contradictoryFreeze,
+        request(lane, "suspended"),
+        ALL_CAPABILITIES,
+      ),
+    ).toThrow("cannot accompany allowed freeze eligibility");
+
+    const contradictoryDiscard: ApplicationLaneLifecycleFactsV1 = Object.freeze({
+      ...safe,
+      discardEligibility: "allowed",
+    });
+    expect(() =>
+      planApplicationLaneResidencyV1(
+        lane,
+        contradictoryDiscard,
+        request(lane, "reclaimable"),
+        ALL_CAPABILITIES,
+      ),
+    ).toThrow("cannot accompany allowed discard eligibility");
   });
 });
 
@@ -195,6 +268,7 @@ describe("resident suspended residency", () => {
         lane,
         facts(lane, {
           freezeEligibility: "blocked",
+          discardEligibility: "blocked",
           blockers: ["active_generation"],
         }),
         request(lane, "suspended"),
@@ -239,7 +313,7 @@ describe("reclaimable residency", () => {
         facts(lane, {
           discardEligibility: "blocked",
           freezeEligibility: "allowed",
-          blockers: ["unsaved_interaction"],
+          blockers: [],
         }),
         request(lane, "reclaimable"),
         ALL_CAPABILITIES,

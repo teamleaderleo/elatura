@@ -134,6 +134,14 @@ export type ApplicationLaneLifecycleDecisionV1 = Readonly<{
 
 const MAX_BLOCKERS = 16;
 
+// Every blocker in protocol v1 describes application/browser state that is
+// incompatible with an explicit aggressive-transition permission. Future
+// protocol revisions may split blocker semantics after evidence earns it;
+// newly added v1 blockers remain conservative by default.
+const AGGRESSIVE_TRANSITION_BLOCKERS = new Set<ApplicationLaneLifecycleBlocker>(
+  applicationLaneLifecycleBlockers,
+);
+
 /**
  * Bind a requested resource posture to the exact durable lane generation that
  * an external consumer previously observed through the application-lane
@@ -190,6 +198,11 @@ export function createApplicationLaneLifecycleFactsV1(
     "Discard eligibility",
   );
   const blockers = lifecycleBlockers(input.blockers ?? []);
+  assertLifecycleEligibilityConsistency(
+    freezeEligibility,
+    discardEligibility,
+    blockers,
+  );
 
   return Object.freeze({
     version: APPLICATION_LANE_LIFECYCLE_VERSION,
@@ -231,6 +244,23 @@ export function planApplicationLaneResidencyV1(
   ) {
     return decision(descriptor, "attention_required", "stale_projection_facts");
   }
+
+  // The exported facts type can be constructed without the helper above. Pin
+  // the same invariant at the planner boundary so a hand-built contradictory
+  // record can never authorize freeze/discard.
+  assertLifecycleEligibilityConsistency(
+    exactEnum(
+      facts.freezeEligibility,
+      applicationLaneEligibilityStates,
+      "Freeze eligibility",
+    ),
+    exactEnum(
+      facts.discardEligibility,
+      applicationLaneEligibilityStates,
+      "Discard eligibility",
+    ),
+    lifecycleBlockers(facts.blockers),
+  );
 
   if (
     descriptor.state === "unavailable" ||
@@ -421,6 +451,27 @@ function lifecycleBlockers(
   }
   output.sort(compareCodeUnits);
   return Object.freeze(output);
+}
+
+function assertLifecycleEligibilityConsistency(
+  freezeEligibility: ApplicationLaneEligibilityState,
+  discardEligibility: ApplicationLaneEligibilityState,
+  blockers: readonly ApplicationLaneLifecycleBlocker[],
+): void {
+  const hasAggressiveTransitionBlocker = blockers.some((blocker) =>
+    AGGRESSIVE_TRANSITION_BLOCKERS.has(blocker),
+  );
+  if (!hasAggressiveTransitionBlocker) return;
+  if (freezeEligibility === "allowed") {
+    throw new TypeError(
+      "Lifecycle blockers cannot accompany allowed freeze eligibility",
+    );
+  }
+  if (discardEligibility === "allowed") {
+    throw new TypeError(
+      "Lifecycle blockers cannot accompany allowed discard eligibility",
+    );
+  }
 }
 
 function exactEnum<const Values extends readonly string[]>(

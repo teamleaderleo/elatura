@@ -193,7 +193,11 @@ describe("bound browser + application lifecycle facts", () => {
       binding,
       current,
       request(lane, "reclaimable"),
-      appFacts({ discardEligibility: "blocked", blockers }),
+      appFacts({
+        freezeEligibility: "blocked",
+        discardEligibility: "blocked",
+        blockers,
+      }),
     );
 
     expect(plan.facts?.blockers).toEqual(["unsaved_interaction"]);

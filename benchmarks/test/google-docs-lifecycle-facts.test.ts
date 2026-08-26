@@ -34,7 +34,7 @@ describe("Google Docs lifecycle eligibility classifier", () => {
     ).toEqual({
       freezeEligibility: "allowed",
       discardEligibility: "unknown",
-      blockers: ["application_unknown"],
+      blockers: [],
     });
   });
 
@@ -100,7 +100,7 @@ describe("Google Docs lifecycle eligibility classifier", () => {
     ).toEqual({
       freezeEligibility: "allowed",
       discardEligibility: "unknown",
-      blockers: ["application_unknown"],
+      blockers: [],
     });
   });
 
