@@ -17,6 +17,10 @@
       "types": "./dist/application-lane.d.ts",
       "default": "./dist/application-lane.js"
     },
+    "./application-lane-client": {
+      "types": "./dist/application-lane-client.d.ts",
+      "default": "./dist/application-lane-client.js"
+    },
     "./application-lane-lifecycle": {
       "types": "./dist/application-lane-lifecycle.d.ts",
       "default": "./dist/application-lane-lifecycle.js"
