@@ -2,7 +2,7 @@
   "name": "elatura",
   "version": "0.0.0",
   "private": true,
-  "description": "An adaptive browser sidecar for oversized interactive applications.",
+  "description": "A local adaptive access layer for heavyweight authenticated web applications.",
   "license": "MPL-2.0",
   "type": "module",
   "workspaces": [
@@ -28,7 +28,8 @@
     "baseline:check": "npm run build && node scripts/check-baseline-session.mjs",
     "benchmark:synthetic-materialization": "npm run build && node --expose-gc scripts/benchmark-synthetic-materialization.mjs",
     "companion:loopback": "node scripts/run-synthetic-companion-loopback.mjs",
-    "benchmark:companion-browser": "node scripts/check-companion-browser-runs.mjs"
+    "benchmark:companion-browser": "node scripts/check-companion-browser-runs.mjs",
+    "benchmark:application-lane": "npm run build && node scripts/check-application-lane-runs.mjs"
   },
   "engines": {
     "node": ">=22"
