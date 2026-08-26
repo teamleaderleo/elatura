@@ -272,8 +272,6 @@ export class ApplicationLaneRuntimeV1 {
       return result("accepted", descriptor);
     }
 
-    // A newer generation replaces all volatile ownership from the old browser
-    // projection before any new event/request can be admitted.
     const cleared = this.#clearPending(entry);
     entry.descriptor = descriptor;
     entry.lastEvent = null;
@@ -401,9 +399,6 @@ export class ApplicationLaneRuntimeV1 {
       return result("response-mismatch");
     }
 
-    // The canonical protocol parses status payloads independently. The runtime
-    // additionally binds nested descriptor identity/state/time to the outer
-    // response before accepting it as current lane state.
     if (response.operation === "status" && response.outcome === "ok") {
       const payload = response.payload as ApplicationLaneDescriptorV1;
       if (
@@ -419,11 +414,16 @@ export class ApplicationLaneRuntimeV1 {
     this.#pending.delete(response.requestId);
     entry.pendingIds.delete(response.requestId);
 
-    // A correct but older same-generation reply completes its request without
-    // regressing the latest descriptor. Response payloads are returned to the
-    // caller and are never retained by this runtime.
-    if (compareObservedAt(response.observedAt, entry.descriptor.observedAt) >= 0) {
-      entry.descriptor = descriptorFromResponse(entry.descriptor, response);
+    const responseOrder = compareObservedAt(
+      response.observedAt,
+      entry.descriptor.observedAt,
+    );
+    const candidate = descriptorFromResponse(entry.descriptor, response);
+    if (responseOrder === 0 && !sameDescriptor(candidate, entry.descriptor)) {
+      return result("descriptor-conflict", response);
+    }
+    if (responseOrder > 0) {
+      entry.descriptor = candidate;
       if (
         entry.lastEvent !== null &&
         compareObservedAt(entry.lastEvent.observedAt, entry.descriptor.observedAt) < 0
