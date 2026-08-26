@@ -2,11 +2,17 @@
 
 import {
   FIREFOX_CHATGPT_ACTIVITY_CONTENT_MESSAGE_TYPE,
-  admitFirefoxChatGptActivityRouteResponseV1,
-  createFirefoxChatGptActivityRouteFailureV1,
-  parseFirefoxChatGptActivityRouteMessageV1,
-  type FirefoxChatGptActivityRouteRequestV1,
-  type FirefoxChatGptActivityRouteReceiptV1,
+  FIREFOX_CHATGPT_DOCUMENT_PROJECTION_CONTENT_MESSAGE_TYPE,
+  admitFirefoxChatGptActivityRouteResponseV2,
+  admitFirefoxChatGptDocumentProjectionResponseV1,
+  createFirefoxChatGptActivityRouteFailureV2,
+  createFirefoxChatGptDocumentProjectionFailureV1,
+  parseFirefoxChatGptActivityRouteMessageV2,
+  parseFirefoxChatGptDocumentProjectionRouteMessageV1,
+  type FirefoxChatGptActivityRouteRequestV2,
+  type FirefoxChatGptActivityRouteReceiptV2,
+  type FirefoxChatGptDocumentProjectionRouteReceiptV1,
+  type FirefoxChatGptDocumentProjectionRouteRequestV1,
 } from "./chatgpt-lane-activity-route.js";
 import {
   migrateStoredObservationState,
@@ -228,9 +234,35 @@ function recordPageMetric(metric: BackgroundPageMetric): Promise<void> {
   });
 }
 
+async function discoverChatGptDocumentProjectionOnTab(
+  request: FirefoxChatGptDocumentProjectionRouteRequestV1,
+): Promise<FirefoxChatGptDocumentProjectionRouteReceiptV1> {
+  let response: unknown;
+  try {
+    response = await browser.tabs.sendMessage(request.tabId, {
+      type: FIREFOX_CHATGPT_DOCUMENT_PROJECTION_CONTENT_MESSAGE_TYPE,
+    });
+  } catch {
+    return createFirefoxChatGptDocumentProjectionFailureV1(
+      request,
+      "unavailable",
+      "content_unavailable",
+    );
+  }
+  try {
+    return admitFirefoxChatGptDocumentProjectionResponseV1(request, response);
+  } catch {
+    return createFirefoxChatGptDocumentProjectionFailureV1(
+      request,
+      "browser_error",
+      "operation_failed",
+    );
+  }
+}
+
 async function sampleChatGptLaneActivityOnTab(
-  request: FirefoxChatGptActivityRouteRequestV1,
-): Promise<FirefoxChatGptActivityRouteReceiptV1> {
+  request: FirefoxChatGptActivityRouteRequestV2,
+): Promise<FirefoxChatGptActivityRouteReceiptV2> {
   let response: unknown;
   try {
     response = await browser.tabs.sendMessage(request.tabId, {
@@ -238,19 +270,20 @@ async function sampleChatGptLaneActivityOnTab(
       target: {
         laneRef: request.laneRef,
         laneGeneration: request.laneGeneration,
+        documentProjectionRef: request.documentProjectionRef,
       },
     });
   } catch {
-    return createFirefoxChatGptActivityRouteFailureV1(
+    return createFirefoxChatGptActivityRouteFailureV2(
       request,
       "unavailable",
       "content_unavailable",
     );
   }
   try {
-    return admitFirefoxChatGptActivityRouteResponseV1(request, response);
+    return admitFirefoxChatGptActivityRouteResponseV2(request, response);
   } catch {
-    return createFirefoxChatGptActivityRouteFailureV1(
+    return createFirefoxChatGptActivityRouteFailureV2(
       request,
       "browser_error",
       "operation_failed",
@@ -319,7 +352,14 @@ browser.webRequest.onBeforeRequest.addListener(
 );
 
 browser.runtime.onMessage.addListener((message, sender) => {
-  const activityRequest = parseFirefoxChatGptActivityRouteMessageV1(message);
+  const documentProjectionRequest =
+    parseFirefoxChatGptDocumentProjectionRouteMessageV1(message);
+  if (documentProjectionRequest !== null) {
+    if (sender?.tab?.id !== undefined) return undefined;
+    return discoverChatGptDocumentProjectionOnTab(documentProjectionRequest);
+  }
+
+  const activityRequest = parseFirefoxChatGptActivityRouteMessageV2(message);
   if (activityRequest !== null) {
     // Content scripts may report their own page metrics, but only extension
     // contexts can route an explicit lane-generation target to another tab.
