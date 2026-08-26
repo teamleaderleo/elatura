@@ -12,6 +12,7 @@ const POPUP_HTML_PATH = "extension/chromium/static/popup.html";
 const POPUP_CSS_PATH = "extension/chromium/static/popup.css";
 const PROJECTION_PATH = "extension/chromium/src/projection.ts";
 const BINDING_PATH = "extension/chromium/src/binding.ts";
+const EFFECT_PATH = "extension/chromium/src/effect.ts";
 
 const ALLOWED_MANIFEST_KEYS = [
   "manifest_version",
@@ -108,6 +109,7 @@ function scanJavaScript(path, source) {
 
 function verifyBackground(source) {
   const required = [
+    'from "./effect.js"',
     "chrome.tabs.query({})",
     "chrome.windows.getAll()",
     "chrome.tabs.get(tabId)",
@@ -118,6 +120,11 @@ function verifyBackground(source) {
     "chrome.windows.update(resulting.windowId, { focused: true })",
     "chrome.tabs.update(tabId, { autoDiscardable: false })",
     "chrome.tabs.update(tabId, { autoDiscardable: !protectedValue })",
+    'message.type === "apply-effect"',
+    "parseChromiumEffectRequestV1(message.request)",
+    "projectionMatchesChromiumEffectRequestV1(request, before)",
+    'operation: "apply-effect"',
+    'authority: "browser-local-effect-request"',
     'operation: "keep-warm"',
     'laneBinding: "unbound"',
     'authority: "explicit-operator-browser-action"',
@@ -125,8 +132,8 @@ function verifyBackground(source) {
   for (const token of required) {
     assert.equal(source.includes(token), true, `Chromium background missing reviewed token: ${token}`);
   }
-  assert.equal(/planApplicationLaneResidencyV1/u.test(source), false, "Unbound projection host must not invoke lane residency planning");
-  assert.equal(/laneRef|laneGeneration/u.test(source), false, "Unbound Chromium background must not manufacture canonical lane identity");
+  assert.equal(/planApplicationLaneResidencyV1/u.test(source), false, "Browser effect host must not invoke lane residency planning");
+  assert.equal(/laneRef|laneGeneration/u.test(source), false, "Chromium background must not receive canonical lane identity");
 }
 
 function verifyPopup(source) {
@@ -150,6 +157,20 @@ function verifyBinding(source) {
     assert.equal(source.includes(token), true, `Chromium binding missing reviewed token: ${token}`);
   }
   assert.equal(/\bchrome\./u.test(source), false, "Pure Chromium binding must not invoke browser APIs");
+}
+
+function verifyEffect(source) {
+  const required = [
+    'chromiumExecutableResidencyEffects = ["keep_warm", "discard"]',
+    "plan.projectionRef !== projection.projectionRef",
+    "projectionMatchesChromiumEffectRequestV1",
+    "matchChromiumEffectReceiptV1",
+  ];
+  for (const token of required) {
+    assert.equal(source.includes(token), true, `Chromium effect contract missing reviewed token: ${token}`);
+  }
+  assert.equal(/laneRef|laneGeneration/u.test(source), false, "Browser-local effect contract must omit durable lane identity");
+  assert.equal(/\bchrome\./u.test(source), false, "Pure Chromium effect contract must not invoke browser APIs");
 }
 
 function runSelfTests() {
@@ -182,7 +203,7 @@ function runSelfTests() {
 
 async function main() {
   runSelfTests();
-  const [manifestText, background, popup, popupHtml, popupCss, projection, binding] = await Promise.all([
+  const [manifestText, background, popup, popupHtml, popupCss, projection, binding, effect] = await Promise.all([
     readFile(join(ROOT, MANIFEST_PATH), "utf8"),
     readFile(join(ROOT, BACKGROUND_PATH), "utf8"),
     readFile(join(ROOT, POPUP_PATH), "utf8"),
@@ -190,18 +211,21 @@ async function main() {
     readFile(join(ROOT, POPUP_CSS_PATH), "utf8"),
     readFile(join(ROOT, PROJECTION_PATH), "utf8"),
     readFile(join(ROOT, BINDING_PATH), "utf8"),
+    readFile(join(ROOT, EFFECT_PATH), "utf8"),
   ]);
 
   verifyManifest(JSON.parse(manifestText));
   verifyBackground(background);
   verifyPopup(popup);
   verifyBinding(binding);
+  verifyEffect(effect);
 
   const findings = [
     ...scanJavaScript(BACKGROUND_PATH, background),
     ...scanJavaScript(POPUP_PATH, popup),
     ...scanJavaScript(PROJECTION_PATH, projection),
     ...scanJavaScript(BINDING_PATH, binding),
+    ...scanJavaScript(EFFECT_PATH, effect),
     ...scanPatterns(POPUP_HTML_PATH, popupHtml, REMOTE_ASSET_PATTERNS),
     ...scanPatterns(POPUP_CSS_PATH, popupCss, REMOTE_ASSET_PATTERNS),
   ];
