@@ -39,6 +39,7 @@ describe("Chromium browser-only lifecycle projection", () => {
       tabId: 7,
       windowId: 2,
       tabIndex: 3,
+      audioState: "quiet",
       lifecycle: {
         laneId: "chrome-session-tab-7",
         active: false,
@@ -55,9 +56,13 @@ describe("Chromium browser-only lifecycle projection", () => {
     expect(Object.isFrozen(projection.lifecycle)).toBe(true);
   });
 
-  it("maps unavailable optional lifecycle fields conservatively", () => {
+  it("maps optional freeze state and preserves unknown audio state explicitly", () => {
     const projection = projectChromiumTab(tab({ audible: undefined, frozen: undefined }));
-    expect(projection.lifecycle).toMatchObject({ audible: false, frozen: null });
+    expect(projection).toMatchObject({
+      audioState: "unknown",
+      lifecycle: { audible: false, frozen: null },
+      manualDiscard: { eligible: false, reason: "audible-unknown" },
+    });
   });
 
   it("keeps browser-only application signals explicitly unknown", () => {
@@ -72,14 +77,15 @@ describe("Chromium browser-only lifecycle projection", () => {
 });
 
 describe("manual native discard preflight", () => {
-  it("allows only an inactive ordinary browser-discardable tab", () => {
+  it("allows only an inactive ordinary browser-discardable tab with known quiet audio", () => {
     expect(manualDiscardEligibility(tab())).toEqual({ eligible: true, reason: "eligible" });
   });
 
-  it("refuses active, pinned, audible, discarded, and browser-protected tabs", () => {
+  it("refuses active, pinned, audible, unknown-audio, discarded, and browser-protected tabs", () => {
     expect(manualDiscardEligibility(tab({ active: true })).reason).toBe("active-tab");
     expect(manualDiscardEligibility(tab({ pinned: true })).reason).toBe("pinned-tab");
     expect(manualDiscardEligibility(tab({ audible: true })).reason).toBe("audible-tab");
+    expect(manualDiscardEligibility(tab({ audible: undefined })).reason).toBe("audible-unknown");
     expect(manualDiscardEligibility(tab({ discarded: true })).reason).toBe("already-discarded");
     expect(manualDiscardEligibility(tab({ autoDiscardable: false })).reason).toBe("browser-protected");
   });
