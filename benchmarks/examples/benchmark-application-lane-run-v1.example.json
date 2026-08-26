@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "runId": "00000000-0000-4000-8000-00000000a116",
+  "recordedAt": "2026-08-27T00:00:00.000Z",
+  "lane": {
+    "laneKey": "lane.chatgpt.001",
+    "applicationClass": "chatgpt",
+    "targetClass": "conversation",
+    "targetTokenPresent": true
+  },
+  "environment": {
+    "browserClass": "gecko",
+    "browserVersionToken": "142.0",
+    "cohort": "elatura",
+    "interventionLevel": "render-suppression"
+  },
+  "projection": {
+    "bindings": 3,
+    "replacements": 2,
+    "losses": 2,
+    "recoveries": 2,
+    "unrecoveredLosses": 0,
+    "maxConcurrentProjections": 1
+  },
+  "attention": {
+    "episodes": 12,
+    "highestRung": {
+      "signalOnly": 5,
+      "boundedSemantic": 4,
+      "screenshot": 2,
+      "fullActivation": 1
+    },
+    "operations": {
+      "signals": 12,
+      "boundedSemanticReads": 7,
+      "screenshots": 3,
+      "fullActivations": 1
+    },
+    "falsePositiveSignals": 1,
+    "missedChanges": 0
+  },
+  "timingsMs": {
+    "initialUsableMs": 820.4,
+    "switchBackMs": 94.2,
+    "recoveryMs": 430.1,
+    "boundedReadMs": 11.8,
+    "screenshotMs": 35.6,
+    "activationMs": 102.3
+  },
+  "resources": {
+    "samples": [
+      {
+        "phase": "idle",
+        "browserProcessBytes": 1240000000,
+        "rendererProcessBytes": 620000000,
+        "cpuMillis": 18.2,
+        "domElements": 8200,
+        "textNodes": 3900,
+        "mountedApplicationUnits": 7,
+        "elaturaRetainedBytes": 65536
+      },
+      {
+        "phase": "switch",
+        "browserProcessBytes": 1260000000,
+        "rendererProcessBytes": 635000000,
+        "cpuMillis": 42.7,
+        "domElements": 8300,
+        "textNodes": 3950,
+        "mountedApplicationUnits": 7,
+        "elaturaRetainedBytes": 67584
+      },
+      {
+        "phase": "recovery",
+        "browserProcessBytes": 1280000000,
+        "rendererProcessBytes": 648000000,
+        "cpuMillis": 55.4,
+        "domElements": 8400,
+        "textNodes": 4010,
+        "mountedApplicationUnits": 7,
+        "elaturaRetainedBytes": 69632
+      }
+    ]
+  },
+  "fidelity": {
+    "authoritativeApplicationPreserved": true,
+    "normalInteractionAvailable": true,
+    "currentWorkStatePreserved": true,
+    "recoveryFailures": 0,
+    "driftFailOpenCount": 1
+  },
+  "privacy": {
+    "contentCaptured": false,
+    "urlsCaptured": false,
+    "credentialsCaptured": false,
+    "nativeBrowserIdsCaptured": false,
+    "screenshotBytesCaptured": false
+  }
+}
