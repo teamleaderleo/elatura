@@ -170,7 +170,13 @@ function checkBrowserIdentity(run, plan, expected, issues) {
   }
   if (elatura.present !== true) issue(issues, "elatura-missing", expected.key);
   if (!same(elatura.mode, expected.subrun.mode)) issue(issues, "elatura-subrun-mode-mismatch", expected.key);
-  const transport = expected.slot.conditionCode === "FE" ? "firefox-extension" : "chromium-extension-cdp";
+  const transport = expected.slot.conditionCode === "FE"
+    ? "firefox-extension"
+    : plan.elatura?.chromiumTransport === "extension-only"
+      ? "chromium-extension"
+      : plan.elatura?.chromiumTransport === "extension-cdp"
+        ? "chromium-extension-cdp"
+        : null;
   if (!same(elatura.transport, transport)) issue(issues, "elatura-transport-mismatch", expected.key);
   if (!same(elatura.revision, plan.elatura?.revision)) issue(issues, "elatura-revision-mismatch", expected.key);
   const intervention = expected.slot.conditionCode === "FE"
