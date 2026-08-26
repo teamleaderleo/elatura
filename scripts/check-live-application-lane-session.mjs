@@ -137,6 +137,10 @@ function same(value, expected) {
   return value === expected;
 }
 
+function sameArray(left, right) {
+  return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 function checkBrowserIdentity(run, plan, expected, issues) {
   const condition = record(run.condition);
   const identityRule = STOCK_IDENTITY[expected.slot.conditionCode];
@@ -185,7 +189,25 @@ function checkBrowserIdentity(run, plan, expected, issues) {
   if (!same(elatura.interventionToken, intervention)) issue(issues, "elatura-intervention-mismatch", expected.key);
 }
 
-function checkWorkload(run, expected, issues) {
+function expectedGoogleDocsFixture(plan, workloadToken) {
+  const googleDocs = plan.fixtures?.googleDocs;
+  if (!record(googleDocs)) return null;
+  const identity = workloadToken === "docs-large-text-v1"
+    ? googleDocs.largeText
+    : workloadToken === "docs-switch-8-v1"
+      ? googleDocs.switch8
+      : null;
+  if (!record(identity)) return null;
+  return {
+    generator: googleDocs.generator,
+    manifestSha256: googleDocs.manifestSha256,
+    documentCount: identity.documentCount,
+    totalTextCodeUnits: identity.totalTextCodeUnits,
+    perDocumentTextCodeUnits: identity.perDocumentTextCodeUnits,
+  };
+}
+
+function checkWorkload(run, plan, expected, issues) {
   const workload = record(run.workload);
   if (!workload) {
     issue(issues, "missing-workload", expected.key);
@@ -196,15 +218,19 @@ function checkWorkload(run, expected, issues) {
   if (!same(workload.pattern, expected.stage.pattern)) issue(issues, "workload-pattern-mismatch", expected.key);
   if (!same(workload.laneCount, expected.stage.laneCount)) issue(issues, "lane-count-mismatch", expected.key);
   if (expected.stage.application === "google-docs") {
-    const fixture = workload.fixture;
-    const recipe = {
-      syntheticWords: 100000,
-      headingCount: 200,
-      tableCount: 20,
-      tableRows: 20,
-      tableColumns: 10,
-    };
-    if (!record(fixture) || Object.entries(recipe).some(([key, value]) => fixture[key] !== value)) {
+    const fixture = record(workload.fixture);
+    const frozen = expectedGoogleDocsFixture(plan, expected.stage.workloadToken);
+    if (!fixture || !frozen) {
+      issue(issues, "gdocs-fixture-missing", expected.key);
+      return;
+    }
+    if (
+      fixture.generator !== frozen.generator ||
+      fixture.manifestSha256 !== frozen.manifestSha256 ||
+      fixture.documentCount !== frozen.documentCount ||
+      fixture.totalTextCodeUnits !== frozen.totalTextCodeUnits ||
+      !sameArray(fixture.perDocumentTextCodeUnits, frozen.perDocumentTextCodeUnits)
+    ) {
       issue(issues, "gdocs-fixture-mismatch", expected.key);
     }
   } else if (workload.fixture !== null) {
@@ -308,7 +334,7 @@ function checkRun(run, plan, expected, issues) {
   if (run.block?.conditionOrdinal !== expected.slot.conditionOrdinal) issue(issues, "condition-ordinal-mismatch", expected.key);
   if (run.block?.physicalSubrunOrdinal !== expected.subrun.ordinal) issue(issues, "physical-subrun-ordinal-mismatch", expected.key);
   checkBrowserIdentity(run, plan, expected, issues);
-  checkWorkload(run, expected, issues);
+  checkWorkload(run, plan, expected, issues);
   checkProtocol(run, plan, expected, issues);
   checkResourceSamples(run, expected, issues);
   checkSwitchEvents(run, expected, issues);
