@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MPL-2.0
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const CHROMIUM_SRC_ROOT = "extension/chromium/src";
+const CHROMIUM_STATIC_ROOT = "extension/chromium/static";
 const MANIFEST_PATH = "extension/chromium/static/manifest.json";
 const BACKGROUND_PATH = "extension/chromium/static/background.js";
 const POPUP_PATH = "extension/chromium/static/popup.js";
@@ -15,6 +17,19 @@ const BINDING_PATH = "extension/chromium/src/binding.ts";
 const BINDING_RUNTIME_PATH = "extension/chromium/src/binding-runtime.ts";
 const EFFECT_PATH = "extension/chromium/src/effect.ts";
 const MANAGED_EFFECT_RUNTIME_PATH = "extension/chromium/src/managed-effect-runtime.ts";
+
+const REQUIRED_CONTRACT_PATHS = Object.freeze([
+  MANIFEST_PATH,
+  BACKGROUND_PATH,
+  POPUP_PATH,
+  POPUP_HTML_PATH,
+  POPUP_CSS_PATH,
+  PROJECTION_PATH,
+  BINDING_PATH,
+  BINDING_RUNTIME_PATH,
+  EFFECT_PATH,
+  MANAGED_EFFECT_RUNTIME_PATH,
+]);
 
 const ALLOWED_MANIFEST_KEYS = [
   "manifest_version",
@@ -94,12 +109,18 @@ function chromeNamespaces(source) {
   return [...source.matchAll(/\bchrome\.([A-Za-z][A-Za-z0-9_]*)/gu)].map((match) => match[1]);
 }
 
+function allowedChromeNamespaces(path) {
+  if (path === BACKGROUND_PATH) return new Set(["runtime", "tabs", "windows"]);
+  if (path === POPUP_PATH) return new Set(["runtime"]);
+  return new Set();
+}
+
 function scanJavaScript(path, source) {
   const findings = [
     ...scanPatterns(path, source, FORBIDDEN_SOURCE_PATTERNS),
     ...scanPatterns(path, source, SENSITIVE_TAB_PROPERTY_PATTERNS),
   ];
-  const allowed = path === BACKGROUND_PATH ? new Set(["runtime", "tabs", "windows"]) : new Set(["runtime"]);
+  const allowed = allowedChromeNamespaces(path);
   for (const namespace of chromeNamespaces(source)) {
     if (!allowed.has(namespace)) findings.push(`${path} chrome-${namespace}-api`);
   }
@@ -210,6 +231,45 @@ function verifyManagedEffectRuntime(source) {
   assert.equal(/\b(?:localStorage|sessionStorage|indexedDB)\b/u.test(source), false, "Chromium managed effect runtime must remain volatile");
 }
 
+async function walkFiles(relativeRoot) {
+  const output = [];
+  async function walk(relativeDirectory) {
+    const entries = await readdir(join(ROOT, relativeDirectory), { withFileTypes: true });
+    for (const entry of entries) {
+      const relativePath = `${relativeDirectory}/${entry.name}`;
+      if (entry.isDirectory()) {
+        await walk(relativePath);
+      } else if (entry.isFile()) {
+        output.push(relativePath);
+      }
+    }
+  }
+  await walk(relativeRoot);
+  return output.sort();
+}
+
+async function discoverChromiumInputs() {
+  const paths = [
+    ...(await walkFiles(CHROMIUM_SRC_ROOT)),
+    ...(await walkFiles(CHROMIUM_STATIC_ROOT)),
+  ].sort();
+  const sources = new Map(
+    await Promise.all(
+      paths.map(async (path) => [path, await readFile(join(ROOT, path), "utf8")]),
+    ),
+  );
+  for (const required of REQUIRED_CONTRACT_PATHS) {
+    assert.equal(sources.has(required), true, `Chromium reviewed contract path missing: ${required}`);
+  }
+  return sources;
+}
+
+function requiredSource(sources, path) {
+  const source = sources.get(path);
+  assert.equal(typeof source, "string", `Chromium reviewed source missing: ${path}`);
+  return source;
+}
+
 function runSelfTests() {
   const hostileManifest = {
     manifest_version: 3,
@@ -224,70 +284,57 @@ function runSelfTests() {
   assert.throws(() => verifyManifest(hostileManifest), /fields changed/u);
 
   const cases = [
-    ["debugger", "chrome.debugger.attach(target)", "chrome-debugger-api"],
-    ["scripting", "chrome.scripting.executeScript(options)", "chrome-scripting-api"],
-    ["storage", "chrome.storage.local.set(value)", "chrome-storage-api"],
-    ["network", "fetch('https://example.invalid')", "network-fetch"],
-    ["sensitive", "tab.url", "tab-url"],
-    ["logging", "console.log(tab)", "content-logging"],
-    ["dynamic chrome", "chrome['tabs'].query({})", "dynamic-chrome-access"],
+    ["debugger", BACKGROUND_PATH, "chrome.debugger.attach(target)", "chrome-debugger-api"],
+    ["scripting", BACKGROUND_PATH, "chrome.scripting.executeScript(options)", "chrome-scripting-api"],
+    ["storage", BACKGROUND_PATH, "chrome.storage.local.set(value)", "chrome-storage-api"],
+    ["network", BACKGROUND_PATH, "fetch('https://example.invalid')", "network-fetch"],
+    ["sensitive", BACKGROUND_PATH, "tab.url", "tab-url"],
+    ["logging", BACKGROUND_PATH, "console.log(tab)", "content-logging"],
+    ["dynamic chrome", BACKGROUND_PATH, "chrome['tabs'].query({})", "dynamic-chrome-access"],
+    ["future pure browser API", `${CHROMIUM_SRC_ROOT}/future-module.ts`, "chrome.runtime.sendMessage({})", "chrome-runtime-api"],
+    ["future pure network", `${CHROMIUM_SRC_ROOT}/future-module.ts`, "fetch('/unexpected')", "network-fetch"],
   ];
-  for (const [name, source, expected] of cases) {
-    const findings = scanJavaScript(BACKGROUND_PATH, source);
+  for (const [name, path, source, expected] of cases) {
+    const findings = scanJavaScript(path, source);
     assert.equal(findings.some((finding) => finding.includes(expected)), true, `${name} self-test escaped`);
   }
+  assert.deepEqual(
+    [...allowedChromeNamespaces(BACKGROUND_PATH)].sort(),
+    ["runtime", "tabs", "windows"],
+  );
+  assert.deepEqual([...allowedChromeNamespaces(POPUP_PATH)], ["runtime"]);
+  assert.equal(allowedChromeNamespaces(`${CHROMIUM_SRC_ROOT}/future-module.ts`).size, 0);
 }
 
 async function main() {
   runSelfTests();
-  const [
-    manifestText,
-    background,
-    popup,
-    popupHtml,
-    popupCss,
-    projection,
-    binding,
-    bindingRuntime,
-    effect,
-    managedEffectRuntime,
-  ] = await Promise.all([
-    readFile(join(ROOT, MANIFEST_PATH), "utf8"),
-    readFile(join(ROOT, BACKGROUND_PATH), "utf8"),
-    readFile(join(ROOT, POPUP_PATH), "utf8"),
-    readFile(join(ROOT, POPUP_HTML_PATH), "utf8"),
-    readFile(join(ROOT, POPUP_CSS_PATH), "utf8"),
-    readFile(join(ROOT, PROJECTION_PATH), "utf8"),
-    readFile(join(ROOT, BINDING_PATH), "utf8"),
-    readFile(join(ROOT, BINDING_RUNTIME_PATH), "utf8"),
-    readFile(join(ROOT, EFFECT_PATH), "utf8"),
-    readFile(join(ROOT, MANAGED_EFFECT_RUNTIME_PATH), "utf8"),
-  ]);
+  const sources = await discoverChromiumInputs();
 
-  verifyManifest(JSON.parse(manifestText));
-  verifyBackground(background);
-  verifyPopup(popup);
-  verifyBinding(binding);
-  verifyBindingRuntime(bindingRuntime);
-  verifyEffect(effect);
-  verifyManagedEffectRuntime(managedEffectRuntime);
+  verifyManifest(JSON.parse(requiredSource(sources, MANIFEST_PATH)));
+  verifyBackground(requiredSource(sources, BACKGROUND_PATH));
+  verifyPopup(requiredSource(sources, POPUP_PATH));
+  verifyBinding(requiredSource(sources, BINDING_PATH));
+  verifyBindingRuntime(requiredSource(sources, BINDING_RUNTIME_PATH));
+  verifyEffect(requiredSource(sources, EFFECT_PATH));
+  verifyManagedEffectRuntime(requiredSource(sources, MANAGED_EFFECT_RUNTIME_PATH));
 
-  const findings = [
-    ...scanJavaScript(BACKGROUND_PATH, background),
-    ...scanJavaScript(POPUP_PATH, popup),
-    ...scanJavaScript(PROJECTION_PATH, projection),
-    ...scanJavaScript(BINDING_PATH, binding),
-    ...scanJavaScript(BINDING_RUNTIME_PATH, bindingRuntime),
-    ...scanJavaScript(EFFECT_PATH, effect),
-    ...scanJavaScript(MANAGED_EFFECT_RUNTIME_PATH, managedEffectRuntime),
-    ...scanPatterns(POPUP_HTML_PATH, popupHtml, REMOTE_ASSET_PATTERNS),
-    ...scanPatterns(POPUP_CSS_PATH, popupCss, REMOTE_ASSET_PATTERNS),
-  ];
-  if (findings.length > 0) {
-    throw new Error(`Chromium extension gate failed:\n${findings.sort().join("\n")}`);
+  const findings = [];
+  for (const [path, source] of sources) {
+    if (path.endsWith(".ts") || path.endsWith(".js")) {
+      findings.push(...scanJavaScript(path, source));
+    }
+    if (path.endsWith(".html") || path.endsWith(".css")) {
+      findings.push(...scanPatterns(path, source, REMOTE_ASSET_PATTERNS));
+    }
   }
 
-  process.stdout.write("chromium extension gate passed\n");
+  if (findings.length > 0) {
+    throw new Error(`Chromium extension gate failed:\n${[...new Set(findings)].sort().join("\n")}`);
+  }
+
+  process.stdout.write(
+    `chromium extension gate passed (${sources.size} source/static files discovered)\n`,
+  );
 }
 
 await main();
