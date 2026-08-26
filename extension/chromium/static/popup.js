@@ -52,7 +52,7 @@ function renderProjection(projection) {
   state.textContent = [
     projection.browserResidency,
     projection.audioState,
-    projection.autoDiscardable ? "auto-discardable" : "browser-protected",
+    projection.autoDiscardable ? "auto-discardable" : "warm-protected",
     projection.pinned ? "pinned" : "unpinned",
     `freeze:${projection.freezeEligibility}`,
     `discard:${projection.discardEligibility}`,
@@ -65,6 +65,14 @@ function renderProjection(projection) {
   const actions = document.createElement("div");
   actions.className = "actions";
 
+  if (projection.autoDiscardable || projection.browserResidency === "discarded") {
+    actions.append(actionButton("Keep warm", { type: "keep-warm", tabId: projection.tabId }));
+  } else {
+    actions.append(
+      actionButton("Allow discard", { type: "set-protection", tabId: projection.tabId, protected: false }),
+    );
+  }
+
   if (projection.browserResidency === "discarded") {
     actions.append(actionButton("Wake", { type: "wake", tabId: projection.tabId }));
   } else {
@@ -75,12 +83,6 @@ function renderProjection(projection) {
         projection.manualDiscard?.eligible !== true,
       ),
     );
-  }
-
-  if (projection.autoDiscardable) {
-    actions.append(actionButton("Protect", { type: "set-protection", tabId: projection.tabId, protected: true }));
-  } else {
-    actions.append(actionButton("Allow discard", { type: "set-protection", tabId: projection.tabId, protected: false }));
   }
 
   card.append(heading, ref, state, blockers, actions);
