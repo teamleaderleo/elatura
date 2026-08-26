@@ -20,6 +20,7 @@ const generatorArgs = [
   "--elatura-revision", "abc1234",
   "--firefox-intervention", "latest3-v1",
   "--chromium-intervention", "parking-v1",
+  "--chromium-transport", "extension-only",
 ];
 
 function generatePlan() {
@@ -42,6 +43,7 @@ describe("live application lane experiment packet", () => {
   it("generates the canonical 112-subrun resource plan", () => {
     const plan = generatePlan();
     expect(plan.kind).toBe("live-application-lane-plan");
+    expect(plan.elatura.chromiumTransport).toBe("extension-only");
     expect(plan.stages.map((stage: any) => stage.stage)).toEqual([
       "chatgpt-single",
       "chatgpt-switch-8",
@@ -148,5 +150,20 @@ describe("live application lane experiment packet", () => {
     );
     expect(checked.status).toBe(2);
     expect(checked.stderr).toContain("Usage:");
+  });
+
+  it("rejects an unregistered Chromium transport", () => {
+    const directory = makeScratch();
+    const plan = generatePlan();
+    plan.elatura.chromiumTransport = "debugger-whenever-convenient";
+    const planPath = join(directory, "plan.json");
+    writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`);
+
+    const checked = spawnSync(process.execPath, [verifyPlanScript, planPath], { encoding: "utf8" });
+    expect(checked.status).toBe(2);
+    expect(JSON.parse(checked.stdout).issues).toContainEqual({
+      code: "chromium-transport-invalid",
+      key: null,
+    });
   });
 });
