@@ -13,8 +13,8 @@ const ORDER_ROWS = [
 const STAGES = [
   ["chatgpt-single", "chatgpt", "chatgpt-pathological-a", "single-lane", 1, [1, 2, 3, 4, 5]],
   ["chatgpt-switch-8", "chatgpt", "chatgpt-switch-8", "switch-8", 8, [1, 3, 5]],
-  ["gdocs-single", "google-docs", "gdocs-text-100k-v1", "single-lane", 1, [1, 3, 5]],
-  ["gdocs-switch-8", "google-docs", "gdocs-switch-8", "switch-8", 8, [1, 3, 5]],
+  ["gdocs-single", "google-docs", "docs-large-text-v1", "single-lane", 1, [1, 3, 5]],
+  ["gdocs-switch-8", "google-docs", "docs-switch-8-v1", "switch-8", 8, [1, 3, 5]],
 ];
 
 const BROWSERS = {
