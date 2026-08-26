@@ -37,6 +37,11 @@ export type FirefoxChatGptLaneActivityObservationV1 = Readonly<{
   authorizesWorkDispatch: false;
 }>;
 
+export type FirefoxChatGptLaneActivityResponseV1 = Readonly<{
+  projectionRef: string;
+  observation: FirefoxChatGptLaneActivityObservationV1;
+}>;
+
 const MAX_LANE_REF_LENGTH = 240;
 const LANE_REF_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/#@-]*$/u;
 const COMPOSER_SELECTOR =
@@ -210,7 +215,10 @@ export function sampleFirefoxChatGptLaneActivityV1(
   );
 }
 
-function parseSampleMessage(message: unknown): FirefoxChatGptLaneActivityTargetV1 | null {
+function parseSampleMessage(
+  message: unknown,
+  currentProjectionRef: string,
+): FirefoxChatGptLaneActivityTargetV1 | null {
   if (!isPlainRecord(message)) return null;
   let keys: (string | symbol)[];
   try {
@@ -219,15 +227,22 @@ function parseSampleMessage(message: unknown): FirefoxChatGptLaneActivityTargetV
     return null;
   }
   if (
-    keys.length !== 2 ||
+    keys.length !== 3 ||
     !keys.includes("type") ||
+    !keys.includes("projectionRef") ||
     !keys.includes("target")
   ) {
     return null;
   }
   try {
     const type = ownData(message, "type");
-    if (type !== FIREFOX_CHATGPT_ACTIVITY_MESSAGE_TYPE) return null;
+    const projectionRef = ownData(message, "projectionRef");
+    if (
+      type !== FIREFOX_CHATGPT_ACTIVITY_MESSAGE_TYPE ||
+      projectionRef !== currentProjectionRef
+    ) {
+      return null;
+    }
     return parseFirefoxChatGptLaneActivityTargetV1(ownData(message, "target"));
   } catch {
     return null;
@@ -235,6 +250,7 @@ function parseSampleMessage(message: unknown): FirefoxChatGptLaneActivityTargetV
 }
 
 export function bootFirefoxChatGptLaneActivityProducer(
+  projectionRef: string,
   documentRef: Document = document,
 ): () => void {
   let compositionActive = false;
@@ -247,17 +263,18 @@ export function bootFirefoxChatGptLaneActivityProducer(
   documentRef.addEventListener("compositionstart", onCompositionStart, true);
   documentRef.addEventListener("compositionend", onCompositionEnd, true);
 
-  const listener = (message: unknown): Promise<FirefoxChatGptLaneActivityObservationV1> | undefined => {
-    const target = parseSampleMessage(message);
+  const listener = (message: unknown): Promise<FirefoxChatGptLaneActivityResponseV1> | undefined => {
+    const target = parseSampleMessage(message, projectionRef);
     if (target === null) return undefined;
-    return Promise.resolve(
-      sampleFirefoxChatGptLaneActivityV1(
+    return Promise.resolve(Object.freeze({
+      projectionRef,
+      observation: sampleFirefoxChatGptLaneActivityV1(
         target,
         documentRef,
         compositionActive,
         Date.now(),
       ),
-    );
+    }));
   };
   browser.runtime.onMessage.addListener(listener);
 
