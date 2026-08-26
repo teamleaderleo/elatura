@@ -60,10 +60,11 @@ A descriptor is parsed through the canonical PR #127 protocol parser before admi
 - lower generations are stale;
 - a higher generation replaces the current volatile projection ownership;
 - replacement clears pending requests, the last event, and recent event-id history;
-- one durable `laneRef` keeps one adapter id across generations;
-- adapter versions and capabilities may advance with a newer descriptor;
+- adapter identity/version and capabilities remain descriptor facts rather than runtime-owned identity policy;
 - same-generation descriptors move forward by `observedAt`;
 - contradictory same-generation descriptors at the same observation time are refused.
+
+This lets a recovered lane adopt a newly selected adapter or capability set while generation ownership remains unambiguous.
 
 ## Event rules
 
@@ -99,7 +100,7 @@ operation
 
 A generation replacement removes the tuple first, so a late response from the previous browser projection cannot regain ownership.
 
-For successful `status` responses, the runtime also requires the nested descriptor to agree with the outer response on lane ref, generation, state, observation time, and adapter id.
+For successful `status` responses, the runtime also requires the nested descriptor to agree with the outer response on lane ref, generation, state, and observation time.
 
 A correct same-generation response older than the latest descriptor completes its request but does not regress current descriptor state.
 
