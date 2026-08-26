@@ -25,6 +25,7 @@ describe("Firefox slim-mode prototype", () => {
     expect(manifest.web_accessible_resources).toEqual([
       {
         resources: [
+          "chatgpt-lane-activity-producer.js",
           "slim-content-controller.js",
           "slim-discovery.js",
           "slim-live-discovery.js",
@@ -40,7 +41,12 @@ describe("Firefox slim-mode prototype", () => {
 
     expect(content).toContain('import(browser.runtime.getURL("slim-content-controller.js"))');
     expect(content).toContain("controller.bootSlimContentController()");
+    expect(content).toContain(
+      'import(browser.runtime.getURL("chatgpt-lane-activity-producer.js"))',
+    );
+    expect(content).toContain("producer.bootFirefoxChatGptLaneActivityProducer()");
     expect(content).toContain("The observer remains usable");
+    expect(content).toContain("Existing page metrics remain available");
     expect(content).not.toContain("element.remove()");
     expect(content).not.toContain("sessionStorage");
   });
@@ -49,7 +55,8 @@ describe("Firefox slim-mode prototype", () => {
     const content = read("extension/firefox/src/content.ts");
     const controller = read("extension/firefox/src/slim-content-controller.ts");
     const discovery = read("extension/firefox/src/slim-live-discovery.ts");
-    const surface = `${content}\n${controller}\n${discovery}`;
+    const activityProducer = read("extension/firefox/src/chatgpt-lane-activity-producer.ts");
+    const surface = `${content}\n${controller}\n${discovery}\n${activityProducer}`;
 
     expect(surface).not.toMatch(/\bbrowser\.storage\b/u);
     expect(surface).not.toMatch(/\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b/u);
@@ -62,10 +69,12 @@ describe("Firefox slim-mode prototype", () => {
     const content = read("extension/firefox/src/content.ts");
     const controller = read("extension/firefox/src/slim-content-controller.ts");
     const discovery = read("extension/firefox/src/slim-live-discovery.ts");
+    const activityProducer = read("extension/firefox/src/chatgpt-lane-activity-producer.ts");
     const background = read("extension/firefox/src/background.ts");
+    const surface = `${content}\n${controller}\n${discovery}\n${activityProducer}`;
 
-    expect(`${content}\n${controller}\n${discovery}`).not.toContain("filterResponseData");
-    expect(`${content}\n${controller}\n${discovery}`).not.toContain("TextDecoder");
+    expect(surface).not.toContain("filterResponseData");
+    expect(surface).not.toContain("TextDecoder");
     expect(background).toContain("bytes += event.data.byteLength;");
     expect(background).toContain("filter.write(event.data);");
     expect(background).not.toContain("elatura:set-slim-mode");

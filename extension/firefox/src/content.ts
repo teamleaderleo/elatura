@@ -9,6 +9,8 @@ type ContentPageMetric = {
 };
 
 type SlimContentControllerModule = typeof import("./slim-content-controller.js");
+type ChatGptLaneActivityProducerModule =
+  typeof import("./chatgpt-lane-activity-producer.js");
 
 function emit(kind: ContentPageMetric["kind"]): void {
   const metric: ContentPageMetric = {
@@ -48,4 +50,12 @@ void (import(browser.runtime.getURL("slim-content-controller.js")) as Promise<Sl
   .then((controller) => controller.bootSlimContentController())
   .catch(() => {
     // The observer remains usable when the locked prototype module cannot load.
+  });
+
+void (
+  import(browser.runtime.getURL("chatgpt-lane-activity-producer.js")) as Promise<ChatGptLaneActivityProducerModule>
+)
+  .then((producer) => producer.bootFirefoxChatGptLaneActivityProducer())
+  .catch(() => {
+    // Existing page metrics remain available when the optional activity producer cannot load.
   });
