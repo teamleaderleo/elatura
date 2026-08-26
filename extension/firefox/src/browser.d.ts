@@ -10,6 +10,11 @@ type BrowserTab = {
   url?: string;
 };
 
+type BrowserTabChangeInfo = {
+  status?: string;
+  url?: string;
+};
+
 declare const browser: {
   storage: {
     local: {
@@ -30,6 +35,12 @@ declare const browser: {
   tabs: {
     query(queryInfo: { active?: boolean; currentWindow?: boolean }): Promise<BrowserTab[]>;
     sendMessage(tabId: number, message: unknown): Promise<unknown>;
+    onUpdated: {
+      addListener(listener: (tabId: number, changeInfo: BrowserTabChangeInfo) => void): void;
+    };
+    onRemoved: {
+      addListener(listener: (tabId: number) => void): void;
+    };
   };
   webRequest: {
     onBeforeRequest: {
