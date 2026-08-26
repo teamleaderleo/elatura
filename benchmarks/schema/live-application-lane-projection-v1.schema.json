@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://elatura.local/schemas/live-application-lane-projection-v1.schema.json",
+  "title": "Elatura content-free application lane projection ledger",
+  "description": "Separates cross-browser benchmark pairing identity, genuine Elatura lane identity, and ephemeral browser projections while recording content-free canonical lane events for one physical benchmark subrun.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "sessionId",
+    "runId",
+    "logicalLanes",
+    "events",
+    "privacy"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "live-application-lane-projection-ledger" },
+    "sessionId": { "type": "string", "format": "uuid" },
+    "runId": { "type": "string", "format": "uuid" },
+    "logicalLanes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/lane" }
+    },
+    "events": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": { "$ref": "#/$defs/event" }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applicationContentCaptured",
+        "rawApplicationLocatorCaptured",
+        "profileIdCaptured",
+        "tabIdCaptured",
+        "targetIdCaptured",
+        "processIdCaptured",
+        "credentialsCaptured",
+        "freeFormNotesCaptured"
+      ],
+      "properties": {
+        "applicationContentCaptured": { "const": false },
+        "rawApplicationLocatorCaptured": { "const": false },
+        "profileIdCaptured": { "const": false },
+        "tabIdCaptured": { "const": false },
+        "targetIdCaptured": { "const": false },
+        "processIdCaptured": { "const": false },
+        "credentialsCaptured": { "const": false },
+        "freeFormNotesCaptured": { "const": false }
+      }
+    }
+  },
+  "$defs": {
+    "token": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,95}$"
+    },
+    "laneRef": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/#@-]{0,239}$"
+    },
+    "elaturaLane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["laneRef", "laneGeneration", "state"],
+      "properties": {
+        "laneRef": { "$ref": "#/$defs/laneRef" },
+        "laneGeneration": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "state": {
+          "enum": ["active", "parked", "unavailable", "drifted", "recovery_needed"]
+        }
+      }
+    },
+    "lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "laneOrdinal",
+        "benchmarkLaneToken",
+        "application",
+        "locatorClass",
+        "browserProjectionGeneration",
+        "projectionState",
+        "freshness",
+        "recoveryState",
+        "interventionLevel",
+        "elaturaLane"
+      ],
+      "properties": {
+        "laneOrdinal": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "benchmarkLaneToken": { "$ref": "#/$defs/token" },
+        "application": { "enum": ["chatgpt", "google-docs"] },
+        "locatorClass": {
+          "enum": [
+            "opaque-local-conversation",
+            "opaque-local-document",
+            "opaque-local-application-target"
+          ]
+        },
+        "browserProjectionGeneration": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "projectionState": {
+          "enum": [
+            "active",
+            "background",
+            "parked",
+            "discarded",
+            "unavailable",
+            "recovering",
+            "recovered",
+            "drifted"
+          ]
+        },
+        "freshness": { "enum": ["fresh", "stale", "drifted", "unknown"] },
+        "recoveryState": {
+          "enum": ["none", "needed", "in-progress", "recovered", "failed", "unknown"]
+        },
+        "interventionLevel": {
+          "enum": [
+            "stock",
+            "observe-only",
+            "lifecycle-parking",
+            "render-suppression",
+            "bounded-dom",
+            "bounded-view",
+            "response-transform"
+          ]
+        },
+        "elaturaLane": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/elaturaLane" }
+          ]
+        }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ordinal",
+        "elapsedMs",
+        "laneOrdinal",
+        "laneGeneration",
+        "eventType",
+        "confidence",
+        "freshness",
+        "sourceClass",
+        "causedInspection",
+        "grantsWorkAuthority",
+        "authorizesWorkDispatch"
+      ],
+      "properties": {
+        "ordinal": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "elapsedMs": { "type": "integer", "minimum": 0, "maximum": 86400000 },
+        "laneOrdinal": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "laneGeneration": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "eventType": {
+          "enum": [
+            "changed",
+            "generating",
+            "idle",
+            "possible_completion",
+            "error",
+            "drifted",
+            "discarded_or_unavailable",
+            "recovery_needed",
+            "available"
+          ]
+        },
+        "confidence": { "enum": ["exact", "probable", "unknown"] },
+        "freshness": { "enum": ["fresh", "stale", "unknown"] },
+        "sourceClass": {
+          "enum": [
+            "application-event",
+            "dom",
+            "accessibility",
+            "browser-lifecycle",
+            "network-lifecycle",
+            "notification-hint",
+            "unknown"
+          ]
+        },
+        "causedInspection": { "type": "boolean" },
+        "grantsWorkAuthority": { "const": false },
+        "authorizesWorkDispatch": { "const": false }
+      }
+    }
+  }
+}
