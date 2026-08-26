@@ -12,6 +12,7 @@
     "generatedAt",
     "browsers",
     "elatura",
+    "fixtures",
     "protocol",
     "stages",
     "privacy"
@@ -46,6 +47,53 @@
         "firefoxInterventionToken": { "$ref": "#/$defs/token" },
         "chromiumInterventionToken": { "$ref": "#/$defs/token" },
         "chromiumTransport": { "enum": ["extension-only", "extension-cdp"] }
+      }
+    },
+    "fixtures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["googleDocs"],
+      "properties": {
+        "googleDocs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["generator", "manifestSha256", "largeText", "switch8"],
+          "properties": {
+            "generator": { "const": "google-docs-workload-v1" },
+            "manifestSha256": { "$ref": "#/$defs/sha256" },
+            "largeText": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["documentCount", "totalTextCodeUnits", "perDocumentTextCodeUnits"],
+              "properties": {
+                "documentCount": { "const": 1 },
+                "totalTextCodeUnits": { "const": 772800 },
+                "perDocumentTextCodeUnits": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "prefixItems": [{ "const": 772800 }],
+                  "items": false
+                }
+              }
+            },
+            "switch8": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["documentCount", "totalTextCodeUnits", "perDocumentTextCodeUnits"],
+              "properties": {
+                "documentCount": { "const": 8 },
+                "totalTextCodeUnits": { "const": 2318400 },
+                "perDocumentTextCodeUnits": {
+                  "type": "array",
+                  "minItems": 8,
+                  "maxItems": 8,
+                  "items": { "const": 289800 }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "protocol": {
@@ -104,6 +152,10 @@
     "versionToken": {
       "type": "string",
       "pattern": "^[0-9A-Za-z][0-9A-Za-z.+_-]{0,95}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
     },
     "timestamp": {
       "type": "string",
