@@ -14,6 +14,7 @@ const PROJECTION_PATH = "extension/chromium/src/projection.ts";
 const BINDING_PATH = "extension/chromium/src/binding.ts";
 const BINDING_RUNTIME_PATH = "extension/chromium/src/binding-runtime.ts";
 const EFFECT_PATH = "extension/chromium/src/effect.ts";
+const MANAGED_EFFECT_RUNTIME_PATH = "extension/chromium/src/managed-effect-runtime.ts";
 
 const ALLOWED_MANIFEST_KEYS = [
   "manifest_version",
@@ -189,6 +190,26 @@ function verifyEffect(source) {
   assert.equal(/\bchrome\./u.test(source), false, "Pure Chromium effect contract must not invoke browser APIs");
 }
 
+function verifyManagedEffectRuntime(source) {
+  const required = [
+    "this.#bindings.planCurrent(",
+    "createChromiumEffectRequestV1(",
+    "matchChromiumEffectReceiptV1(",
+    "this.#bindings.currentBinding(",
+    "#claimedRequestRefs",
+    '"request-ref-reused"',
+    '"stale-generation"',
+    '"stale-projection"',
+    "grantsWorkAuthority: false",
+    "authorizesWorkDispatch: false",
+  ];
+  for (const token of required) {
+    assert.equal(source.includes(token), true, `Chromium managed effect runtime missing reviewed token: ${token}`);
+  }
+  assert.equal(/\bchrome\./u.test(source), false, "Chromium managed effect runtime must not invoke browser APIs");
+  assert.equal(/\b(?:localStorage|sessionStorage|indexedDB)\b/u.test(source), false, "Chromium managed effect runtime must remain volatile");
+}
+
 function runSelfTests() {
   const hostileManifest = {
     manifest_version: 3,
@@ -229,6 +250,7 @@ async function main() {
     binding,
     bindingRuntime,
     effect,
+    managedEffectRuntime,
   ] = await Promise.all([
     readFile(join(ROOT, MANIFEST_PATH), "utf8"),
     readFile(join(ROOT, BACKGROUND_PATH), "utf8"),
@@ -239,6 +261,7 @@ async function main() {
     readFile(join(ROOT, BINDING_PATH), "utf8"),
     readFile(join(ROOT, BINDING_RUNTIME_PATH), "utf8"),
     readFile(join(ROOT, EFFECT_PATH), "utf8"),
+    readFile(join(ROOT, MANAGED_EFFECT_RUNTIME_PATH), "utf8"),
   ]);
 
   verifyManifest(JSON.parse(manifestText));
@@ -247,6 +270,7 @@ async function main() {
   verifyBinding(binding);
   verifyBindingRuntime(bindingRuntime);
   verifyEffect(effect);
+  verifyManagedEffectRuntime(managedEffectRuntime);
 
   const findings = [
     ...scanJavaScript(BACKGROUND_PATH, background),
@@ -255,6 +279,7 @@ async function main() {
     ...scanJavaScript(BINDING_PATH, binding),
     ...scanJavaScript(BINDING_RUNTIME_PATH, bindingRuntime),
     ...scanJavaScript(EFFECT_PATH, effect),
+    ...scanJavaScript(MANAGED_EFFECT_RUNTIME_PATH, managedEffectRuntime),
     ...scanPatterns(POPUP_HTML_PATH, popupHtml, REMOTE_ASSET_PATTERNS),
     ...scanPatterns(POPUP_CSS_PATH, popupCss, REMOTE_ASSET_PATTERNS),
   ];
