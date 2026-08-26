@@ -1,32 +1,16 @@
 // SPDX-License-Identifier: MPL-2.0
-import { lstat, readdir, readFile } from "node:fs/promises";
-import { extname, join } from "node:path";
-
-const MAX_FILES = 256;
-const STAGES = new Set([
-  "chatgpt-single",
-  "chatgpt-switch-8",
-  "gdocs-single",
-  "gdocs-switch-8",
-]);
-
-function canonicalMs(value) {
-  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)) return null;
-  const ms = Date.parse(value);
-  return Number.isFinite(ms) && new Date(ms).toISOString() === value ? ms : null;
-}
+import { readFile } from "node:fs/promises";
+import {
+  LIVE_LANE_STAGES,
+  canonicalLiveLaneMs,
+  collectLiveLaneJsonFiles,
+  liveLaneRunKey,
+  parseLiveLaneJson,
+  plannedLiveLaneSubruns,
+} from "./live-application-lane-utils.mjs";
 
 function issue(issues, code, key) {
   issues.push({ code, key });
-}
-
-function runKey(run) {
-  return [
-    run?.block?.stage,
-    run?.block?.number,
-    run?.block?.conditionOrdinal,
-    run?.block?.physicalSubrunOrdinal,
-  ].join("|");
 }
 
 function selectedStage(args) {
@@ -34,7 +18,7 @@ function selectedStage(args) {
   for (let index = 2; index < args.length; index += 1) {
     if (args[index] === "--stage") {
       const value = args[index + 1];
-      if (!STAGES.has(value)) return null;
+      if (!LIVE_LANE_STAGES.includes(value)) return null;
       stage = value;
       index += 1;
     } else if (args[index] === "--out") {
@@ -44,39 +28,15 @@ function selectedStage(args) {
   return stage;
 }
 
-function expectedKeys(plan, stage) {
-  const keys = [];
-  for (const stageRecord of plan.stages ?? []) {
-    if (stage !== null && stageRecord?.stage !== stage) continue;
-    for (const block of stageRecord?.blocks ?? []) {
-      for (const slot of block?.slots ?? []) {
-        for (const subrun of slot?.physicalSubruns ?? []) {
-          keys.push([
-            stageRecord.stage,
-            block.number,
-            slot.conditionOrdinal,
-            subrun.ordinal,
-          ].join("|"));
-        }
-      }
-    }
-  }
-  return keys;
-}
-
 async function collectRuns(directory) {
-  const root = await lstat(directory);
-  if (!root.isDirectory() || root.isSymbolicLink()) return null;
-  const names = (await readdir(directory)).sort();
-  if (names.length > MAX_FILES) return null;
+  const files = await collectLiveLaneJsonFiles(directory);
+  if (files === null) return null;
   const runs = new Map();
-  for (const name of names) {
-    const path = join(directory, name);
-    const stat = await lstat(path);
-    if (!stat.isFile() || stat.isSymbolicLink() || extname(name) !== ".json") return null;
-    const parsed = JSON.parse(await readFile(path, "utf8"));
-    if (parsed?.kind !== "live-application-lane-run") continue;
-    runs.set(runKey(parsed), parsed);
+  for (const path of files) {
+    const parsed = await parseLiveLaneJson(path);
+    if (!parsed.ok) return null;
+    if (parsed.value?.kind !== "live-application-lane-run") continue;
+    runs.set(liveLaneRunKey(parsed.value), parsed.value);
   }
   return runs;
 }
@@ -91,21 +51,22 @@ async function main() {
   const plan = JSON.parse(await readFile(planPath, "utf8"));
   const stage = selectedStage(args);
   const issues = [];
-  const generatedAtMs = canonicalMs(plan.generatedAt);
+  const generatedAtMs = canonicalLiveLaneMs(plan.generatedAt);
   const cooldownMs = plan.protocol?.betweenPhysicalSubrunsMs;
   const runs = await collectRuns(directory);
   if (runs === null || generatedAtMs === null || !Number.isSafeInteger(cooldownMs) || cooldownMs < 0) {
     issue(issues, "timing-input-invalid", "session");
   } else {
     let previousRecordedAt = null;
-    for (const key of expectedKeys(plan, stage)) {
+    for (const planned of plannedLiveLaneSubruns(plan, stage)) {
+      const key = planned.key;
       const run = runs.get(key);
       if (!run) {
         previousRecordedAt = null;
         continue;
       }
-      const startedAtMs = canonicalMs(run.startedAt);
-      const recordedAtMs = canonicalMs(run.recordedAt);
+      const startedAtMs = canonicalLiveLaneMs(run.startedAt);
+      const recordedAtMs = canonicalLiveLaneMs(run.recordedAt);
       if (startedAtMs === null) issue(issues, "invalid-started-at", key);
       if (recordedAtMs === null) {
         previousRecordedAt = null;
