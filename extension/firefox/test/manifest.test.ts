@@ -11,7 +11,10 @@ describe("Firefox extension manifest", () => {
       browser_specific_settings?: { gecko?: { strict_min_version?: string } };
     };
 
-    expect(manifest.background).toEqual({ scripts: ["background.js"], type: "module" });
+    expect(manifest.background).toEqual({
+      scripts: ["background.js", "chatgpt-lane-activity-background.js"],
+      type: "module",
+    });
     expect(Number.parseFloat(manifest.browser_specific_settings?.gecko?.strict_min_version ?? "0")).toBeGreaterThanOrEqual(
       112,
     );
