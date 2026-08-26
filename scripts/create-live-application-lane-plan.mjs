@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
-import { randomUUID } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 
 const ORDER_ROWS = [
   ["ES", "CS", "CRE", "CRS", "FE", "FS"],
@@ -46,6 +47,25 @@ const STAGES = [
   },
 ];
 
+const DOCS_FIXTURES = Object.freeze([
+  Object.freeze({
+    id: "docs-large-text-v1",
+    documentCount: 1,
+    paragraphCount: 4_800,
+    anchorCount: 10,
+    textCodeUnits: 772_800,
+  }),
+  Object.freeze({
+    id: "docs-switch-8-v1",
+    documentCount: 8,
+    paragraphCount: 1_800,
+    anchorCount: 10,
+    textCodeUnits: 289_800,
+  }),
+]);
+
+const SHA256 = /^sha256:[0-9a-f]{64}$/u;
+
 const REQUIRED = [
   "edge-version",
   "edge-build",
@@ -59,6 +79,7 @@ const REQUIRED = [
   "firefox-intervention",
   "chromium-intervention",
   "chromium-transport",
+  "gdocs-manifest",
 ];
 
 function usage() {
@@ -73,6 +94,7 @@ function usage() {
     "  --firefox-intervention <lowercase-token>",
     "  --chromium-intervention <lowercase-token>",
     "  --chromium-transport extension-only|extension-cdp",
+    "  --gdocs-manifest <path-to-#122-generated-manifest.json>",
     "Optional: --out <new-path>",
   ].join("\n");
 }
@@ -124,6 +146,87 @@ function exactKeys(values) {
   }
 }
 
+function sha256(bytes) {
+  return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+function expectedDocsFileName(fixture, documentOrdinal) {
+  if (fixture.documentCount === 1) return `${fixture.id}.txt`;
+  return `${fixture.id}-${String(documentOrdinal + 1).padStart(2, "0")}.txt`;
+}
+
+async function verifyGoogleDocsFixtureManifest(pathValue) {
+  const manifestPath = resolve(pathValue);
+  const manifestBytes = await readFile(manifestPath);
+  let manifest;
+  try {
+    manifest = JSON.parse(manifestBytes.toString("utf8"));
+  } catch {
+    throw new Error("--gdocs-manifest must contain valid JSON");
+  }
+  if (
+    !manifest ||
+    typeof manifest !== "object" ||
+    Array.isArray(manifest) ||
+    manifest.schemaVersion !== 1 ||
+    manifest.generator !== "google-docs-workload-v1" ||
+    !Array.isArray(manifest.fixtures) ||
+    manifest.fixtures.length !== DOCS_FIXTURES.length
+  ) {
+    throw new Error("--gdocs-manifest does not match google-docs-workload-v1");
+  }
+
+  const root = dirname(manifestPath);
+  const identities = {};
+  for (let fixtureIndex = 0; fixtureIndex < DOCS_FIXTURES.length; fixtureIndex += 1) {
+    const expected = DOCS_FIXTURES[fixtureIndex];
+    const actual = manifest.fixtures[fixtureIndex];
+    if (
+      !actual ||
+      actual.id !== expected.id ||
+      !Array.isArray(actual.files) ||
+      actual.files.length !== expected.documentCount
+    ) {
+      throw new Error(`--gdocs-manifest fixture ${expected.id} is malformed`);
+    }
+    const perDocumentTextCodeUnits = [];
+    for (let documentOrdinal = 0; documentOrdinal < expected.documentCount; documentOrdinal += 1) {
+      const file = actual.files[documentOrdinal];
+      const expectedFileName = expectedDocsFileName(expected, documentOrdinal);
+      if (
+        !file ||
+        file.fileName !== expectedFileName ||
+        file.documentOrdinal !== documentOrdinal ||
+        file.paragraphCount !== expected.paragraphCount ||
+        file.anchorCount !== expected.anchorCount ||
+        file.textCodeUnits !== expected.textCodeUnits ||
+        typeof file.sha256 !== "string" ||
+        !SHA256.test(file.sha256)
+      ) {
+        throw new Error(`--gdocs-manifest file identity mismatch for ${expectedFileName}`);
+      }
+      const fileBytes = await readFile(resolve(root, expectedFileName));
+      const text = fileBytes.toString("utf8");
+      if (text.length !== expected.textCodeUnits || sha256(fileBytes) !== file.sha256) {
+        throw new Error(`Google Docs fixture bytes do not match manifest for ${expectedFileName}`);
+      }
+      perDocumentTextCodeUnits.push(expected.textCodeUnits);
+    }
+    identities[expected.id] = Object.freeze({
+      documentCount: expected.documentCount,
+      totalTextCodeUnits: expected.textCodeUnits * expected.documentCount,
+      perDocumentTextCodeUnits: Object.freeze(perDocumentTextCodeUnits),
+    });
+  }
+
+  return Object.freeze({
+    generator: "google-docs-workload-v1",
+    manifestSha256: sha256(manifestBytes),
+    largeText: identities["docs-large-text-v1"],
+    switch8: identities["docs-switch-8-v1"],
+  });
+}
+
 function subruns(conditionCode, blockNumber) {
   if (conditionCode !== "FE" && conditionCode !== "CRE") {
     return [{ ordinal: 1, mode: "none" }];
@@ -156,9 +259,10 @@ function stagePlan(stage) {
   };
 }
 
-function createPlan(values) {
+async function createPlan(values) {
   exactKeys(values);
   const version = (key) => versionToken(values.get(key), key);
+  const googleDocs = await verifyGoogleDocsFixtureManifest(values.get("gdocs-manifest"));
   return {
     schemaVersion: 1,
     kind: "live-application-lane-plan",
@@ -199,6 +303,7 @@ function createPlan(values) {
       ),
       chromiumTransport: chromiumTransport(values.get("chromium-transport")),
     },
+    fixtures: { googleDocs },
     protocol: {
       samplePeriodMs: 2000,
       betweenPhysicalSubrunsMs: 60000,
@@ -234,7 +339,7 @@ async function main() {
       process.stdout.write(`${usage()}\n`);
       return;
     }
-    const plan = createPlan(parsed.values);
+    const plan = await createPlan(parsed.values);
     const serialized = `${JSON.stringify(plan, null, 2)}\n`;
     const out = parsed.values.get("out");
     if (out) {
