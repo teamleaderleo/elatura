@@ -31,7 +31,7 @@ const STAGES = [
   {
     stage: "gdocs-single",
     application: "google-docs",
-    workloadToken: "gdocs-text-100k-v1",
+    workloadToken: "docs-large-text-v1",
     pattern: "single-lane",
     laneCount: 1,
     rows: [1, 3, 5],
@@ -39,7 +39,7 @@ const STAGES = [
   {
     stage: "gdocs-switch-8",
     application: "google-docs",
-    workloadToken: "gdocs-switch-8",
+    workloadToken: "docs-switch-8-v1",
     pattern: "switch-8",
     laneCount: 8,
     rows: [1, 3, 5],
