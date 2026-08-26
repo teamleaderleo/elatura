@@ -70,14 +70,14 @@ function exactTabId(value: unknown): number {
   return value;
 }
 
-function fromExtensionPage(sender: browser.runtime.MessageSender): boolean {
-  return sender.tab === undefined;
+function fromExtensionPage(sender: BrowserMessageSender | undefined): boolean {
+  return sender?.tab === undefined;
 }
 
 browser.runtime.onMessage.addListener((message, sender) => {
   const registration = exactMessage(message, REGISTER, ["projectionRef"]);
   if (registration) {
-    const senderTabId = sender.tab?.id;
+    const senderTabId = sender?.tab?.id;
     if (senderTabId === undefined) return undefined;
     try {
       runtime.registerProjection(
