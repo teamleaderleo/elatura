@@ -52,7 +52,8 @@ const PRIVACY_KEYS = [
 
 const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,95}$/u;
 const TOKEN = /^[a-z0-9][a-z0-9._-]{0,95}$/u;
-const SHA256 = /^sha256:[0-9a-f]{64}$/u;
+const CANONICAL_GDOCS_MANIFEST_SHA256 =
+  "sha256:1090f44d5f0d906b9d2557d70db69e99fef0809c2636cc02d3bc3f3405c28898";
 
 function usage() {
   return "Usage: node scripts/verify-live-application-lane-plan.mjs <plan.json>";
@@ -121,8 +122,8 @@ function verifyFixtures(plan, issues) {
     return;
   }
   if (googleDocs.generator !== "google-docs-workload-v1") issue(issues, "gdocs-generator-mismatch");
-  if (typeof googleDocs.manifestSha256 !== "string" || !SHA256.test(googleDocs.manifestSha256)) {
-    issue(issues, "gdocs-manifest-sha256-invalid");
+  if (googleDocs.manifestSha256 !== CANONICAL_GDOCS_MANIFEST_SHA256) {
+    issue(issues, "gdocs-manifest-sha256-mismatch");
   }
   const expected = [
     ["largeText", 1, 772800, [772800]],
