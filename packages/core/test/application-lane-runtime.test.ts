@@ -199,14 +199,24 @@ describe("application lane runtime generation ownership", () => {
     expect(runtime.snapshot().lanes[0]?.descriptor.state).toBe("parked");
   });
 
-  it("keeps adapter identity stable for one durable lane reference", () => {
+  it("permits adapter/capability evolution only through a newer or later descriptor", () => {
     const runtime = new ApplicationLaneRuntimeV1();
     runtime.upsertDescriptor(descriptor(7));
-    const changedAdapter = descriptor(8, {
-      adapter: { id: "google-docs", version: "1" },
+
+    const sameMomentConflict = descriptor(7, {
+      adapter: { id: "generic-web", version: "1" },
     });
-    expect(runtime.upsertDescriptor(changedAdapter).outcome).toBe("descriptor-conflict");
-    expect(runtime.snapshot().lanes[0]?.descriptor.generation).toBe(7);
+    expect(runtime.upsertDescriptor(sameMomentConflict).outcome).toBe(
+      "descriptor-conflict",
+    );
+
+    const newerGeneration = descriptor(8, {
+      adapter: { id: "generic-web", version: "2" },
+    });
+    expect(runtime.upsertDescriptor(newerGeneration).outcome).toBe(
+      "generation-replaced",
+    );
+    expect(runtime.snapshot().lanes[0]?.descriptor.adapter.id).toBe("generic-web");
   });
 
   it("bounds lane and pending-request capacity", () => {
