@@ -1,0 +1,594 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://elatura.local/schemas/live-application-lane-run-v1.schema.json",
+  "title": "Elatura content-free live application lane benchmark run",
+  "description": "One physical subrun from docs/live-application-lane-benchmark.md. The manifest admits only fixed enums/tokens, identifiers, booleans, and numeric measurements. Transcript/document content, titles, URLs, screenshots, raw DOM/accessibility text, credentials, process command lines, and free-form notes are forbidden.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "kind",
+    "experimentId",
+    "sessionId",
+    "runId",
+    "recordedAt",
+    "block",
+    "condition",
+    "workload",
+    "environment",
+    "protocol",
+    "timingsMs",
+    "resourceSamples",
+    "switchEvents",
+    "domRuntimeCheckpoint",
+    "recovery",
+    "attention",
+    "fidelity",
+    "outcome",
+    "privacy"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "live-application-lane-run" },
+    "experimentId": { "$ref": "#/$defs/token" },
+    "sessionId": { "type": "string", "format": "uuid" },
+    "runId": { "type": "string", "format": "uuid" },
+    "recordedAt": { "$ref": "#/$defs/timestamp" },
+    "block": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "number", "conditionOrdinal", "physicalSubrunOrdinal"],
+      "properties": {
+        "stage": {
+          "enum": [
+            "collector-sanity",
+            "chatgpt-single",
+            "chatgpt-switch-8",
+            "chatgpt-attention",
+            "gdocs-single",
+            "gdocs-switch-8",
+            "gdocs-attention",
+            "mixed-switch-8"
+          ]
+        },
+        "number": { "type": "integer", "minimum": 1, "maximum": 6 },
+        "conditionOrdinal": { "type": "integer", "minimum": 1, "maximum": 6 },
+        "physicalSubrunOrdinal": { "type": "integer", "minimum": 1, "maximum": 2 }
+      }
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "browserProduct",
+        "engineFamily",
+        "browserVersion",
+        "browserBuildToken",
+        "profilePairing",
+        "elatura"
+      ],
+      "properties": {
+        "code": { "enum": ["ES", "CS", "CRS", "FS", "FE", "CRE"] },
+        "browserProduct": { "enum": ["Edge", "Chrome", "Chromium", "Firefox"] },
+        "engineFamily": { "enum": ["blink-v8", "gecko-spidermonkey"] },
+        "browserVersion": { "$ref": "#/$defs/versionToken" },
+        "browserBuildToken": { "$ref": "#/$defs/versionToken" },
+        "profilePairing": { "enum": ["paired-snapshot-lineage", "independent-login"] },
+        "elatura": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["present", "mode", "transport", "revision", "interventionToken"],
+          "properties": {
+            "present": { "type": "boolean" },
+            "mode": { "enum": ["none", "passive", "managed"] },
+            "transport": { "enum": ["none", "firefox-extension", "chromium-extension", "chromium-extension-cdp"] },
+            "revision": { "oneOf": [{ "$ref": "#/$defs/versionToken" }, { "type": "null" }] },
+            "interventionToken": { "oneOf": [{ "$ref": "#/$defs/token" }, { "type": "null" }] }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "present": { "const": false } }, "required": ["present"] },
+              "then": {
+                "properties": {
+                  "mode": { "const": "none" },
+                  "transport": { "const": "none" },
+                  "revision": { "const": null },
+                  "interventionToken": { "const": null }
+                }
+              }
+            },
+            {
+              "if": { "properties": { "present": { "const": true } }, "required": ["present"] },
+              "then": {
+                "properties": {
+                  "mode": { "enum": ["passive", "managed"] },
+                  "transport": { "enum": ["firefox-extension", "chromium-extension", "chromium-extension-cdp"] }
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["application", "token", "pattern", "laneCount", "fixture"],
+      "properties": {
+        "application": { "enum": ["chatgpt", "google-docs", "synthetic-companion", "mixed"] },
+        "token": { "$ref": "#/$defs/token" },
+        "pattern": { "enum": ["single-lane", "switch-8", "attention", "collector-sanity"] },
+        "laneCount": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "fixture": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["generator", "documentCount", "totalTextCodeUnits", "perDocumentTextCodeUnits", "manifestSha256"],
+              "properties": {
+                "generator": { "const": "google-docs-workload-v1" },
+                "documentCount": { "type": "integer", "minimum": 1, "maximum": 8 },
+                "totalTextCodeUnits": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+                "perDocumentTextCodeUnits": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "items": { "type": "integer", "minimum": 1, "maximum": 1000000 }
+                },
+                "manifestSha256": { "$ref": "#/$defs/sha256" }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "osFamily",
+        "osBuildToken",
+        "architecture",
+        "physicalMemoryBytes",
+        "logicalCpuCount",
+        "displayWidthPx",
+        "displayHeightPx",
+        "displayScale",
+        "networkClass",
+        "powerClass"
+      ],
+      "properties": {
+        "osFamily": { "enum": ["macos", "linux", "windows"] },
+        "osBuildToken": { "$ref": "#/$defs/versionToken" },
+        "architecture": { "enum": ["arm64", "x86_64"] },
+        "physicalMemoryBytes": { "type": "integer", "minimum": 1073741824 },
+        "logicalCpuCount": { "type": "integer", "minimum": 1, "maximum": 1024 },
+        "displayWidthPx": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "displayHeightPx": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "displayScale": { "type": "number", "exclusiveMinimum": 0, "maximum": 8 },
+        "networkClass": { "enum": ["ethernet", "wifi", "other-fixed"] },
+        "powerClass": { "const": "ac" }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "samplePeriodMs",
+        "settleMs",
+        "steadyForegroundMs",
+        "backgroundProbeCount",
+        "backgroundProbeDwellMs",
+        "switchWarmupRotations",
+        "switchRecordedRotations",
+        "switchDwellMs",
+        "longBackgroundMs",
+        "switchTimeoutMs",
+        "restartWaitMs"
+      ],
+      "properties": {
+        "samplePeriodMs": { "const": 2000 },
+        "settleMs": { "const": 120000 },
+        "steadyForegroundMs": { "const": 600000 },
+        "backgroundProbeCount": { "const": 10 },
+        "backgroundProbeDwellMs": { "const": 30000 },
+        "switchWarmupRotations": { "const": 2 },
+        "switchRecordedRotations": { "const": 12 },
+        "switchDwellMs": { "const": 15000 },
+        "longBackgroundMs": { "const": 300000 },
+        "switchTimeoutMs": { "const": 15000 },
+        "restartWaitMs": { "const": 60000 }
+      }
+    },
+    "timingsMs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applicationActionable", "domContentLoaded"],
+      "properties": {
+        "applicationActionable": { "$ref": "#/$defs/nullableNonNegative" },
+        "domContentLoaded": { "$ref": "#/$defs/nullableNonNegative" }
+      }
+    },
+    "resourceSamples": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "items": { "$ref": "#/$defs/resourceSample" }
+    },
+    "switchEvents": {
+      "type": "array",
+      "maxItems": 256,
+      "items": { "$ref": "#/$defs/switchEvent" }
+    },
+    "domRuntimeCheckpoint": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/domRuntimeCheckpoint" }
+      ]
+    },
+    "recovery": { "$ref": "#/$defs/recovery" },
+    "attention": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/attention" }
+      ]
+    },
+    "fidelity": { "$ref": "#/$defs/fidelity" },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "failureCode"],
+      "properties": {
+        "status": { "enum": ["usable", "failed", "cancelled", "unsupported"] },
+        "failureCode": {
+          "enum": [
+            null,
+            "wrong-browser-or-profile",
+            "wrong-build",
+            "wrong-lane-set",
+            "browser-updated",
+            "sampler-gap",
+            "host-contaminated",
+            "critical-memory-pressure",
+            "private-artifact-capture",
+            "run-order-violation",
+            "fidelity-failure",
+            "unauthorized-effect",
+            "browser-crash",
+            "navigation-failure",
+            "application-unavailable",
+            "operator-cancelled",
+            "managed-mode-unsupported"
+          ]
+        }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applicationContentCaptured",
+        "titlesCaptured",
+        "urlsCaptured",
+        "queryStringsCaptured",
+        "credentialsCaptured",
+        "screenshotsCaptured",
+        "rawDomCaptured",
+        "accessibilityTextCaptured",
+        "processCommandLinesCaptured",
+        "freeFormNotesCaptured"
+      ],
+      "properties": {
+        "applicationContentCaptured": { "const": false },
+        "titlesCaptured": { "const": false },
+        "urlsCaptured": { "const": false },
+        "queryStringsCaptured": { "const": false },
+        "credentialsCaptured": { "const": false },
+        "screenshotsCaptured": { "const": false },
+        "rawDomCaptured": { "const": false },
+        "accessibilityTextCaptured": { "const": false },
+        "processCommandLinesCaptured": { "const": false },
+        "freeFormNotesCaptured": { "const": false }
+      }
+    }
+  },
+  "$defs": {
+    "token": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,95}$"
+    },
+    "versionToken": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z][0-9A-Za-z.+_-]{0,95}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}Z$"
+    },
+    "nullableNonNegative": {
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "nullableNonNegativeInteger": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "phase": {
+      "enum": [
+        "launch",
+        "initial-hydration",
+        "settle",
+        "steady-foreground",
+        "background-probe",
+        "switch-warmup",
+        "steady-switch",
+        "long-background",
+        "long-background-return",
+        "attention",
+        "recovery"
+      ]
+    },
+    "resourceSample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "elapsedMs",
+        "phase",
+        "laneOrdinal",
+        "targetHostRssBytes",
+        "browserTreeRssBytes",
+        "externalElaturaRssBytes",
+        "targetHostCpuPercent",
+        "browserTreeCpuPercent",
+        "externalElaturaCpuPercent",
+        "targetHostProcessCount",
+        "browserTreeProcessCount",
+        "externalElaturaProcessCount",
+        "memoryPressureClass"
+      ],
+      "properties": {
+        "elapsedMs": { "type": "integer", "minimum": 0, "maximum": 86400000 },
+        "phase": { "$ref": "#/$defs/phase" },
+        "laneOrdinal": { "type": ["integer", "null"], "minimum": 1, "maximum": 8 },
+        "targetHostRssBytes": { "type": "integer", "minimum": 0 },
+        "browserTreeRssBytes": { "type": "integer", "minimum": 0 },
+        "externalElaturaRssBytes": { "$ref": "#/$defs/nullableNonNegativeInteger" },
+        "targetHostCpuPercent": { "type": "number", "minimum": 0, "maximum": 102400 },
+        "browserTreeCpuPercent": { "type": "number", "minimum": 0, "maximum": 102400 },
+        "externalElaturaCpuPercent": { "$ref": "#/$defs/nullableNonNegative" },
+        "targetHostProcessCount": { "type": "integer", "minimum": 0, "maximum": 4096 },
+        "browserTreeProcessCount": { "type": "integer", "minimum": 0, "maximum": 4096 },
+        "externalElaturaProcessCount": { "type": "integer", "minimum": 0, "maximum": 4096 },
+        "memoryPressureClass": { "enum": ["normal", "warn", "critical", "unknown"] }
+      }
+    },
+    "switchEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ordinal",
+        "rotation",
+        "laneOrdinal",
+        "class",
+        "actionableMs",
+        "inputAckMs",
+        "timedOut",
+        "browserReportedDiscarded",
+        "documentWasDiscarded",
+        "navigationReloaded",
+        "applicationReloadedOrReconnected",
+        "returnedExpectedRegion",
+        "fidelityFailure"
+      ],
+      "properties": {
+        "ordinal": { "type": "integer", "minimum": 1, "maximum": 256 },
+        "rotation": { "type": "integer", "minimum": 0, "maximum": 13 },
+        "laneOrdinal": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "class": { "enum": ["single-background-return", "warmup", "recorded-switch", "long-background-return"] },
+        "actionableMs": { "$ref": "#/$defs/nullableNonNegative" },
+        "inputAckMs": { "$ref": "#/$defs/nullableNonNegative" },
+        "timedOut": { "type": "boolean" },
+        "browserReportedDiscarded": { "type": ["boolean", "null"] },
+        "documentWasDiscarded": { "type": ["boolean", "null"] },
+        "navigationReloaded": { "type": ["boolean", "null"] },
+        "applicationReloadedOrReconnected": { "type": ["boolean", "null"] },
+        "returnedExpectedRegion": { "type": ["boolean", "null"] },
+        "fidelityFailure": { "type": "boolean" }
+      }
+    },
+    "domRuntimeCheckpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "laneOrdinals",
+        "elementCount",
+        "textNodeCount",
+        "subtreeNodeCount",
+        "jsHeapUsedBytes",
+        "jsHeapTotalBytes",
+        "mountedApplicationUnitCount",
+        "elaturaRetainedEntries",
+        "elaturaRetainedRecords",
+        "elaturaSerializedBytes",
+        "accessibilityNodeCount"
+      ],
+      "properties": {
+        "method": { "enum": ["browser-console-post-run", "elatura-counter", "browser-native-post-run", "other-fixed"] },
+        "laneOrdinals": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1, "maximum": 8 }
+        },
+        "elementCount": { "$ref": "#/$defs/nullableNonNegativeInteger" },
+        "textNodeCount": { "$ref": "#/$defs/nullableNonNegativeInteger" },
+        "subtreeNodeCount": { "$ref": "#/$defs/nullableNonNegativeInteger" },
+        "jsHeapUsedBytes": { "$ref": "#/$defs/nullableNonNegativeInteger" },
+        "jsHeapTotalBytes": { "$ref": "#/$defs/nullableNonNegativeInteger" },
+        "mountedApplicationUnitCount": { "$ref": "#/$defs/nullableNonNegativeInteger" },
+        "elaturaRetainedEntries": { "$ref": "#/$defs/nullableNonNegativeInteger" },
+        "elaturaRetainedRecords": { "$ref": "#/$defs/nullableNonNegativeInteger" },
+        "elaturaSerializedBytes": { "$ref": "#/$defs/nullableNonNegativeInteger" },
+        "accessibilityNodeCount": { "$ref": "#/$defs/nullableNonNegativeInteger" }
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attempted",
+        "firstActionableMs",
+        "allLanesActionableMs",
+        "boundedReads",
+        "screenshots",
+        "fullApplicationInspections",
+        "reloads",
+        "explicitUserActions",
+        "fidelityFailure"
+      ],
+      "properties": {
+        "attempted": { "type": "boolean" },
+        "firstActionableMs": { "$ref": "#/$defs/nullableNonNegative" },
+        "allLanesActionableMs": { "$ref": "#/$defs/nullableNonNegative" },
+        "boundedReads": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "screenshots": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "fullApplicationInspections": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "reloads": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "explicitUserActions": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "fidelityFailure": { "type": "boolean" }
+      }
+    },
+    "attention": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy", "producerEvents", "inspections", "summary"],
+      "properties": {
+        "policy": { "enum": ["round-robin", "signal-first"] },
+        "producerEvents": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ordinal", "laneOrdinal", "scheduledElapsedMs", "actualStartElapsedMs", "actualEndElapsedMs", "outcome"],
+            "properties": {
+              "ordinal": { "type": "integer", "minimum": 1, "maximum": 64 },
+              "laneOrdinal": { "type": "integer", "minimum": 1, "maximum": 8 },
+              "scheduledElapsedMs": { "type": "integer", "minimum": 0, "maximum": 86400000 },
+              "actualStartElapsedMs": { "$ref": "#/$defs/nullableNonNegative" },
+              "actualEndElapsedMs": { "$ref": "#/$defs/nullableNonNegative" },
+              "outcome": { "enum": ["change-visible", "generation-started", "generation-ended", "error", "no-propagation", "unknown"] }
+            }
+          }
+        },
+        "inspections": {
+          "type": "array",
+          "maxItems": 512,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "ordinal",
+              "elapsedMs",
+              "laneOrdinal",
+              "trigger",
+              "highestRung",
+              "boundedReads",
+              "screenshots",
+              "fullActivations",
+              "actionableChangePresent",
+              "watchdogDue",
+              "falsePositiveWakeup",
+              "missedChangeDiscovered",
+              "falseCompletion"
+            ],
+            "properties": {
+              "ordinal": { "type": "integer", "minimum": 1, "maximum": 512 },
+              "elapsedMs": { "type": "integer", "minimum": 0, "maximum": 86400000 },
+              "laneOrdinal": { "type": "integer", "minimum": 1, "maximum": 8 },
+              "trigger": { "enum": ["round-robin", "signal-changed", "signal-generating", "signal-possible-completion", "signal-error", "signal-recovery-needed", "watchdog", "manual"] },
+              "highestRung": { "enum": ["signal-only", "bounded-read", "screenshot", "full-application"] },
+              "boundedReads": { "type": "integer", "minimum": 0, "maximum": 64 },
+              "screenshots": { "type": "integer", "minimum": 0, "maximum": 64 },
+              "fullActivations": { "type": "integer", "minimum": 0, "maximum": 64 },
+              "actionableChangePresent": { "type": ["boolean", "null"] },
+              "watchdogDue": { "type": "boolean" },
+              "falsePositiveWakeup": { "type": "boolean" },
+              "missedChangeDiscovered": { "type": "boolean" },
+              "falseCompletion": { "type": "boolean" }
+            }
+          }
+        },
+        "summary": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "totalInspections",
+            "uselessInspections",
+            "falsePositiveWakeups",
+            "missedChanges",
+            "falseCompletions",
+            "boundedReads",
+            "screenshots",
+            "fullApplicationActivations",
+            "watchdogActivations",
+            "medianSignalToInspectionMs",
+            "medianChangeToUsefulAttentionMs"
+          ],
+          "properties": {
+            "totalInspections": { "type": "integer", "minimum": 0, "maximum": 100000 },
+            "uselessInspections": { "type": "integer", "minimum": 0, "maximum": 100000 },
+            "falsePositiveWakeups": { "type": "integer", "minimum": 0, "maximum": 100000 },
+            "missedChanges": { "type": "integer", "minimum": 0, "maximum": 100000 },
+            "falseCompletions": { "type": "integer", "minimum": 0, "maximum": 100000 },
+            "boundedReads": { "type": "integer", "minimum": 0, "maximum": 100000 },
+            "screenshots": { "type": "integer", "minimum": 0, "maximum": 100000 },
+            "fullApplicationActivations": { "type": "integer", "minimum": 0, "maximum": 100000 },
+            "watchdogActivations": { "type": "integer", "minimum": 0, "maximum": 100000 },
+            "medianSignalToInspectionMs": { "$ref": "#/$defs/nullableNonNegative" },
+            "medianChangeToUsefulAttentionMs": { "$ref": "#/$defs/nullableNonNegative" }
+          }
+        }
+      }
+    },
+    "fidelity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authoritativeApplicationPreserved",
+        "interactionTargetAvailable",
+        "expectedRegionPreserved",
+        "streamOrCollaborationStateTruthful",
+        "draftCaretSelectionPreserved",
+        "autosaveTruthful",
+        "normalControlsReachable",
+        "failOpenTruthful",
+        "automaticEffectCount",
+        "silentDataLossCount",
+        "falseCompletionCount"
+      ],
+      "properties": {
+        "authoritativeApplicationPreserved": { "type": "boolean" },
+        "interactionTargetAvailable": { "type": "boolean" },
+        "expectedRegionPreserved": { "type": "boolean" },
+        "streamOrCollaborationStateTruthful": { "type": ["boolean", "null"] },
+        "draftCaretSelectionPreserved": { "type": ["boolean", "null"] },
+        "autosaveTruthful": { "type": ["boolean", "null"] },
+        "normalControlsReachable": { "type": "boolean" },
+        "failOpenTruthful": { "type": "boolean" },
+        "automaticEffectCount": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "silentDataLossCount": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "falseCompletionCount": { "type": "integer", "minimum": 0, "maximum": 1000 }
+      }
+    }
+  }
+}
