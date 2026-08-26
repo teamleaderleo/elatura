@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Elatura Chromium Lane Host",
+  "version": "0.0.1",
+  "description": "Project bounded Elatura application lanes onto stock Chromium lifecycle controls.",
+  "minimum_chrome_version": "132",
+  "permissions": ["storage"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  }
+}
