@@ -1,5 +1,10 @@
 // SPDX-License-Identifier: MPL-2.0
 import {
+  createChromiumEffectReceiptV1,
+  parseChromiumEffectRequestV1,
+  projectionMatchesChromiumEffectRequestV1,
+} from "./effect.js";
+import {
   MAX_CHROMIUM_PROJECTIONS,
   manualDiscardEligibility,
   projectChromiumTab,
@@ -50,6 +55,16 @@ function parseCommand(message) {
     const tabId = tabIdFrom(message.tabId);
     if (tabId === null || typeof message.protected !== "boolean") return null;
     return Object.freeze({ type: "set-protection", tabId, protected: message.protected });
+  }
+  if (message.type === "apply-effect" && exactKeys(message, ["type", "request"])) {
+    try {
+      return Object.freeze({
+        type: "apply-effect",
+        request: parseChromiumEffectRequestV1(message.request),
+      });
+    } catch {
+      return null;
+    }
   }
   return null;
 }
@@ -221,6 +236,85 @@ async function setProtection(tabId, protectedValue) {
   });
 }
 
+async function applyPlannedEffect(request) {
+  const current = await freshTab(request.tabId);
+  if (current === null) {
+    return effectResponse(
+      createChromiumEffectReceiptV1(
+        request,
+        "browser_error",
+        "browser_unavailable",
+        null,
+      ),
+    );
+  }
+  const before = await freshProjection(current);
+  if (before === null) {
+    return effectResponse(
+      createChromiumEffectReceiptV1(
+        request,
+        "browser_error",
+        "browser_unavailable",
+        null,
+      ),
+    );
+  }
+  if (!projectionMatchesChromiumEffectRequestV1(request, before)) {
+    return effectResponse(
+      createChromiumEffectReceiptV1(
+        request,
+        "stale_projection",
+        "projection_mismatch",
+        before,
+      ),
+    );
+  }
+
+  const browserResult = request.effect === "keep_warm"
+    ? await keepWarm(request.tabId)
+    : await discardTab(request.tabId);
+  if (browserResult.ok === true) {
+    return effectResponse(
+      createChromiumEffectReceiptV1(
+        request,
+        "applied",
+        "effect_applied",
+        browserResult.projection,
+      ),
+    );
+  }
+  if (browserResult.code === "discard-refused") {
+    return effectResponse(
+      createChromiumEffectReceiptV1(
+        request,
+        "refused",
+        "browser_preflight_refused",
+        before,
+      ),
+    );
+  }
+  return effectResponse(
+    createChromiumEffectReceiptV1(
+      request,
+      "browser_error",
+      browserResult.code === "tab-unavailable" || browserResult.code === "window-unavailable"
+        ? "browser_unavailable"
+        : "operation_failed",
+      before,
+    ),
+  );
+}
+
+function effectResponse(receipt) {
+  return Object.freeze({
+    protocolVersion: PROTOCOL_VERSION,
+    ok: true,
+    operation: "apply-effect",
+    authority: "browser-local-effect-request",
+    receipt,
+  });
+}
+
 async function handleCommand(message) {
   const command = parseCommand(message);
   if (command === null) return failure("invalid-command");
@@ -235,6 +329,8 @@ async function handleCommand(message) {
       return wakeTab(command.tabId);
     case "set-protection":
       return setProtection(command.tabId, command.protected);
+    case "apply-effect":
+      return applyPlannedEffect(command.request);
     default:
       return failure("invalid-command");
   }
