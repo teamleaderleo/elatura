@@ -199,6 +199,20 @@ describe("application lane runtime generation ownership", () => {
     expect(runtime.snapshot().lanes[0]?.descriptor.state).toBe("parked");
   });
 
+  it("refuses a contradictory equal-time response without regressing current state", () => {
+    const runtime = new ApplicationLaneRuntimeV1();
+    runtime.upsertDescriptor(
+      descriptor(7, { observedAt: "2026-08-26T17:10:00.000Z" }),
+    );
+    runtime.beginRequest(request(7, "request:status:1", "status"));
+
+    expect(runtime.acceptResponse(statusResponse()).outcome).toBe(
+      "descriptor-conflict",
+    );
+    expect(runtime.snapshot().usage.pendingRequests).toBe(0);
+    expect(runtime.snapshot().lanes[0]?.descriptor.state).toBe("active");
+  });
+
   it("permits adapter/capability evolution only through a newer or later descriptor", () => {
     const runtime = new ApplicationLaneRuntimeV1();
     runtime.upsertDescriptor(descriptor(7));
