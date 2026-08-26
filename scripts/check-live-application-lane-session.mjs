@@ -6,6 +6,7 @@ const MAX_FILES = 256;
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 256 * 1024 * 1024;
 const MAX_SAMPLER_GAP_MS = 6000;
+const STAGES = ["chatgpt-single", "chatgpt-switch-8", "gdocs-single", "gdocs-switch-8"];
 
 const STOCK_IDENTITY = {
   ES: { planCode: "ES", product: "Edge", engineFamily: "blink-v8" },
@@ -31,7 +32,35 @@ const RUN_PROTOCOL_TO_PLAN = {
 };
 
 function usage() {
-  return "Usage: node scripts/check-live-application-lane-session.mjs <plan.json> <final-directory> [--out <new-path>]";
+  return [
+    "Usage: node scripts/check-live-application-lane-session.mjs <plan.json> <final-directory>",
+    "       [--stage chatgpt-single|chatgpt-switch-8|gdocs-single|gdocs-switch-8]",
+    "       [--out <new-path>]",
+  ].join("\n");
+}
+
+function parseOptions(args) {
+  if (args.length < 2) throw new Error(usage());
+  const planPath = args[0];
+  const directory = args[1];
+  let stage = null;
+  let outPath = null;
+  for (let index = 2; index < args.length; index += 1) {
+    const option = args[index];
+    const value = args[index + 1];
+    if ((option !== "--stage" && option !== "--out") || value === undefined || value.startsWith("--")) {
+      throw new Error(usage());
+    }
+    if (option === "--stage") {
+      if (stage !== null || !STAGES.includes(value)) throw new Error(usage());
+      stage = value;
+    } else {
+      if (outPath !== null) throw new Error(usage());
+      outPath = value;
+    }
+    index += 1;
+  }
+  return { planPath, directory, stage, outPath };
 }
 
 function record(value) {
@@ -72,14 +101,7 @@ function expectedEntries(plan, issues) {
         }
         for (const subrun of slot.physicalSubruns) {
           const key = [stage.stage, block.number, slot.conditionOrdinal, subrun.ordinal].join("|");
-          entries.push({
-            key,
-            stageIndex,
-            stage,
-            block,
-            slot,
-            subrun,
-          });
+          entries.push({ key, stageIndex, stage, block, slot, subrun });
         }
       }
     }
@@ -324,19 +346,11 @@ function checkProjection(projection, run, expected, laneTokens, issues) {
 
 async function main() {
   const args = process.argv.slice(2);
-  if (args.length < 2 || args.includes("--help") || args.includes("-h")) {
+  if (args.includes("--help") || args.includes("-h")) {
     process.stdout.write(`${usage()}\n`);
-    process.exitCode = args.length < 2 ? 2 : 0;
     return;
   }
-  const planPath = args[0];
-  const directory = args[1];
-  let outPath = null;
-  if (args.length > 2) {
-    if (args.length !== 4 || args[2] !== "--out") throw new Error(usage());
-    outPath = args[3];
-  }
-
+  const { planPath, directory, stage, outPath } = parseOptions(args);
   const plan = JSON.parse(await readFile(planPath, "utf8"));
   const issues = [];
   if (plan.schemaVersion !== 1 || plan.kind !== "live-application-lane-plan") issue(issues, "invalid-plan-kind");
@@ -344,9 +358,10 @@ async function main() {
   if (generatedAtMs === null) issue(issues, "invalid-plan-generated-at");
   checkPrivacy(plan.privacy, "plan", issues);
 
-  const expected = expectedEntries(plan, issues);
+  const fullExpected = expectedEntries(plan, issues);
+  if (fullExpected.length !== 112) issue(issues, "unexpected-plan-physical-run-count", String(fullExpected.length));
+  const expected = stage === null ? fullExpected : fullExpected.filter((entry) => entry.stage.stage === stage);
   const expectedByKey = new Map(expected.map((entry) => [entry.key, entry]));
-  if (expected.length !== 112) issue(issues, "unexpected-plan-physical-run-count", String(expected.length));
 
   const files = await collectJsonFiles(directory);
   const runs = [];
@@ -409,6 +424,8 @@ async function main() {
     schemaVersion: 1,
     kind: "live-application-lane-readiness",
     sessionId: plan.sessionId ?? null,
+    scope: stage ?? "full",
+    fullPlannedRunCount: fullExpected.length,
     expectedRunCount: expected.length,
     runCount: runs.length,
     projectionLedgerCount: projections.length,
