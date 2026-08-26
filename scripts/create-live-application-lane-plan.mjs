@@ -54,6 +54,9 @@ const DOCS_FIXTURES = Object.freeze([
     paragraphCount: 4_800,
     anchorCount: 10,
     textCodeUnits: 772_800,
+    sha256: Object.freeze([
+      "sha256:c466eec37b1b635904d1c39d7b97ea88d6cd1c9a0657c1ebb6b25e9af66e551c",
+    ]),
   }),
   Object.freeze({
     id: "docs-switch-8-v1",
@@ -61,6 +64,16 @@ const DOCS_FIXTURES = Object.freeze([
     paragraphCount: 1_800,
     anchorCount: 10,
     textCodeUnits: 289_800,
+    sha256: Object.freeze([
+      "sha256:f5855ab3fb7d1f082e9841753b14520d1b84a7361b1acbec9faaf41f8fda93dd",
+      "sha256:2c5e137297acb20a4d185f464b92a0017b65f49c737fc211f02cc25c6990c200",
+      "sha256:a3005ba93509e00008d7b0af9c947e1fb63711787971d2058568b04c0709419c",
+      "sha256:124af5d8aea35dd77ceff59bb94824f5d1fa71f1d0988f7f4e5d0e35f341bc71",
+      "sha256:23205c768b72d5e3855e16eb8b585fb4e56101b3fe5cb16935066af968f36de1",
+      "sha256:e1100c8d5e890db2c103b7102610426e77195e94dcaa56b053be46de0cd1961d",
+      "sha256:f3c535dc04b8d2326cd7bfb2d2b0dfa2306e216ba7c10f7dcb79a38a9596df67",
+      "sha256:f74e2b179019635a324cee7a86ddbba886c14a192f5d2ec138aff10086c556f5",
+    ]),
   }),
 ]);
 
@@ -193,6 +206,7 @@ async function verifyGoogleDocsFixtureManifest(pathValue) {
     for (let documentOrdinal = 0; documentOrdinal < expected.documentCount; documentOrdinal += 1) {
       const file = actual.files[documentOrdinal];
       const expectedFileName = expectedDocsFileName(expected, documentOrdinal);
+      const expectedSha256 = expected.sha256[documentOrdinal];
       if (
         !file ||
         file.fileName !== expectedFileName ||
@@ -200,6 +214,7 @@ async function verifyGoogleDocsFixtureManifest(pathValue) {
         file.paragraphCount !== expected.paragraphCount ||
         file.anchorCount !== expected.anchorCount ||
         file.textCodeUnits !== expected.textCodeUnits ||
+        file.sha256 !== expectedSha256 ||
         typeof file.sha256 !== "string" ||
         !SHA256.test(file.sha256)
       ) {
@@ -207,8 +222,8 @@ async function verifyGoogleDocsFixtureManifest(pathValue) {
       }
       const fileBytes = await readFile(resolve(root, expectedFileName));
       const text = fileBytes.toString("utf8");
-      if (text.length !== expected.textCodeUnits || sha256(fileBytes) !== file.sha256) {
-        throw new Error(`Google Docs fixture bytes do not match manifest for ${expectedFileName}`);
+      if (text.length !== expected.textCodeUnits || sha256(fileBytes) !== expectedSha256) {
+        throw new Error(`Google Docs fixture bytes do not match #122 for ${expectedFileName}`);
       }
       perDocumentTextCodeUnits.push(expected.textCodeUnits);
     }
