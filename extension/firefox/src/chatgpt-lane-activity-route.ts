@@ -227,17 +227,8 @@ export function parseFirefoxChatGptActivityRouteReceiptV1(
     ? null
     : parseFirefoxChatGptActivityWireObservationV1(input.observation);
 
-  if (outcome === "sampled") {
-    if (
-      reason !== "sampled" ||
-      observation === null ||
-      observation.laneRef !== request.laneRef ||
-      observation.laneGeneration !== request.laneGeneration
-    ) {
-      throw new TypeError("Firefox ChatGPT sampled receipt is incoherent");
-    }
-  } else if (observation !== null) {
-    throw new TypeError("Firefox ChatGPT failed receipt must omit observation");
+  if (!receiptCoherent(request, outcome, reason, observation)) {
+    throw new TypeError("Firefox ChatGPT activity route receipt is incoherent");
   }
 
   return Object.freeze({
@@ -272,6 +263,9 @@ function routeReceipt(
   reason: FirefoxChatGptActivityRouteReason,
   observation: FirefoxChatGptActivityWireObservationV1 | null,
 ): FirefoxChatGptActivityRouteReceiptV1 {
+  if (!receiptCoherent(request, outcome, reason, observation)) {
+    throw new TypeError("Firefox ChatGPT activity route receipt is incoherent");
+  }
   return Object.freeze({
     version: FIREFOX_CHATGPT_ACTIVITY_ROUTE_VERSION,
     requestRef: request.requestRef,
@@ -284,6 +278,34 @@ function routeReceipt(
     grantsWorkAuthority: false,
     authorizesWorkDispatch: false,
   });
+}
+
+function receiptCoherent(
+  request: FirefoxChatGptActivityRouteRequestV1,
+  outcome: FirefoxChatGptActivityRouteOutcome,
+  reason: FirefoxChatGptActivityRouteReason,
+  observation: FirefoxChatGptActivityWireObservationV1 | null,
+): boolean {
+  switch (outcome) {
+    case "sampled":
+      return (
+        reason === "sampled" &&
+        observation !== null &&
+        observation.laneRef === request.laneRef &&
+        observation.laneGeneration === request.laneGeneration
+      );
+    case "unavailable":
+      return reason === "content_unavailable" && observation === null;
+    case "invalid_response":
+      return reason === "invalid_observation" && observation === null;
+    case "mismatched_response":
+      return (
+        (reason === "lane_mismatch" || reason === "generation_mismatch") &&
+        observation === null
+      );
+    case "browser_error":
+      return reason === "operation_failed" && observation === null;
+  }
 }
 
 function ownDataRecord(
