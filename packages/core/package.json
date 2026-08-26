@@ -17,6 +17,10 @@
       "types": "./dist/application-lane.d.ts",
       "default": "./dist/application-lane.js"
     },
+    "./application-lane-runtime": {
+      "types": "./dist/application-lane-runtime.d.ts",
+      "default": "./dist/application-lane-runtime.js"
+    },
     "./cache": {
       "types": "./dist/cache.d.ts",
       "default": "./dist/cache.js"
