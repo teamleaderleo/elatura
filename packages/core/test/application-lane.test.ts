@@ -31,6 +31,60 @@ const event = {
   authorizesWorkDispatch: false,
 } as const;
 
+const statusRequest = {
+  version: 1,
+  requestId: "request:status:42",
+  laneRef: descriptor.laneRef,
+  laneGeneration: descriptor.generation,
+  operation: "status",
+  payload: {},
+} as const;
+
+const unavailableResponse = {
+  version: 1,
+  requestId: "request:status:42",
+  laneRef: descriptor.laneRef,
+  laneGeneration: descriptor.generation,
+  operation: "status",
+  outcome: "unavailable",
+  state: "unavailable",
+  observedAt: "2026-08-26T17:03:00.000Z",
+  payload: null,
+  sourceRefs: [],
+  grantsWorkAuthority: false,
+  authorizesWorkDispatch: false,
+} as const;
+
+function errorText(operation: () => unknown): string {
+  try {
+    operation();
+    return "";
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+function throwingProxy<T extends object>(
+  target: T,
+  trap: "getPrototypeOf" | "ownKeys" | "getOwnPropertyDescriptor",
+): T {
+  const handler: ProxyHandler<T> = {};
+  if (trap === "getPrototypeOf") {
+    handler.getPrototypeOf = () => {
+      throw new Error("PRIVATE application-lane getPrototypeOf trap");
+    };
+  } else if (trap === "ownKeys") {
+    handler.ownKeys = () => {
+      throw new Error("PRIVATE application-lane ownKeys trap");
+    };
+  } else {
+    handler.getOwnPropertyDescriptor = () => {
+      throw new Error("PRIVATE application-lane descriptor trap");
+    };
+  }
+  return new Proxy(target, handler);
+}
+
 describe("application lane contract", () => {
   it("keeps durable lane identity independent from browser projection identity", () => {
     const parsed = parseApplicationLaneDescriptorV1(descriptor);
@@ -241,5 +295,87 @@ describe("application lane contract", () => {
 
     expect(() => parseApplicationLaneEventV1(hostile)).toThrow("enumerable data properties");
     expect(getterReads).toBe(0);
+  });
+
+  it("contains top-level Proxy reflection failures for every public envelope", () => {
+    const cases = [
+      ["Application lane descriptor", parseApplicationLaneDescriptorV1, { ...descriptor }],
+      ["Application lane event", parseApplicationLaneEventV1, { ...event }],
+      ["Application lane request", parseApplicationLaneRequestV1, { ...statusRequest }],
+      ["Application lane response", parseApplicationLaneResponseV1, { ...unavailableResponse }],
+    ] as const;
+
+    for (const [label, parser, value] of cases) {
+      for (const trap of ["getPrototypeOf", "ownKeys", "getOwnPropertyDescriptor"] as const) {
+        const text = errorText(() => parser(throwingProxy({ ...value }, trap) as never));
+        expect(text).toContain(`${label} inspection failed`);
+        expect(text).not.toContain("PRIVATE");
+      }
+    }
+  });
+
+  it("contains nested adapter and array inspection failures", () => {
+    for (const trap of ["getPrototypeOf", "ownKeys", "getOwnPropertyDescriptor"] as const) {
+      const adapterText = errorText(() =>
+        parseApplicationLaneDescriptorV1({
+          ...descriptor,
+          adapter: throwingProxy({ ...descriptor.adapter }, trap),
+        }),
+      );
+      expect(adapterText).toContain("Application adapter identity inspection failed");
+      expect(adapterText).not.toContain("PRIVATE");
+    }
+
+    for (const trap of ["ownKeys", "getOwnPropertyDescriptor"] as const) {
+      const capabilityText = errorText(() =>
+        parseApplicationLaneDescriptorV1({
+          ...descriptor,
+          capabilities: throwingProxy([...descriptor.capabilities], trap),
+        }),
+      );
+      expect(capabilityText).toContain("Lane capability list inspection failed");
+      expect(capabilityText).not.toContain("PRIVATE");
+
+      const sourceRefText = errorText(() =>
+        parseApplicationLaneEventV1({
+          ...event,
+          sourceRefs: throwingProxy([...event.sourceRefs], trap),
+        }),
+      );
+      expect(sourceRefText).toContain("Lane source references inspection failed");
+      expect(sourceRefText).not.toContain("PRIVATE");
+    }
+  });
+
+  it("derives array length from descriptors without invoking a Proxy get trap", () => {
+    let capabilityLengthReads = 0;
+    const capabilities = new Proxy(["events", "observe"] as const, {
+      get(target, property, receiver) {
+        if (property === "length") {
+          capabilityLengthReads += 1;
+          throw new Error("PRIVATE capability length get");
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(
+      parseApplicationLaneDescriptorV1({ ...descriptor, capabilities }).capabilities,
+    ).toEqual(["events", "observe"]);
+    expect(capabilityLengthReads).toBe(0);
+
+    let sourceRefLengthReads = 0;
+    const sourceRefs = new Proxy(["elatura:signal:42"] as const, {
+      get(target, property, receiver) {
+        if (property === "length") {
+          sourceRefLengthReads += 1;
+          throw new Error("PRIVATE source-ref length get");
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    expect(
+      parseApplicationLaneEventV1({ ...event, sourceRefs }).sourceRefs,
+    ).toEqual(["elatura:signal:42"]);
+    expect(sourceRefLengthReads).toBe(0);
   });
 });
