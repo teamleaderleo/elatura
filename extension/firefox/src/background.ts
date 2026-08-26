@@ -1,6 +1,14 @@
 // SPDX-License-Identifier: MPL-2.0
 
 import {
+  FIREFOX_CHATGPT_ACTIVITY_CONTENT_MESSAGE_TYPE,
+  admitFirefoxChatGptActivityRouteResponseV1,
+  createFirefoxChatGptActivityRouteFailureV1,
+  parseFirefoxChatGptActivityRouteMessageV1,
+  type FirefoxChatGptActivityRouteRequestV1,
+  type FirefoxChatGptActivityRouteReceiptV1,
+} from "./chatgpt-lane-activity-route.js";
+import {
   migrateStoredObservationState,
   OBSERVATION_ACTIVE_REQUEST_LIMIT,
   OBSERVATION_BODY_SIZE_WARNING_THRESHOLD_BYTES,
@@ -220,6 +228,36 @@ function recordPageMetric(metric: BackgroundPageMetric): Promise<void> {
   });
 }
 
+async function sampleChatGptLaneActivityOnTab(
+  request: FirefoxChatGptActivityRouteRequestV1,
+): Promise<FirefoxChatGptActivityRouteReceiptV1> {
+  let response: unknown;
+  try {
+    response = await browser.tabs.sendMessage(request.tabId, {
+      type: FIREFOX_CHATGPT_ACTIVITY_CONTENT_MESSAGE_TYPE,
+      target: {
+        laneRef: request.laneRef,
+        laneGeneration: request.laneGeneration,
+      },
+    });
+  } catch {
+    return createFirefoxChatGptActivityRouteFailureV1(
+      request,
+      "unavailable",
+      "content_unavailable",
+    );
+  }
+  try {
+    return admitFirefoxChatGptActivityRouteResponseV1(request, response);
+  } catch {
+    return createFirefoxChatGptActivityRouteFailureV1(
+      request,
+      "browser_error",
+      "operation_failed",
+    );
+  }
+}
+
 browser.webRequest.onBeforeRequest.addListener(
   (details) => {
     const run = observationState.activeRun;
@@ -281,6 +319,9 @@ browser.webRequest.onBeforeRequest.addListener(
 );
 
 browser.runtime.onMessage.addListener((message) => {
+  const activityRequest = parseFirefoxChatGptActivityRouteMessageV1(message);
+  if (activityRequest !== null) return sampleChatGptLaneActivityOnTab(activityRequest);
+
   if (!message || typeof message !== "object") return undefined;
   const candidate = message as { type?: string; metric?: unknown; acknowledgements?: unknown };
   if (candidate.type === "elatura:start-run") return startObservationRun();
