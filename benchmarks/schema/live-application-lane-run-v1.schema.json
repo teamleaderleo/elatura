@@ -11,6 +11,7 @@
     "experimentId",
     "sessionId",
     "runId",
+    "startedAt",
     "recordedAt",
     "block",
     "condition",
@@ -33,6 +34,7 @@
     "experimentId": { "$ref": "#/$defs/token" },
     "sessionId": { "type": "string", "format": "uuid" },
     "runId": { "type": "string", "format": "uuid" },
+    "startedAt": { "$ref": "#/$defs/timestamp" },
     "recordedAt": { "$ref": "#/$defs/timestamp" },
     "block": {
       "type": "object",

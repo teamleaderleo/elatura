@@ -5,6 +5,9 @@ import { fileURLToPath } from "node:url";
 const admission = fileURLToPath(
   new URL("./validate-live-application-lane-artifacts.mjs", import.meta.url),
 );
+const timing = fileURLToPath(
+  new URL("./validate-live-application-lane-timing.mjs", import.meta.url),
+);
 const semantic = fileURLToPath(
   new URL("./check-live-application-lane-session-semantic.mjs", import.meta.url),
 );
@@ -16,6 +19,12 @@ function run(script, args, options = {}) {
   });
 }
 
+function forward(result) {
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  process.exitCode = result.status ?? 2;
+}
+
 const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h") || args.length < 2) {
   const result = run(semantic, args, { stdio: "inherit" });
@@ -23,11 +32,14 @@ if (args.includes("--help") || args.includes("-h") || args.length < 2) {
 } else {
   const admitted = run(admission, args.slice(0, 2));
   if (admitted.status !== 0) {
-    if (admitted.stdout) process.stdout.write(admitted.stdout);
-    if (admitted.stderr) process.stderr.write(admitted.stderr);
-    process.exitCode = admitted.status ?? 2;
+    forward(admitted);
   } else {
-    const checked = run(semantic, args, { stdio: "inherit" });
-    process.exitCode = checked.status ?? 2;
+    const timed = run(timing, args);
+    if (timed.status !== 0) {
+      forward(timed);
+    } else {
+      const checked = run(semantic, args, { stdio: "inherit" });
+      process.exitCode = checked.status ?? 2;
+    }
   }
 }

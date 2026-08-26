@@ -201,7 +201,10 @@ Before start:
 - exact Elatura revision/intervention and Chromium transport match the plan;
 - workload lane set matches the stage;
 - for Google Docs, the run's fixture identity is copied from the plan-frozen #122 fixture record;
-- no unrelated heavyweight workload runs on the measurement host.
+- no unrelated heavyweight workload runs on the measurement host;
+- for the first physical subrun in the selected stage, the plan has already been generated; for every later adjacent subrun, at least `betweenPhysicalSubrunsMs` has elapsed since the previous run's `recordedAt`.
+
+At the physical-run boundary, write canonical UTC `startedAt` immediately before starting the external sampler. This timestamp marks the beginning of the measured subrun; it is content-free and belongs in the run manifest.
 
 During the run:
 
@@ -218,9 +221,9 @@ After the primary sampler stops:
 - perform the restart-recovery probe;
 - write the run manifest;
 - write the linked projection ledger;
-- write `recordedAt` immediately at completion.
+- write canonical UTC `recordedAt` immediately after the physical subrun and its required recovery evidence are complete.
 
-Then wait the plan's 60-second between-subrun interval before the next physical subrun.
+`recordedAt` is the conservative completion boundary for carryover control. The next adjacent planned run's `startedAt` must be at least the plan's `betweenPhysicalSubrunsMs` after this timestamp. Readiness rejects shorter gaps, a start at/before plan generation, or a `recordedAt` that does not follow its own `startedAt`.
 
 ## 8. Required switching evidence
 
@@ -359,7 +362,7 @@ npm run live-lane:check -- \
   --out artifacts/live-application-lane/full-readiness.json
 ```
 
-With no `--stage`, `ready: true` means the bundle contains the complete canonical 112-subrun plan: exactly one run and linked projection ledger per slot, matching browser/Elatura/workload identities, monotonic completion order, complete switching counts, sampler continuity, passing fidelity/recovery gates, stable benchmark pairing tokens, generation-bound Elatura lane identity where applicable, and clean privacy flags according to the checker.
+With no `--stage`, `ready: true` means the bundle contains the complete canonical 112-subrun plan: exactly one run and linked projection ledger per slot, matching browser/Elatura/workload identities, machine-checked start/completion ordering and inter-run cooldowns, complete switching counts, sampler continuity, passing fidelity/recovery gates, stable benchmark pairing tokens, generation-bound Elatura lane identity where applicable, and clean privacy flags according to the checker.
 
 A readiness failure stays visible as fixed issue codes. Repair the collection protocol or repeat the affected whole block under the runbook rules. Do not delete an inconvenient metric or edit the plan.
 
