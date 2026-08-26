@@ -41,6 +41,7 @@
     "node": ">=22"
   },
   "devDependencies": {
+    "ajv": "8.20.0",
     "fast-check": "4.9.0",
     "typescript": "7.0.2",
     "vitest": "4.1.10",
