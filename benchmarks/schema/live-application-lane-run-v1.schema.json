@@ -121,16 +121,26 @@
         "pattern": { "enum": ["single-lane", "switch-8", "attention", "collector-sanity"] },
         "laneCount": { "type": "integer", "minimum": 1, "maximum": 8 },
         "fixture": {
-          "type": ["object", "null"],
-          "additionalProperties": false,
-          "required": ["syntheticWords", "headingCount", "tableCount", "tableRows", "tableColumns"],
-          "properties": {
-            "syntheticWords": { "type": "integer", "minimum": 0, "maximum": 10000000 },
-            "headingCount": { "type": "integer", "minimum": 0, "maximum": 100000 },
-            "tableCount": { "type": "integer", "minimum": 0, "maximum": 10000 },
-            "tableRows": { "type": "integer", "minimum": 0, "maximum": 10000 },
-            "tableColumns": { "type": "integer", "minimum": 0, "maximum": 10000 }
-          }
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["generator", "documentCount", "totalTextCodeUnits", "perDocumentTextCodeUnits", "manifestSha256"],
+              "properties": {
+                "generator": { "const": "google-docs-workload-v1" },
+                "documentCount": { "type": "integer", "minimum": 1, "maximum": 8 },
+                "totalTextCodeUnits": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+                "perDocumentTextCodeUnits": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "items": { "type": "integer", "minimum": 1, "maximum": 1000000 }
+                },
+                "manifestSha256": { "$ref": "#/$defs/sha256" }
+              }
+            }
+          ]
         }
       }
     },
@@ -292,6 +302,10 @@
     "versionToken": {
       "type": "string",
       "pattern": "^[0-9A-Za-z][0-9A-Za-z.+_-]{0,95}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
     },
     "timestamp": {
       "type": "string",
