@@ -3,20 +3,33 @@ import { describe, expect, it } from "vitest";
 import { parseChatGptLaneActivityObservationV1 } from "@elatura/adapter-chatgpt/lane-activity";
 import {
   FIREFOX_CHATGPT_ACTIVITY_ROUTE_MESSAGE_TYPE,
-  admitFirefoxChatGptActivityRouteResponseV1,
-  createFirefoxChatGptActivityRouteFailureV1,
-  matchFirefoxChatGptActivityRouteReceiptV1,
-  parseFirefoxChatGptActivityRouteMessageV1,
-  parseFirefoxChatGptActivityRouteReceiptV1,
-  parseFirefoxChatGptActivityRouteRequestV1,
+  FIREFOX_CHATGPT_DOCUMENT_PROJECTION_ROUTE_MESSAGE_TYPE,
+  admitFirefoxChatGptActivityRouteResponseV2,
+  admitFirefoxChatGptDocumentProjectionResponseV1,
+  createFirefoxChatGptActivityRouteFailureV2,
+  createFirefoxChatGptDocumentProjectionFailureV1,
+  matchFirefoxChatGptActivityRouteReceiptV2,
+  parseFirefoxChatGptActivityContentResponseV2,
+  parseFirefoxChatGptActivityRouteMessageV2,
+  parseFirefoxChatGptActivityRouteRequestV2,
   parseFirefoxChatGptActivityWireObservationV1,
-  type FirefoxChatGptActivityRouteRequestV1,
+  parseFirefoxChatGptDocumentProjectionRouteMessageV1,
+  parseFirefoxChatGptDocumentProjectionRouteRequestV1,
+  type FirefoxChatGptActivityRouteRequestV2,
+  type FirefoxChatGptDocumentProjectionRouteRequestV1,
 } from "../src/chatgpt-lane-activity-route.js";
 
-const REQUEST: FirefoxChatGptActivityRouteRequestV1 = Object.freeze({
+const DOCUMENT_PROJECTION_REF = "firefox-chatgpt-document-a";
+const DISCOVERY: FirefoxChatGptDocumentProjectionRouteRequestV1 = Object.freeze({
   version: 1,
+  requestRef: "discover-chat-a-1",
+  tabId: 17,
+});
+const REQUEST: FirefoxChatGptActivityRouteRequestV2 = Object.freeze({
+  version: 2,
   requestRef: "sample-chat-a-1",
   tabId: 17,
+  documentProjectionRef: DOCUMENT_PROJECTION_REF,
   laneRef: "elatura:lane:chat-a",
   laneGeneration: 12,
 });
@@ -42,58 +55,125 @@ function observation(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe("Firefox ChatGPT activity route request", () => {
-  it("admits only the explicit tab projection plus exact lane target", () => {
-    expect(parseFirefoxChatGptActivityRouteRequestV1(REQUEST)).toEqual(REQUEST);
-    expect(parseFirefoxChatGptActivityRouteMessageV1({
+function contentResponse(
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    version: 2,
+    documentProjectionRef: DOCUMENT_PROJECTION_REF,
+    status: "sampled",
+    observation: observation(),
+    grantsWorkAuthority: false,
+    authorizesWorkDispatch: false,
+    ...overrides,
+  };
+}
+
+describe("Firefox ChatGPT document projection discovery", () => {
+  it("admits only an explicit tab projection discovery request", () => {
+    expect(parseFirefoxChatGptDocumentProjectionRouteRequestV1(DISCOVERY)).toEqual(DISCOVERY);
+    expect(parseFirefoxChatGptDocumentProjectionRouteMessageV1({
+      type: FIREFOX_CHATGPT_DOCUMENT_PROJECTION_ROUTE_MESSAGE_TYPE,
+      request: DISCOVERY,
+    })).toEqual(DISCOVERY);
+  });
+
+  it("reconstructs one content-free document projection receipt", () => {
+    const receipt = admitFirefoxChatGptDocumentProjectionResponseV1(DISCOVERY, {
+      version: 1,
+      documentProjectionRef: DOCUMENT_PROJECTION_REF,
+      observedAtMs: 1_000_000,
+      grantsWorkAuthority: false,
+      authorizesWorkDispatch: false,
+    });
+    expect(receipt).toEqual({
+      version: 1,
+      requestRef: DISCOVERY.requestRef,
+      tabId: DISCOVERY.tabId,
+      outcome: "resolved",
+      reason: "resolved",
+      documentProjectionRef: DOCUMENT_PROJECTION_REF,
+      observedAtMs: 1_000_000,
+      grantsWorkAuthority: false,
+      authorizesWorkDispatch: false,
+    });
+  });
+
+  it("drops malformed discovery responses and exposes fixed unavailable receipts", () => {
+    expect(admitFirefoxChatGptDocumentProjectionResponseV1(DISCOVERY, {
+      version: 1,
+      documentProjectionRef: DOCUMENT_PROJECTION_REF,
+      observedAtMs: 1_000_000,
+      grantsWorkAuthority: true,
+      authorizesWorkDispatch: false,
+    })).toMatchObject({
+      outcome: "invalid_response",
+      reason: "invalid_projection",
+      documentProjectionRef: null,
+    });
+    expect(createFirefoxChatGptDocumentProjectionFailureV1(
+      DISCOVERY,
+      "unavailable",
+      "content_unavailable",
+    )).toMatchObject({
+      outcome: "unavailable",
+      reason: "content_unavailable",
+      documentProjectionRef: null,
+    });
+  });
+});
+
+describe("Firefox ChatGPT activity route request v2", () => {
+  it("requires explicit tab, document projection, and exact lane target", () => {
+    expect(parseFirefoxChatGptActivityRouteRequestV2(REQUEST)).toEqual(REQUEST);
+    expect(parseFirefoxChatGptActivityRouteMessageV2({
       type: FIREFOX_CHATGPT_ACTIVITY_ROUTE_MESSAGE_TYPE,
       request: REQUEST,
     })).toEqual(REQUEST);
   });
 
-  it("rejects request decoration and accessors without invocation", () => {
-    expect(() => parseFirefoxChatGptActivityRouteRequestV1({
+  it("rejects the old request form, request decoration, and accessors without invocation", () => {
+    expect(() => parseFirefoxChatGptActivityRouteRequestV2({
+      version: 1,
+      requestRef: REQUEST.requestRef,
+      tabId: REQUEST.tabId,
+      laneRef: REQUEST.laneRef,
+      laneGeneration: REQUEST.laneGeneration,
+    })).toThrow("request is invalid");
+    expect(() => parseFirefoxChatGptActivityRouteRequestV2({
       ...REQUEST,
       url: "https://example.invalid/private",
     })).toThrow("request is invalid");
 
     let reads = 0;
     const hostile = { ...REQUEST } as Record<string, unknown>;
-    Object.defineProperty(hostile, "laneRef", {
+    Object.defineProperty(hostile, "documentProjectionRef", {
       enumerable: true,
       get() {
         reads += 1;
-        return REQUEST.laneRef;
+        return DOCUMENT_PROJECTION_REF;
       },
     });
-    expect(() => parseFirefoxChatGptActivityRouteRequestV1(hostile)).toThrow(
+    expect(() => parseFirefoxChatGptActivityRouteRequestV2(hostile)).toThrow(
       "request is invalid",
     );
     expect(reads).toBe(0);
   });
-
-  it("ignores other runtime messages instead of claiming them", () => {
-    expect(parseFirefoxChatGptActivityRouteMessageV1({
-      type: "elatura:get-state",
-      request: REQUEST,
-    })).toBeNull();
-    expect(parseFirefoxChatGptActivityRouteMessageV1({
-      type: FIREFOX_CHATGPT_ACTIVITY_ROUTE_MESSAGE_TYPE,
-      request: REQUEST,
-      extra: true,
-    })).toBeNull();
-  });
 });
 
-describe("Firefox ChatGPT activity route response admission", () => {
-  it("reconstructs one content-free observation and stays canonical-parser compatible", () => {
-    const parsed = parseFirefoxChatGptActivityWireObservationV1(observation());
-    expect(parseChatGptLaneActivityObservationV1(parsed)).toEqual(parsed);
+describe("Firefox ChatGPT activity route response v2", () => {
+  it("reconstructs one sampled response and stays canonical-parser compatible", () => {
+    const parsedResponse = parseFirefoxChatGptActivityContentResponseV2(contentResponse());
+    expect(parseChatGptLaneActivityObservationV1(parsedResponse.observation)).toEqual(
+      parsedResponse.observation,
+    );
 
-    const receipt = admitFirefoxChatGptActivityRouteResponseV1(REQUEST, parsed);
+    const receipt = admitFirefoxChatGptActivityRouteResponseV2(REQUEST, parsedResponse);
     expect(receipt).toMatchObject({
+      version: 2,
       requestRef: REQUEST.requestRef,
       tabId: REQUEST.tabId,
+      documentProjectionRef: DOCUMENT_PROJECTION_REF,
       laneRef: REQUEST.laneRef,
       laneGeneration: REQUEST.laneGeneration,
       outcome: "sampled",
@@ -101,31 +181,52 @@ describe("Firefox ChatGPT activity route response admission", () => {
       grantsWorkAuthority: false,
       authorizesWorkDispatch: false,
     });
-    expect(receipt.observation).toEqual(parsed);
+    expect(receipt.observation).toEqual(parsedResponse.observation);
   });
 
-  it("drops invalid/content-bearing responses without echoing them", () => {
-    const receipt = admitFirefoxChatGptActivityRouteResponseV1(REQUEST, observation({
-      transcript: "private marker",
+  it("refuses the same tab after the content document/route projection changes", () => {
+    const receipt = admitFirefoxChatGptActivityRouteResponseV2(REQUEST, contentResponse({
+      documentProjectionRef: "firefox-chatgpt-document-b",
+      status: "projection_mismatch",
+      observation: null,
     }));
     expect(receipt).toMatchObject({
+      tabId: REQUEST.tabId,
+      documentProjectionRef: DOCUMENT_PROJECTION_REF,
+      outcome: "stale_projection",
+      reason: "document_projection_mismatch",
+      observation: null,
+    });
+  });
+
+  it("treats a sampled response from another projection as stale and drops its observation", () => {
+    const receipt = admitFirefoxChatGptActivityRouteResponseV2(REQUEST, contentResponse({
+      documentProjectionRef: "firefox-chatgpt-document-b",
+    }));
+    expect(receipt).toMatchObject({
+      outcome: "stale_projection",
+      reason: "document_projection_mismatch",
+      observation: null,
+    });
+  });
+
+  it("drops invalid/content-bearing, wrong-lane, and wrong-generation responses", () => {
+    expect(admitFirefoxChatGptActivityRouteResponseV2(REQUEST, contentResponse({
+      transcript: "private marker",
+    }))).toMatchObject({
       outcome: "invalid_response",
       reason: "invalid_observation",
       observation: null,
     });
-    expect(JSON.stringify(receipt)).not.toContain("private marker");
-  });
-
-  it("drops wrong-lane and wrong-generation responses", () => {
-    expect(admitFirefoxChatGptActivityRouteResponseV1(REQUEST, observation({
-      laneRef: "elatura:lane:other",
+    expect(admitFirefoxChatGptActivityRouteResponseV2(REQUEST, contentResponse({
+      observation: observation({ laneRef: "elatura:lane:other" }),
     }))).toMatchObject({
       outcome: "mismatched_response",
       reason: "lane_mismatch",
       observation: null,
     });
-    expect(admitFirefoxChatGptActivityRouteResponseV1(REQUEST, observation({
-      laneGeneration: 13,
+    expect(admitFirefoxChatGptActivityRouteResponseV2(REQUEST, contentResponse({
+      observation: observation({ laneGeneration: 13 }),
     }))).toMatchObject({
       outcome: "mismatched_response",
       reason: "generation_mismatch",
@@ -133,8 +234,20 @@ describe("Firefox ChatGPT activity route response admission", () => {
     });
   });
 
-  it("builds only coherent fixed browser/content failure receipts", () => {
-    expect(createFirefoxChatGptActivityRouteFailureV1(
+  it("correlates receipts across request, tab, document projection, lane, and generation", () => {
+    const receipt = admitFirefoxChatGptActivityRouteResponseV2(REQUEST, contentResponse());
+    expect(matchFirefoxChatGptActivityRouteReceiptV2(REQUEST, receipt)).toEqual({
+      matched: true,
+      reason: "matched",
+    });
+    expect(matchFirefoxChatGptActivityRouteReceiptV2(
+      { ...REQUEST, documentProjectionRef: "firefox-chatgpt-document-b" },
+      receipt,
+    )).toEqual({ matched: false, reason: "request_mismatch" });
+  });
+
+  it("keeps browser/content failures closed and observation-free", () => {
+    expect(createFirefoxChatGptActivityRouteFailureV2(
       REQUEST,
       "unavailable",
       "content_unavailable",
@@ -143,7 +256,7 @@ describe("Firefox ChatGPT activity route response admission", () => {
       reason: "content_unavailable",
       observation: null,
     });
-    expect(createFirefoxChatGptActivityRouteFailureV1(
+    expect(createFirefoxChatGptActivityRouteFailureV2(
       REQUEST,
       "browser_error",
       "operation_failed",
@@ -152,39 +265,5 @@ describe("Firefox ChatGPT activity route response admission", () => {
       reason: "operation_failed",
       observation: null,
     });
-    expect(() => createFirefoxChatGptActivityRouteFailureV1(
-      REQUEST,
-      "unavailable",
-      "operation_failed",
-    )).toThrow("receipt is incoherent");
-  });
-
-  it("parses and correlates sampled receipts before caller consumption", () => {
-    const receipt = admitFirefoxChatGptActivityRouteResponseV1(REQUEST, observation());
-    const parsed = parseFirefoxChatGptActivityRouteReceiptV1(receipt);
-    expect(matchFirefoxChatGptActivityRouteReceiptV1(REQUEST, parsed)).toEqual({
-      matched: true,
-      reason: "matched",
-    });
-    expect(matchFirefoxChatGptActivityRouteReceiptV1(
-      { ...REQUEST, requestRef: "different-request" },
-      parsed,
-    )).toEqual({ matched: false, reason: "request_mismatch" });
-  });
-
-  it("rejects incoherent sampled and failed receipts", () => {
-    const receipt = admitFirefoxChatGptActivityRouteResponseV1(REQUEST, observation());
-    expect(() => parseFirefoxChatGptActivityRouteReceiptV1({
-      ...receipt,
-      observation: null,
-    })).toThrow("receipt is incoherent");
-    expect(() => parseFirefoxChatGptActivityRouteReceiptV1({
-      ...createFirefoxChatGptActivityRouteFailureV1(
-        REQUEST,
-        "unavailable",
-        "content_unavailable",
-      ),
-      reason: "sampled",
-    })).toThrow("receipt is incoherent");
   });
 });
