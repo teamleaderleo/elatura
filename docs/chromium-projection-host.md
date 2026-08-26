@@ -48,11 +48,14 @@ The browser-only host always includes `application_unknown`. Ordinary quiet back
 
 Unbound mode performs no automatic lifecycle mutation and invokes no `planApplicationLaneResidencyV1()` decision.
 
-The popup offers three explicit browser actions:
+The popup offers four explicit browser actions:
 
+- **Keep warm** — set `autoDiscardable: false`; if the projection is already discarded, request `chrome.tabs.reload(tabId)` without activating the tab or focusing its window. This is the browser-side operation closest to a `responsive` residency request, but its receipt makes no claim that the application has finished recovering or is interaction-ready;
+- **Wake** — activate the tab and focus its window, allowing foreground interaction and normal reload behavior;
 - **Manual discard** — re-fetch the tab immediately, refuse active/pinned/audible/unknown-audio/already-discarded/browser-protected state, then call native `chrome.tabs.discard(tabId)`;
-- **Wake** — activate the tab and focus its window, allowing Chromium to reload a discarded page through normal browser behavior;
-- **Protect / Allow discard** — toggle `autoDiscardable` only.
+- **Allow discard** — set `autoDiscardable: true` and return the projection to Chromium's ordinary reclamation policy without forcing an immediate discard.
+
+Keep warm and Wake are intentionally separate. A coordinator may want a projection loaded and protected before it needs foreground human/computer-use attention.
 
 Receipts carry `authority: "explicit-operator-browser-action"`. They are browser-operation receipts, never claims that an application adapter proved reload fidelity or discard eligibility.
 
@@ -79,6 +82,7 @@ The first zero-content host intentionally avoids inventing a durable identity so
 - only `chrome.runtime` in the popup;
 - only `chrome.runtime`, `chrome.tabs`, and `chrome.windows` in the service worker;
 - fresh manual-discard preflight;
+- explicit Keep warm and Wake controls with `chrome.tabs.reload(tabId)` restricted to the reviewed service worker;
 - explicit unbound-lane and operator-authority receipts;
 - no application-lane planner invocation or manufactured `laneRef` in the Chromium background.
 

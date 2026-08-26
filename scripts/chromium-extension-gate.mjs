@@ -112,9 +112,12 @@ function verifyBackground(source) {
     "chrome.tabs.get(tabId)",
     "manualDiscardEligibility(current)",
     "chrome.tabs.discard(tabId)",
+    "chrome.tabs.reload(tabId)",
     "chrome.tabs.update(tabId, { active: true })",
     "chrome.windows.update(resulting.windowId, { focused: true })",
+    "chrome.tabs.update(tabId, { autoDiscardable: false })",
     "chrome.tabs.update(tabId, { autoDiscardable: !protectedValue })",
+    'operation: "keep-warm"',
     'laneBinding: "unbound"',
     'authority: "explicit-operator-browser-action"',
   ];
@@ -123,6 +126,16 @@ function verifyBackground(source) {
   }
   assert.equal(/planApplicationLaneResidencyV1/u.test(source), false, "Unbound projection host must not invoke lane residency planning");
   assert.equal(/laneRef|laneGeneration/u.test(source), false, "Unbound Chromium background must not manufacture canonical lane identity");
+}
+
+function verifyPopup(source) {
+  const required = [
+    'actionButton("Keep warm", { type: "keep-warm", tabId: projection.tabId })',
+    'actionButton("Wake", { type: "wake", tabId: projection.tabId })',
+  ];
+  for (const token of required) {
+    assert.equal(source.includes(token), true, `Chromium popup missing reviewed token: ${token}`);
+  }
 }
 
 function runSelfTests() {
@@ -166,6 +179,7 @@ async function main() {
 
   verifyManifest(JSON.parse(manifestText));
   verifyBackground(background);
+  verifyPopup(popup);
 
   const findings = [
     ...scanJavaScript(BACKGROUND_PATH, background),
