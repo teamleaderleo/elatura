@@ -13,6 +13,7 @@ Read [`live-application-lane-benchmark.md`](live-application-lane-benchmark.md) 
 - `scripts/create-live-application-lane-plan.mjs` — canonical resource-plan generator.
 - `scripts/verify-live-application-lane-plan.mjs` — rejects a rewritten plan.
 - `scripts/check-live-application-lane-session.mjs` — stage or full-session readiness gate.
+- `scripts/generate-google-docs-workload.mjs` — canonical #122 Google Docs fixture generator.
 
 The generated resource plan contains exactly 112 physical subruns:
 
@@ -53,7 +54,25 @@ A token is a content-free bounded identifier. Use the actual installed build/ver
 
 The selected Chromium transport is part of the pre-registration. Both Chromium+Elatura passive and managed subruns use that same transport. This keeps debugger/CDP attachment cost inside the passive-overhead measurement whenever the managed intervention requires it, and keeps CDP completely absent when the selected experiment is extension-only.
 
-## 3. Create the full pre-registration plan
+## 3. Generate the canonical Google Docs fixtures
+
+Before creating the session plan, generate #122's exact deterministic workload packet into a fresh directory:
+
+```sh
+node scripts/generate-google-docs-workload.mjs \
+  --out artifacts/live-application-lane/google-docs-fixtures
+```
+
+The directory must contain the canonical generator manifest plus these deterministic workloads:
+
+- `docs-large-text-v1`: one 4,800-paragraph / 772,800-code-unit document;
+- `docs-switch-8-v1`: eight 1,800-paragraph / 289,800-code-unit documents, 2,318,400 code units total.
+
+Do not edit the generated files or `manifest.json`. The live-lane plan generator reads the manifest, checks its generator identity, filename/order/count metadata, requires the exact #122 SHA-256 digest for every generated document, re-reads the sibling fixture bytes, and recomputes length plus SHA-256 before creating the plan. A same-name fixture with different bytes is rejected.
+
+Keep this fixture directory unchanged for every Google Docs browser condition in the session. Import the generated text into operator-owned Google Docs test documents according to #122's workload runbook; record no private document content in the live-lane artifacts.
+
+## 4. Create the full pre-registration plan
 
 Example:
 
@@ -67,12 +86,15 @@ npm run live-lane:plan -- \
   --firefox-intervention latest3-v1 \
   --chromium-intervention parking-v1 \
   --chromium-transport extension-only \
+  --gdocs-manifest artifacts/live-application-lane/google-docs-fixtures/manifest.json \
   --out artifacts/live-application-lane/session-plan.json
 ```
 
 Use `--chromium-transport extension-cdp` only when the selected managed intervention actually requires the CDP-attached transport. The output path must be new. The generator refuses to overwrite an existing plan.
 
-Immediately verify it:
+The plan freezes the verified Google Docs generator identity, the raw generated-manifest SHA-256, document counts, total text code units, and per-document text code units. Every Google Docs run later echoes that frozen identity, and readiness rejects a mismatch.
+
+Immediately verify the plan:
 
 ```sh
 npm run live-lane:verify-plan -- \
@@ -92,7 +114,7 @@ Expected result:
 
 Store the plan unchanged. Regenerating produces a new session UUID and timestamp; runs from the earlier session stay with the earlier plan. Stage-scoped readiness filters this one canonical plan; it never generates a convenient smaller replacement plan after results are visible.
 
-## 4. Freeze benchmark lane pairing identities before each stage
+## 5. Freeze benchmark lane pairing identities before each stage
 
 Assign opaque local tokens before opening the compared browsers.
 
@@ -113,12 +135,18 @@ These are content-free **benchmark pairing identities**. Do not derive them from
 
 The same pairing token follows the same application target through every browser condition and every ephemeral browser projection in that stage. The readiness checker rejects pairing-token drift across compared runs.
 
-## 5. Artifact layout
+## 6. Artifact layout
 
 Keep the session plan and readiness outputs outside every final input directory.
 
 ```text
 artifacts/live-application-lane/
+  google-docs-fixtures/
+    manifest.json
+    docs-large-text-v1.txt
+    docs-switch-8-v1-01.txt
+    ...
+    docs-switch-8-v1-08.txt
   session-plan.json
   stages/
     chatgpt-single/
@@ -142,6 +170,8 @@ artifacts/live-application-lane/
   attention/
 ```
 
+The generated fixture directory stays outside every readiness input directory. It is source material whose identity is frozen into `session-plan.json`, not a final benchmark-result bundle.
+
 Each stage `final/` contains exactly:
 
 - one `live-application-lane-run` JSON for every planned physical subrun in that stage;
@@ -158,7 +188,7 @@ The readiness checker accepts regular JSON files only, at most 256 files, at mos
 
 If all four stages eventually pass, copy the 224 accepted JSON artifacts into `full-final/` and run the full checker once. Do not use symlinks; the checker rejects them.
 
-## 6. Execute one planned physical subrun
+## 7. Execute one planned physical subrun
 
 Use the next plan slot for the active stage only. Follow the stage protocol in the full runbook.
 
@@ -170,6 +200,7 @@ Before start:
 - exact browser/build matches the plan;
 - exact Elatura revision/intervention and Chromium transport match the plan;
 - workload lane set matches the stage;
+- for Google Docs, the run's fixture identity is copied from the plan-frozen #122 fixture record;
 - no unrelated heavyweight workload runs on the measurement host.
 
 During the run:
@@ -191,7 +222,7 @@ After the primary sampler stops:
 
 Then wait the plan's 60-second between-subrun interval before the next physical subrun.
 
-## 7. Required switching evidence
+## 8. Required switching evidence
 
 For every ChatGPT `switch-8` physical subrun, the final switch ledger contains exactly:
 
@@ -203,11 +234,11 @@ Warm-up entries remain in the raw ledger and are excluded from the plateau calcu
 
 For every single-lane physical subrun, the final switch ledger contains exactly 10 `single-background-return` probes.
 
-Google Docs uses the canonical #118 workload packet (`docs-large-text-v1` and `docs-switch-8-v1`). Keep its human editing/fidelity action recipe aligned with that packet when its manifest contract is promoted; do not invent a second Docs fixture or silently substitute a different generated document.
+Google Docs consumes #122's exact deterministic fixtures while retaining this packet's shared cross-browser switching schedule: 2 warm-up rotations + 12 recorded rotations over the eight `docs-switch-8-v1` documents, followed by the same 300-second all-background return pass. This intentionally differs from #122's standalone four-warm-up/eight-recorded packet; #122 explicitly permits #125 to retain the shared cross-browser schedule when it consumes the exact fixture digest. Keep the #122 human editing/fidelity action recipe unchanged.
 
-The readiness checker rejects missing counts for the live-lane protocol it records.
+The readiness checker rejects missing counts and any Google Docs run whose generator, manifest digest, document count, total text code units, or per-document text code units differ from the frozen plan.
 
-## 8. Projection ledger rules
+## 9. Projection ledger rules
 
 Create one projection ledger per physical subrun. Three identities stay separate.
 
@@ -251,7 +282,7 @@ Canonical Elatura events record:
 
 Stock resource runs carry no Elatura events. A stale event or unknown-confidence event must not cause an inspection in the final comparison set. The readiness checker rejects that pairing and rejects any event claiming work or dispatch authority.
 
-## 9. Stage order and machine-checked stop gates
+## 10. Stage order and machine-checked stop gates
 
 Run stages in this order:
 
@@ -291,7 +322,7 @@ An invented subset is rejected. The checker reports both `fullPlannedRunCount: 1
 
 A decisive negative at an earlier gate can stop later product investment. Preserve the completed negative evidence, its stage readiness receipt, and the unchanged full plan. Remaining later slots stay explicitly unexecuted. A completed stage remains usable evidence without being renamed a full-session result.
 
-## 10. Attention-routing artifacts
+## 11. Attention-routing artifacts
 
 The attention trial uses the fixed protocol from the full runbook:
 
@@ -314,7 +345,7 @@ Keep the producer device/operator separate from the measurement host. Record act
 
 Report total inspections, useless inspections, false-positive wakeups, missed changes, false completions, bounded reads, screenshots, full activations, watchdog activations, signal-to-inspection latency, and change-to-useful-attention latency independently.
 
-## 11. Optional full-session receipt
+## 12. Optional full-session receipt
 
 Only after all four resource stages already have `ready: true`, place copies of their accepted run/projection JSON into `full-final/` and run:
 
@@ -332,7 +363,7 @@ With no `--stage`, `ready: true` means the bundle contains the complete canonica
 
 A readiness failure stays visible as fixed issue codes. Repair the collection protocol or repeat the affected whole block under the runbook rules. Do not delete an inconvenient metric or edit the plan.
 
-## 12. Analysis handoff
+## 13. Analysis handoff
 
 After the relevant stage is ready:
 
