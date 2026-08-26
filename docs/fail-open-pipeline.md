@@ -1,4 +1,4 @@
-# Fail-open orchestration and synthetic materialization
+# Fail-open transformation pipeline and synthetic materialization
 
 Elatura's pure-library transformation controller executes six stages:
 
@@ -8,9 +8,15 @@ detect → validate input → fingerprint → plan → materialize → validate 
 
 A transformed decision exists only after the final validator accepts the complete candidate. Every other path returns the authoritative input reference with a typed pass-through outcome.
 
+## Terminology
+
+The existing package subpath and source files use the name `orchestration` for historical reasons. In this repository that name refers only to the local bounded transformation pipeline described here: stage sequencing, budgets, cancellation, and fail-open decisions.
+
+Product-facing documentation should call this the **transformation pipeline** or **runtime control flow**. Work orchestration, scheduling, dispatch, wake routing, mission, and continuation belong to Stensibly rather than Elatura.
+
 ## Public library boundaries
 
-- `@elatura/core/orchestration` owns decisions, reason codes, budgets, cancellation, diagnostics, fault injection, and stage sequencing.
+- `@elatura/core/orchestration` owns local transformation decisions, reason codes, budgets, cancellation, diagnostics, fault injection, and stage sequencing.
 - `@elatura/adapter-chatgpt/synthetic` supplies a synthetic-fixture-only adapter that consumes the existing graph validator, fingerprint, active-path planner, shared adapter identity, and capability declarations.
 - `extension/firefox` remains observe-only and imports neither library subpath.
 
