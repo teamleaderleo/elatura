@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://elatura.local/schemas/live-application-lane-projection-v1.schema.json",
   "title": "Elatura content-free application lane projection ledger",
-  "description": "Separates a logical lane from ephemeral browser projections and records content-free signal confidence/freshness for one physical benchmark subrun.",
+  "description": "Separates cross-browser benchmark pairing identity, genuine Elatura lane identity, and ephemeral browser projections while recording content-free canonical lane events for one physical benchmark subrun.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -11,7 +11,7 @@
     "sessionId",
     "runId",
     "logicalLanes",
-    "signals",
+    "events",
     "privacy"
   ],
   "properties": {
@@ -25,10 +25,10 @@
       "maxItems": 8,
       "items": { "$ref": "#/$defs/lane" }
     },
-    "signals": {
+    "events": {
       "type": "array",
       "maxItems": 4096,
-      "items": { "$ref": "#/$defs/signal" }
+      "items": { "$ref": "#/$defs/event" }
     },
     "privacy": {
       "type": "object",
@@ -60,23 +60,40 @@
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9._-]{0,95}$"
     },
+    "laneRef": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/#@-]{0,239}$"
+    },
+    "elaturaLane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["laneRef", "laneGeneration", "state"],
+      "properties": {
+        "laneRef": { "$ref": "#/$defs/laneRef" },
+        "laneGeneration": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "state": {
+          "enum": ["active", "parked", "unavailable", "drifted", "recovery_needed"]
+        }
+      }
+    },
     "lane": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "laneOrdinal",
-        "logicalLaneToken",
+        "benchmarkLaneToken",
         "application",
         "locatorClass",
-        "projectionGeneration",
+        "browserProjectionGeneration",
         "projectionState",
         "freshness",
         "recoveryState",
-        "interventionLevel"
+        "interventionLevel",
+        "elaturaLane"
       ],
       "properties": {
         "laneOrdinal": { "type": "integer", "minimum": 1, "maximum": 8 },
-        "logicalLaneToken": { "$ref": "#/$defs/token" },
+        "benchmarkLaneToken": { "$ref": "#/$defs/token" },
         "application": { "enum": ["chatgpt", "google-docs"] },
         "locatorClass": {
           "enum": [
@@ -85,7 +102,7 @@
             "opaque-local-application-target"
           ]
         },
-        "projectionGeneration": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "browserProjectionGeneration": { "type": "integer", "minimum": 1, "maximum": 1000000 },
         "projectionState": {
           "enum": [
             "active",
@@ -112,46 +129,65 @@
             "bounded-view",
             "response-transform"
           ]
+        },
+        "elaturaLane": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/elaturaLane" }
+          ]
         }
       }
     },
-    "signal": {
+    "event": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "ordinal",
         "elapsedMs",
         "laneOrdinal",
-        "class",
+        "laneGeneration",
+        "eventType",
         "confidence",
         "freshness",
         "sourceClass",
-        "causedInspection"
+        "causedInspection",
+        "grantsWorkAuthority",
+        "authorizesWorkDispatch"
       ],
       "properties": {
         "ordinal": { "type": "integer", "minimum": 1, "maximum": 4096 },
         "elapsedMs": { "type": "integer", "minimum": 0, "maximum": 86400000 },
         "laneOrdinal": { "type": "integer", "minimum": 1, "maximum": 8 },
-        "class": {
+        "laneGeneration": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "eventType": {
           "enum": [
             "changed",
             "generating",
             "idle",
-            "possible-completion",
+            "possible_completion",
             "error",
             "drifted",
-            "parked",
-            "discarded-or-unavailable",
-            "recovery-needed",
-            "visual-attention-requested"
+            "discarded_or_unavailable",
+            "recovery_needed",
+            "available"
           ]
         },
-        "confidence": { "enum": ["exact-application-state", "direct-local-event", "heuristic", "unknown"] },
+        "confidence": { "enum": ["exact", "probable", "unknown"] },
         "freshness": { "enum": ["fresh", "stale", "unknown"] },
         "sourceClass": {
-          "enum": ["application-event", "dom", "accessibility", "browser-lifecycle", "network-lifecycle", "notification-hint", "unknown"]
+          "enum": [
+            "application-event",
+            "dom",
+            "accessibility",
+            "browser-lifecycle",
+            "network-lifecycle",
+            "notification-hint",
+            "unknown"
+          ]
         },
-        "causedInspection": { "type": "boolean" }
+        "causedInspection": { "type": "boolean" },
+        "grantsWorkAuthority": { "const": false },
+        "authorizesWorkDispatch": { "const": false }
       }
     }
   }
