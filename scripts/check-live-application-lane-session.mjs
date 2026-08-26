@@ -317,12 +317,14 @@ function checkRun(run, plan, expected, issues) {
   checkPrivacy(run.privacy, expected.key, issues);
 }
 
-function checkProjection(projection, run, expected, laneTokens, issues) {
+function checkProjection(projection, run, expected, pairingTokens, elaturaLaneRefs, issues) {
   if (projection.schemaVersion !== 1 || projection.kind !== "live-application-lane-projection-ledger") {
     issue(issues, "invalid-projection-kind", expected.key);
     return;
   }
   if (projection.sessionId !== run.sessionId || projection.runId !== run.runId) issue(issues, "projection-link-mismatch", expected.key);
+  const isElatura = run.condition?.code === "FE" || run.condition?.code === "CRE";
+  const lanesByOrdinal = new Map();
   if (!Array.isArray(projection.logicalLanes) || projection.logicalLanes.length !== expected.stage.laneCount) {
     issue(issues, "projection-lane-count-mismatch", expected.key);
   } else {
@@ -331,22 +333,51 @@ function checkProjection(projection, run, expected, laneTokens, issues) {
       if (ordinals[laneOrdinal - 1] !== laneOrdinal) issue(issues, "projection-lane-ordinal-mismatch", expected.key);
       const lane = projection.logicalLanes.find((item) => item?.laneOrdinal === laneOrdinal);
       if (!lane) continue;
-      const tokenKey = `${expected.stage.stage}|${laneOrdinal}`;
-      const prior = laneTokens.get(tokenKey);
-      if (prior === undefined) laneTokens.set(tokenKey, lane.logicalLaneToken);
-      else if (prior !== lane.logicalLaneToken) issue(issues, "logical-lane-token-drift", tokenKey);
+      lanesByOrdinal.set(laneOrdinal, lane);
+      const pairingKey = `${expected.stage.stage}|${laneOrdinal}`;
+      const priorPairingToken = pairingTokens.get(pairingKey);
+      if (priorPairingToken === undefined) pairingTokens.set(pairingKey, lane.benchmarkLaneToken);
+      else if (priorPairingToken !== lane.benchmarkLaneToken) issue(issues, "benchmark-lane-token-drift", pairingKey);
       if (lane.application !== expected.stage.application) issue(issues, "projection-application-mismatch", expected.key);
-      if (!Number.isInteger(lane.projectionGeneration) || lane.projectionGeneration < 1) issue(issues, "projection-generation-invalid", expected.key);
+      if (!Number.isInteger(lane.browserProjectionGeneration) || lane.browserProjectionGeneration < 1) {
+        issue(issues, "browser-projection-generation-invalid", expected.key);
+      }
+      if (!isElatura) {
+        if (lane.elaturaLane !== null) issue(issues, "stock-condition-has-elatura-lane", expected.key);
+        if (lane.interventionLevel !== "stock") issue(issues, "stock-intervention-level-mismatch", expected.key);
+      } else {
+        const elaturaLane = record(lane.elaturaLane);
+        if (!elaturaLane) {
+          issue(issues, "missing-elatura-lane", expected.key);
+        } else {
+          if (typeof elaturaLane.laneRef !== "string" || elaturaLane.laneRef.length === 0) issue(issues, "invalid-elatura-lane-ref", expected.key);
+          if (!Number.isInteger(elaturaLane.laneGeneration) || elaturaLane.laneGeneration < 1) issue(issues, "invalid-elatura-lane-generation", expected.key);
+          const laneRefKey = `${expected.stage.stage}|${laneOrdinal}|${run.condition.code}`;
+          const priorLaneRef = elaturaLaneRefs.get(laneRefKey);
+          if (priorLaneRef === undefined) elaturaLaneRefs.set(laneRefKey, elaturaLane.laneRef);
+          else if (priorLaneRef !== elaturaLane.laneRef) issue(issues, "elatura-lane-ref-drift", laneRefKey);
+        }
+      }
     }
   }
   checkPrivacy(projection.privacy, expected.key, issues);
-  if (Array.isArray(projection.signals)) {
-    for (const signal of projection.signals) {
-      if (signal?.confidence === "unknown" && signal?.causedInspection === true) issue(issues, "unknown-confidence-caused-inspection", expected.key);
-      if (signal?.freshness !== "fresh" && signal?.causedInspection === true) issue(issues, "nonfresh-signal-caused-inspection", expected.key);
+  if (!Array.isArray(projection.events)) {
+    issue(issues, "projection-events-missing", expected.key);
+    return;
+  }
+  if (!isElatura && projection.events.length > 0) issue(issues, "stock-condition-has-elatura-events", expected.key);
+  for (const event of projection.events) {
+    if (event?.grantsWorkAuthority !== false || event?.authorizesWorkDispatch !== false) {
+      issue(issues, "event-authority-violation", expected.key);
     }
-  } else {
-    issue(issues, "projection-signals-missing", expected.key);
+    if (!Number.isInteger(event?.laneGeneration) || event.laneGeneration < 1) issue(issues, "event-generation-invalid", expected.key);
+    const lane = lanesByOrdinal.get(event?.laneOrdinal);
+    if (!lane) issue(issues, "event-lane-ordinal-invalid", expected.key);
+    else if (record(lane.elaturaLane) && event.laneGeneration > lane.elaturaLane.laneGeneration) {
+      issue(issues, "event-generation-ahead-of-lane", expected.key);
+    }
+    if (event?.confidence === "unknown" && event?.causedInspection === true) issue(issues, "unknown-confidence-caused-inspection", expected.key);
+    if (event?.freshness !== "fresh" && event?.causedInspection === true) issue(issues, "nonfresh-event-caused-inspection", expected.key);
   }
 }
 
@@ -402,13 +433,14 @@ async function main() {
       issue(issues, "duplicate-or-invalid-projection-run-id");
     } else projectionsByRunId.set(projection.runId, projection);
   }
-  const laneTokens = new Map();
+  const pairingTokens = new Map();
+  const elaturaLaneRefs = new Map();
   for (const entry of expected) {
     const run = runsByKey.get(entry.key);
     if (!run) continue;
     const projection = projectionsByRunId.get(run.runId);
     if (!projection) issue(issues, "missing-projection-ledger", entry.key);
-    else checkProjection(projection, run, entry, laneTokens, issues);
+    else checkProjection(projection, run, entry, pairingTokens, elaturaLaneRefs, issues);
   }
   for (const runId of projectionsByRunId.keys()) if (!runsById.has(runId)) issue(issues, "orphan-projection-ledger", runId);
 
