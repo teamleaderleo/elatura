@@ -48,6 +48,12 @@ describe("live application lane experiment packet", () => {
       "gdocs-single",
       "gdocs-switch-8",
     ]);
+    expect(plan.stages.map((stage: any) => stage.workloadToken)).toEqual([
+      "chatgpt-pathological-a",
+      "chatgpt-switch-8",
+      "docs-large-text-v1",
+      "docs-switch-8-v1",
+    ]);
     const physicalRuns = plan.stages.reduce(
       (total: number, stage: any) => total + stage.blocks.reduce(
         (blockTotal: number, block: any) => blockTotal + block.slots.reduce(
@@ -99,8 +105,48 @@ describe("live application lane experiment packet", () => {
     expect(checked.status, checked.stderr).toBe(2);
     const result = JSON.parse(checked.stdout);
     expect(result.ready).toBe(false);
+    expect(result.scope).toBe("full");
+    expect(result.fullPlannedRunCount).toBe(112);
     expect(result.expectedRunCount).toBe(112);
     expect(result.runCount).toBe(0);
     expect(result.issues.filter((entry: any) => entry.code === "missing-run-slot")).toHaveLength(112);
+  });
+
+  it("admits one predeclared stage independently without redefining the full plan", () => {
+    const directory = makeScratch();
+    const finalDirectory = join(directory, "chatgpt-single-final");
+    mkdirSync(finalDirectory);
+    const plan = generatePlan();
+    const planPath = join(directory, "plan.json");
+    writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`);
+
+    const checked = spawnSync(
+      process.execPath,
+      [checkSessionScript, planPath, finalDirectory, "--stage", "chatgpt-single"],
+      { encoding: "utf8" },
+    );
+    expect(checked.status, checked.stderr).toBe(2);
+    const result = JSON.parse(checked.stdout);
+    expect(result.scope).toBe("chatgpt-single");
+    expect(result.fullPlannedRunCount).toBe(112);
+    expect(result.expectedRunCount).toBe(40);
+    expect(result.issues.filter((entry: any) => entry.code === "missing-run-slot")).toHaveLength(40);
+  });
+
+  it("refuses an invented stage scope", () => {
+    const directory = makeScratch();
+    const finalDirectory = join(directory, "final");
+    mkdirSync(finalDirectory);
+    const plan = generatePlan();
+    const planPath = join(directory, "plan.json");
+    writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`);
+
+    const checked = spawnSync(
+      process.execPath,
+      [checkSessionScript, planPath, finalDirectory, "--stage", "chatgpt-convenient-subset"],
+      { encoding: "utf8" },
+    );
+    expect(checked.status).toBe(2);
+    expect(checked.stderr).toContain("Usage:");
   });
 });
