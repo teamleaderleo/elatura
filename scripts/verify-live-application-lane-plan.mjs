@@ -52,6 +52,7 @@ const PRIVACY_KEYS = [
 
 const VERSION = /^[0-9A-Za-z][0-9A-Za-z.+_-]{0,95}$/u;
 const TOKEN = /^[a-z0-9][a-z0-9._-]{0,95}$/u;
+const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 
 function usage() {
   return "Usage: node scripts/verify-live-application-lane-plan.mjs <plan.json>";
@@ -110,6 +111,33 @@ function verifyElatura(plan, issues) {
   if (!TOKEN.test(elatura.chromiumInterventionToken ?? "")) issue(issues, "chromium-intervention-invalid");
   if (elatura.chromiumTransport !== "extension-only" && elatura.chromiumTransport !== "extension-cdp") {
     issue(issues, "chromium-transport-invalid");
+  }
+}
+
+function verifyFixtures(plan, issues) {
+  const googleDocs = plan.fixtures?.googleDocs;
+  if (!googleDocs || typeof googleDocs !== "object" || Array.isArray(googleDocs)) {
+    issue(issues, "invalid-gdocs-fixture-plan");
+    return;
+  }
+  if (googleDocs.generator !== "google-docs-workload-v1") issue(issues, "gdocs-generator-mismatch");
+  if (typeof googleDocs.manifestSha256 !== "string" || !SHA256.test(googleDocs.manifestSha256)) {
+    issue(issues, "gdocs-manifest-sha256-invalid");
+  }
+  const expected = [
+    ["largeText", 1, 772800, [772800]],
+    ["switch8", 8, 2318400, Array(8).fill(289800)],
+  ];
+  for (const [key, documentCount, totalTextCodeUnits, perDocumentTextCodeUnits] of expected) {
+    const fixture = googleDocs[key];
+    if (
+      !fixture ||
+      fixture.documentCount !== documentCount ||
+      fixture.totalTextCodeUnits !== totalTextCodeUnits ||
+      !sameArray(fixture.perDocumentTextCodeUnits, perDocumentTextCodeUnits)
+    ) {
+      issue(issues, "gdocs-fixture-identity-mismatch", String(key));
+    }
   }
 }
 
@@ -209,6 +237,7 @@ async function main() {
   verifyPrivacy(plan, issues);
   verifyBrowsers(plan, issues);
   verifyElatura(plan, issues);
+  verifyFixtures(plan, issues);
   verifyProtocol(plan, issues);
   const physicalRunCount = verifyStages(plan, issues);
   if (physicalRunCount !== 112) issue(issues, "physical-run-count-mismatch", String(physicalRunCount));
