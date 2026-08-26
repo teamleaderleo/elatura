@@ -28,7 +28,10 @@ function issue(issues, code, key) {
 }
 
 async function compileValidators() {
-  const ajv = new Ajv2020({ allErrors: true, strict: true });
+  // The repository schemas are authoritative. Ajv strict mode additionally
+  // lints schema authoring style and rejects valid Draft 2020-12 constructs
+  // used by these reviewed schemas, so keep that orthogonal lint disabled.
+  const ajv = new Ajv2020({ allErrors: true, strict: false });
   ajv.addFormat("uuid", {
     type: "string",
     validate(value) {
