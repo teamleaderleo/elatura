@@ -1,0 +1,362 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://elatura.local/schemas/benchmark-google-docs-live-run-v1.schema.json",
+  "title": "Elatura content-free Google Docs live workload run",
+  "description": "Research-only benchmark record for a human-operated Google Docs workload. It accepts generated fixture identity, opaque application-lane identity, merged lifecycle-policy tokens, bounded numeric telemetry, and fixed fidelity verdicts. Document text, titles, URLs, account/collaborator identifiers, screenshots, clipboard contents, and free-form notes are excluded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "runId",
+    "recordedAt",
+    "workload",
+    "variant",
+    "requestedDocumentCount",
+    "fixture",
+    "environment",
+    "samples",
+    "fidelity",
+    "privacy"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": { "type": "string", "format": "uuid" },
+    "recordedAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])T(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d\\.\\d{3}Z$"
+    },
+    "workload": {
+      "enum": ["docs-large-text-v1", "docs-switch-8-v1", "docs-switch-capacity-v1"]
+    },
+    "variant": {
+      "enum": [
+        "stock-resident",
+        "stock-memory-saver",
+        "stock-explicit-discard",
+        "elatura-observe",
+        "elatura-suspended",
+        "elatura-reclaimable"
+      ]
+    },
+    "requestedDocumentCount": { "type": "integer", "minimum": 0, "maximum": 8 },
+    "fixture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["generator", "documentCount", "totalTextCodeUnits", "perDocumentTextCodeUnits", "manifestSha256"],
+      "properties": {
+        "generator": { "const": "google-docs-workload-v1" },
+        "documentCount": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "totalTextCodeUnits": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+        "perDocumentTextCodeUnits": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "items": { "type": "integer", "minimum": 1, "maximum": 1000000 }
+        },
+        "manifestSha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "osClass",
+        "browserVersionToken",
+        "profileClass",
+        "memorySaver",
+        "energySaver",
+        "instrumentation",
+        "persistentDebuggerAttached",
+        "hardwareMemoryBytes"
+      ],
+      "properties": {
+        "osClass": { "enum": ["macos", "windows", "linux", "chromeos"] },
+        "browserVersionToken": { "type": "string", "pattern": "^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$" },
+        "profileClass": { "const": "dedicated-signed-in" },
+        "memorySaver": { "enum": ["off", "moderate", "balanced", "maximum", "unknown"] },
+        "energySaver": { "enum": ["off", "on", "unknown"] },
+        "instrumentation": {
+          "enum": ["none", "extension-only", "bounded-cdp-lease", "extension-plus-bounded-cdp-lease"]
+        },
+        "persistentDebuggerAttached": { "const": false },
+        "hardwareMemoryBytes": { "type": ["integer", "null"], "minimum": 1 }
+      }
+    },
+    "samples": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 64,
+      "items": { "$ref": "#/$defs/sample" }
+    },
+    "fidelity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "documentIdentityContinuity",
+        "authenticationContinuity",
+        "editCanarySaved",
+        "editingModeContinuity",
+        "undoRedo",
+        "caretContinuity",
+        "selectionContinuity",
+        "viewportContinuity",
+        "autosaveContinuity",
+        "commentSuggestionContinuity",
+        "collaborationContinuity",
+        "permissionsContinuity",
+        "findNavigationContinuity",
+        "offlineStateTruthful",
+        "unexpectedReloadCount",
+        "operatorVisibleFailureCount"
+      ],
+      "properties": {
+        "documentIdentityContinuity": { "$ref": "#/$defs/verdict" },
+        "authenticationContinuity": { "$ref": "#/$defs/verdict" },
+        "editCanarySaved": { "$ref": "#/$defs/verdict" },
+        "editingModeContinuity": { "$ref": "#/$defs/verdict" },
+        "undoRedo": { "$ref": "#/$defs/verdict" },
+        "caretContinuity": { "$ref": "#/$defs/verdict" },
+        "selectionContinuity": { "$ref": "#/$defs/verdict" },
+        "viewportContinuity": { "$ref": "#/$defs/verdict" },
+        "autosaveContinuity": { "$ref": "#/$defs/verdict" },
+        "commentSuggestionContinuity": { "$ref": "#/$defs/verdict" },
+        "collaborationContinuity": { "$ref": "#/$defs/verdict" },
+        "permissionsContinuity": { "$ref": "#/$defs/verdict" },
+        "findNavigationContinuity": { "$ref": "#/$defs/verdict" },
+        "offlineStateTruthful": { "$ref": "#/$defs/verdict" },
+        "unexpectedReloadCount": { "type": "integer", "minimum": 0 },
+        "operatorVisibleFailureCount": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "documentTextCaptured",
+        "documentTitlesCaptured",
+        "urlsCaptured",
+        "accountIdsCaptured",
+        "collaboratorIdsCaptured",
+        "screenshotsCaptured",
+        "clipboardCaptured",
+        "freeFormNotesCaptured"
+      ],
+      "properties": {
+        "documentTextCaptured": { "const": false },
+        "documentTitlesCaptured": { "const": false },
+        "urlsCaptured": { "const": false },
+        "accountIdsCaptured": { "const": false },
+        "collaboratorIdsCaptured": { "const": false },
+        "screenshotsCaptured": { "const": false },
+        "clipboardCaptured": { "const": false },
+        "freeFormNotesCaptured": { "const": false }
+      }
+    }
+  },
+  "$defs": {
+    "verdict": { "enum": ["pass", "fail", "unmeasured"] },
+    "yesNoUnknown": { "enum": ["yes", "no", "unknown"] },
+    "residencyIntentOrNull": {
+      "anyOf": [
+        { "type": "null" },
+        { "enum": ["responsive", "suspended", "reclaimable"] }
+      ]
+    },
+    "plannerActionOrNull": {
+      "anyOf": [
+        { "type": "null" },
+        { "enum": ["none", "wake", "freeze", "discard", "recover_projection", "wait", "attention_required"] }
+      ]
+    },
+    "plannerReasonOrNull": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "enum": [
+            "already_satisfied",
+            "already_reclaimed",
+            "lane_mismatch",
+            "stale_generation",
+            "stale_projection_facts",
+            "recovery_in_progress",
+            "recovery_required",
+            "projection_recovery_required",
+            "foreground_protected",
+            "wake_required",
+            "freeze_eligible",
+            "discard_eligible",
+            "discard_fallback_freeze",
+            "freeze_blocked",
+            "discard_blocked",
+            "eligibility_unknown",
+            "capability_unavailable"
+          ]
+        }
+      ]
+    },
+    "laneState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ordinal",
+        "laneRef",
+        "laneGeneration",
+        "requestedIntent",
+        "browserResidency",
+        "recovery",
+        "freezeEligibility",
+        "discardEligibility",
+        "blockers",
+        "plannerAction",
+        "plannerReason",
+        "latestEventType",
+        "latestEventConfidence",
+        "latestEventFreshness",
+        "grantsWorkAuthority",
+        "authorizesWorkDispatch",
+        "autosaveState",
+        "localEditPending",
+        "compositionActive",
+        "selectionPresent",
+        "transientEditorActive",
+        "collaborationActive",
+        "viewportAnchorAvailable"
+      ],
+      "properties": {
+        "ordinal": { "type": "integer", "minimum": 0, "maximum": 9 },
+        "laneRef": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/#@-]{0,239}$" },
+        "laneGeneration": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "requestedIntent": { "$ref": "#/$defs/residencyIntentOrNull" },
+        "browserResidency": { "enum": ["foreground", "background", "frozen", "discarded", "reloading", "missing"] },
+        "recovery": { "enum": ["verified", "recoverable", "recovering", "attention_required", "unavailable"] },
+        "freezeEligibility": { "enum": ["allowed", "blocked", "unknown"] },
+        "discardEligibility": { "enum": ["allowed", "blocked", "unknown"] },
+        "blockers": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 10,
+          "items": {
+            "enum": [
+              "active_generation",
+              "unsaved_interaction",
+              "save_in_progress",
+              "composition_active",
+              "modal_interaction",
+              "collaboration_active",
+              "media_or_device_active",
+              "download_active",
+              "application_unknown",
+              "manual_protection"
+            ]
+          }
+        },
+        "plannerAction": { "$ref": "#/$defs/plannerActionOrNull" },
+        "plannerReason": { "$ref": "#/$defs/plannerReasonOrNull" },
+        "latestEventType": {
+          "enum": [
+            "none",
+            "changed",
+            "generating",
+            "idle",
+            "possible_completion",
+            "error",
+            "drifted",
+            "discarded_or_unavailable",
+            "recovery_needed",
+            "available"
+          ]
+        },
+        "latestEventConfidence": { "enum": ["exact", "probable", "unknown"] },
+        "latestEventFreshness": { "enum": ["fresh", "stale", "unknown"] },
+        "grantsWorkAuthority": { "const": false },
+        "authorizesWorkDispatch": { "const": false },
+        "autosaveState": { "enum": ["saved", "saving", "offline", "unknown"] },
+        "localEditPending": { "$ref": "#/$defs/yesNoUnknown" },
+        "compositionActive": { "$ref": "#/$defs/yesNoUnknown" },
+        "selectionPresent": { "$ref": "#/$defs/yesNoUnknown" },
+        "transientEditorActive": { "$ref": "#/$defs/yesNoUnknown" },
+        "collaborationActive": { "$ref": "#/$defs/yesNoUnknown" },
+        "viewportAnchorAvailable": { "$ref": "#/$defs/yesNoUnknown" }
+      }
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sequence",
+        "phase",
+        "probeClass",
+        "revisitIntervalClass",
+        "browserAction",
+        "activeDocumentOrdinal",
+        "openDocumentTabs",
+        "frozenDocumentTabs",
+        "discardedDocumentTabs",
+        "usefulDocumentCount",
+        "attentionRequiredDocumentCount",
+        "pageTargetCount",
+        "rendererProcessCount",
+        "serviceWorkerProcessCount",
+        "browserTreeResidentBytes",
+        "docsRendererResidentBytes",
+        "gpuResidentBytes",
+        "systemAvailableMemoryBytes",
+        "swapUsedBytes",
+        "majorPageFaultsDelta",
+        "jsHeapUsedBytes",
+        "domNodes",
+        "jsEventListeners",
+        "browserTreeCpuSecondsDelta",
+        "rendererCpuSecondsDelta",
+        "backgroundNetworkBytesDelta",
+        "activationToVisibleMs",
+        "activationToEditableMs",
+        "editEchoMs",
+        "saveSettledMs",
+        "reloadTransferredBytes",
+        "reloadRequestCount",
+        "laneStates"
+      ],
+      "properties": {
+        "sequence": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "phase": { "enum": ["initial", "active", "background", "reactivated", "idle", "recovery"] },
+        "probeClass": { "enum": ["routine", "adversarial"] },
+        "revisitIntervalClass": { "enum": ["rotation", "30s", "2m", "10m", "60m", "unknown"] },
+        "browserAction": { "enum": ["none", "natural-lifecycle", "wake", "freeze", "discard", "activate", "recover_projection"] },
+        "activeDocumentOrdinal": { "type": ["integer", "null"], "minimum": 0, "maximum": 9 },
+        "openDocumentTabs": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "frozenDocumentTabs": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "discardedDocumentTabs": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "usefulDocumentCount": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "attentionRequiredDocumentCount": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "pageTargetCount": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "rendererProcessCount": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "serviceWorkerProcessCount": { "type": ["integer", "null"], "minimum": 0, "maximum": 1000 },
+        "browserTreeResidentBytes": { "type": ["integer", "null"], "minimum": 1 },
+        "docsRendererResidentBytes": { "type": ["integer", "null"], "minimum": 1 },
+        "gpuResidentBytes": { "type": ["integer", "null"], "minimum": 1 },
+        "systemAvailableMemoryBytes": { "type": ["integer", "null"], "minimum": 0 },
+        "swapUsedBytes": { "type": ["integer", "null"], "minimum": 0 },
+        "majorPageFaultsDelta": { "type": ["integer", "null"], "minimum": 0 },
+        "jsHeapUsedBytes": { "type": ["integer", "null"], "minimum": 0 },
+        "domNodes": { "type": ["integer", "null"], "minimum": 0 },
+        "jsEventListeners": { "type": ["integer", "null"], "minimum": 0 },
+        "browserTreeCpuSecondsDelta": { "type": ["number", "null"], "minimum": 0 },
+        "rendererCpuSecondsDelta": { "type": ["number", "null"], "minimum": 0 },
+        "backgroundNetworkBytesDelta": { "type": ["integer", "null"], "minimum": 0 },
+        "activationToVisibleMs": { "type": ["number", "null"], "minimum": 0 },
+        "activationToEditableMs": { "type": ["number", "null"], "minimum": 0 },
+        "editEchoMs": { "type": ["number", "null"], "minimum": 0 },
+        "saveSettledMs": { "type": ["number", "null"], "minimum": 0 },
+        "reloadTransferredBytes": { "type": ["integer", "null"], "minimum": 0 },
+        "reloadRequestCount": { "type": ["integer", "null"], "minimum": 0 },
+        "laneStates": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 10,
+          "items": { "$ref": "#/$defs/laneState" }
+        }
+      }
+    }
+  }
+}
