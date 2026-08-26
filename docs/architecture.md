@@ -2,105 +2,185 @@
 
 ## Working definition
 
-Elatura is a local adaptive access layer for oversized authenticated web applications.
+Elatura is a local adaptive access layer for heavyweight authenticated web applications.
+
+Its runtime unit is an **application lane**: a logical, consumer-neutral managed live view of one useful application target inside a genuine signed-in application context.
 
 ```text
-authenticated browser request
-        ↓
-browser transport
-        ↓
-application adapter
-        ↓
-validation + structural fingerprint
-       ↙ ↘
-original bytes   bounded working set / local representation
+heavyweight authenticated application
+                ↓
+        browser/application transport
+                ↓
+         Elatura application lane
+          ↙       ↓        ↘
+   working set   signals   observation
+          ↘       ↓        ↙
+        activation / interaction
+                ↓
+          human or agent
 ```
 
-The authenticated website remains authoritative. Elatura changes how much state becomes active and which surface presents it.
+The authenticated application remains authoritative. Elatura owns working-set policy, observation, and access surfaces around that application. See [`application-lanes.md`](application-lanes.md) for the product model and current experiment sequence.
 
-## Planned components
+## Identity and projection
 
-### Browser transport
+Application-lane identity is logical. Browser objects implement a current projection of that lane.
 
-The transport observes requests inside a real signed-in browser profile. The first transport is a Firefox WebExtension because Firefox exposes a response stream filter. Transport code must not contain application graph logic.
+Potential durable local identity inputs include:
 
-### Core runtime
+- application/adapter class where known;
+- owning browser profile or managed application context;
+- an opaque application-local target/navigation key where one can be recovered safely;
+- freshness/generation state.
 
-The core owns generic concepts:
+Tab ids, CDP target ids, renderer process ids, window ids, and remote-workspace ids are ephemeral projection handles. The runtime should be able to reacquire a usable projection after navigation, discard, crash, restart, or host migration.
 
-- adapter detection and capability declarations
-- validation results and resource budgets
-- structural fingerprints
-- working-set policies
-- staged plan/materialize/validate-output contracts
-- cache envelopes, compatibility metadata, and isolation keys
-- provenance and freshness metadata
-- read-only representation contracts
-- instrumentation envelopes
-- fail-open decisions
+This contract intentionally differs from a Stensibly work/agent lane. Stensibly owns mission, responsibility, scheduling, dispatch, wake routing, and continuation. An Elatura lane provides application access and observations that Stensibly may consume.
 
-It must not know ChatGPT endpoint names, message roles, or graph field names.
+## Components
+
+### Browser/application transports
+
+A transport owns browser-specific access and projection mechanics. Depending on the host, that can include:
+
+- navigation and target discovery;
+- request/response observation;
+- DOM and accessibility observation;
+- lifecycle/discard/freeze state;
+- screenshots or screencast primitives;
+- focus/activation and explicitly authorized input;
+- browser/process resource measurements;
+- projection recovery after browser state changes.
+
+Transport code should translate browser-native handles into engine-neutral lane events and observation records. Application graph semantics stay in adapters.
+
+Firefox remains the first and strongest current intervention transport because its WebExtension path exposes `webRequest.filterResponseData()` and the repository has earned Firefox live-DOM discovery, render-window policy, drift handling, content-free instrumentation, and a preflighted destructive executor.
+
+Chromium is an independent transport experiment under #117. Its first value proposition is managed target/lifecycle control, DOM/accessibility reads, screenshots, input, and process observation through a dedicated stock/reproducible profile plus extension/CDP control where required. A Chromium fork sits behind evidence from that prototype.
+
+### Lane runtime
+
+The lane runtime owns generic consumer-neutral concepts:
+
+- logical lane reference and current projection metadata;
+- freshness, drift, availability, and recovery state;
+- bounded working-set policies;
+- bounded observation envelopes and omission metadata;
+- content-minimized lifecycle/change signals;
+- escalation from semantic observation to visual inspection to activation;
+- resource budgets and retained-state accounting;
+- fail-open/fallback decisions;
+- content-free instrumentation.
+
+The lane runtime does not decide which work exists or which agent runs next.
 
 ### Application adapters
 
-An adapter owns application-specific knowledge. The first adapter recognizes and validates candidate ChatGPT conversation graphs. Later adapters may target issue timelines, notebooks, logs, documents, or message archives.
+Adapters own application-specific knowledge only where the workload earns it.
 
-Adapters declare optional capabilities individually. Branch navigation, paging, caching, submission, planning, materialization, output validation, and alternate rendering are never inferred from the presence of an adapter.
+The existing ChatGPT adapter recognizes and validates candidate conversation graphs and supports staged transformation/representation contracts. Later workloads can stop earlier: a large collaborative document may benefit from browser lifecycle and observation primitives without a custom response adapter.
 
-A transform-capable adapter follows:
+Adapter capabilities remain explicit. Detection, validation, structural fingerprinting, paging, branch navigation, caching, materialization, output validation, semantic observation, signal extraction, and exact-effect operations are independent capabilities.
+
+A transform-capable adapter follows the existing reviewed pipeline:
 
 ```text
 detect → validate → fingerprint → plan → materialize → validate output
 ```
 
-A shared conformance runner checks declarations, determinism, input preservation, fingerprint identity, and independent output validation. Application-specific graph semantics and resource budgets remain in adapter suites.
+A shared conformance runner checks declarations, determinism, input preservation, fingerprint identity, and independent output validation. Application-specific semantics and resource budgets remain in adapter suites.
 
 See [`adapter-contracts.md`](adapter-contracts.md).
 
-### Cache layer
+### Working sets and bounded views
 
-Cache entries are derived copies. A versioned envelope keeps these dimensions separate:
+A working set is the bounded application state Elatura keeps continuously resident or continuously observed for one lane.
 
-- origin/profile/adapter isolation
-- adapter-version compatibility
-- structural fingerprint compatibility
-- opaque content identity
-- freshness and expiry
-- provenance
+Possible representations include:
 
-The current cache is an in-memory synthetic-fixture implementation. Persistent private-content caching remains behind the security and privacy release gate. Protection hooks define the required seam for future encryption or operating-system key services without claiming an implementation.
+- the current live DOM/render region;
+- a bounded accessibility or DOM observation;
+- a validated application-specific region;
+- a small local derived representation;
+- a visual viewport or screenshot;
+- stock full application state after activation.
+
+The synthetic companion stack already demonstrates bounded replacement state, search/page/navigation operations, provenance/freshness/omission semantics, lifecycle cleanup, and plateau accounting. PR #115 constrains its product role: when a clean local representation already exists, direct local search can be substantially cheaper than an Elatura viewport. Bounded views should earn themselves against the closest simpler control.
+
+### Signals
+
+Signals summarize locally observed lane changes with explicit confidence and freshness. Candidate classes include `changed`, `generating`, `idle`, `possible_completion`, `error`, `drifted`, `parked`, and `recovery_needed`.
+
+The Android completion-hint work is one existing provider-specific signal experiment. Browser DOM/lifecycle observation may supply stronger application-local signals for other workloads.
+
+Signals guide attention. They do not grant submission, project, scheduling, or work authority.
+
+### Activation and interaction
+
+Elatura should preserve a direct route to the genuine application. A consumer can escalate through:
+
+```text
+change / lifecycle event
+        ↓
+bounded application / DOM / accessibility state
+        ↓
+screenshot / visual inspection
+        ↓
+full genuine-application interaction
+```
+
+A human and a computer-using agent should consume the same lane and current application session. Screenshots are one rung in the ladder, used when pixels contain useful information beyond cheaper semantic observation.
+
+### Cache and derived local state
+
+Cache entries and local representations are derived copies. Existing envelopes keep origin/profile/adapter isolation, adapter compatibility, structural fingerprint compatibility, opaque content identity, freshness, expiry, and provenance separate.
+
+Persistent private-content caching remains behind the security and privacy release gate. A lane can deliver value through browser-level working-set and observation control with zero persistent private-content cache.
 
 See [`cache-and-provenance.md`](cache-and-provenance.md).
 
-### Alternate surfaces
+## Intervention levels
 
-A future local web, native, or terminal interface may render and search captured state without asking the original application to mount its complete UI. It must preserve provenance and provide a path back to the authoritative page.
+Observation and intervention should remain separate. The current candidate escalation order is:
 
-The generic read-only representation supports deterministic timeline order, search text, parent/child navigation, code blocks, active-path navigation, and jump-back references. The current ChatGPT representation accepts explicitly synthetic fixtures only and has no Firefox bridge.
+1. stock application with content-free observation;
+2. browser lifecycle management or parking where application fidelity survives;
+3. render suppression for expensive inactive regions;
+4. bounded live DOM/accessibility retention or replacement;
+5. validated local representation for selected reading/navigation tasks;
+6. response/network transformation behind existing safety gates;
+7. focused browser shell after stock-browser evidence identifies browser-level policy or chrome as the remaining constraint.
 
-## Initial modes
+Every workload can stop at its cheapest useful level.
 
-- **observe** — byte-for-byte pass-through with content-free local metrics
-- **safe** — validated bounded working set; not implemented yet
-- **cached** — validated local snapshot followed by revalidation; persistent private-content mode not implemented yet
-- **full** — no interception or transformation
+The older `observe` / `safe` / `cached` / `full` names remain useful for the response-transformation subsystem. They should not become the global application-lane lifecycle vocabulary.
 
-Capability declaration and runtime enablement remain separate. A build must grant a capability explicitly after the applicable security, privacy, live-evidence, and release checks.
+## Human fidelity
 
-The Firefox background starts with transforms locally locked, has a one-click emergency-disable action, and exposes no popup unlock path. Future transform modules must register volatile-state cleanup and consult the bundled exact adapter/version denylist. See [`transform-safety.md`](transform-safety.md).
+A lane is a product feature only when ordinary interaction remains truthful at its active level. Workloads with editing or collaboration must preserve the state users rely on, such as caret/selection, unsaved edits, autosave state, comments, collaboration/presence, permissions, current visual region, and application errors.
+
+When an intervention cannot prove those invariants, Elatura should use a cheaper observation-only level or restore the stock application before interaction.
 
 ## Second workload
 
-ChatGPT is the first workload and should not dictate the generic interfaces. A second production adapter waits for M1 evidence. Selection should reward pathological value, structured state, reproducibility, contract diversity, direct provenance, manageable privacy/legal risk, and sustainable maintenance cost.
+The second real workload should test the live application-lane model, not merely the adapter abstraction.
+
+Google Docs #118 is the first explicitly human-first research workload. It can begin with observation and browser-level lifecycle measurements before ChatGPT response transformation is enabled. A custom Docs adapter is earned only by evidence of a stable useful application-specific seam.
 
 See [`second-workload-rubric.md`](second-workload-rubric.md).
 
-## Why not a browser engine?
+## Browser-engine position
 
-Building an engine would bury the experiment under security, compatibility, media, accessibility, networking, and browser-UX responsibilities. Elatura initially reuses Firefox for those jobs and owns only the adaptive-state layer.
+Elatura remains engine-neutral above the transport boundary.
 
-## WebKit position
+Firefox keeps its earned role as the response/DOM intervention specialist and stock baseline. Chromium is being evaluated for managed lifecycle, broad web-application compatibility, accessibility/DOM observation, screenshots, input, and process control. WebKit can remain a later supplementary transport experiment.
 
-A focused macOS shell using WKWebView remains a plausible later transport. It may offer a cleaner product surface and tighter lifecycle control, but its public API does not expose the same ordinary-HTTPS response-body interception primitive. Prove the adapter and cache model in Firefox first; revisit WebKit after M1.
+Building or maintaining a browser engine or Chromium fork would add browser security, update, sandbox, media, accessibility, networking, permission, profile, and compatibility responsibilities. The current evidence calls for stock browser engines plus Elatura control first.
 
-The evidence, cross-browser capability matrix, engine-neutral contract requirements, and measurable Firefox exit criteria are maintained in [`transport-capability-matrix.md`](transport-capability-matrix.md).
+The older capability record remains in [`transport-capability-matrix.md`](transport-capability-matrix.md); #117 owns the current Chromium comparison.
+
+## Terminology note
+
+Several existing `packages/core` modules use `orchestration` to name the local detect/validate/plan/materialize control flow. That is an implementation-era name for a bounded transformation pipeline.
+
+Product-facing documentation should use **pipeline** or **runtime control flow** for those modules. Stensibly owns work orchestration, scheduling, dispatch, and continuation across agents/projects.
