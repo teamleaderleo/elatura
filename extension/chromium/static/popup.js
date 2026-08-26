@@ -37,10 +37,12 @@ function button(label, command, disabled = false) {
 
 function lifecycleTokens(lane) {
   const lifecycle = lane.lifecycle;
+  const audio =
+    lane.audioState === "audible" ? "audible" : lane.audioState === "quiet" ? "quiet" : "audio-unknown";
   return [
     lifecycle.active ? "active" : "background",
     lifecycle.pinned ? "pinned" : "unpinned",
-    lifecycle.audible ? "audible" : "quiet",
+    audio,
     lifecycle.discarded ? "discarded" : "loaded",
     lifecycle.frozen === true ? "frozen" : lifecycle.frozen === false ? "unfrozen" : "freeze-unknown",
     lifecycle.autoDiscardable ? "auto-discardable" : "browser-protected",
@@ -71,7 +73,7 @@ function renderLane(lane) {
   } else {
     actions.append(
       button(
-        "Discard",
+        "Manual discard",
         { type: "discard", tabId: lane.tabId },
         lane.manualDiscard?.eligible !== true,
       ),
