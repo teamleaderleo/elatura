@@ -21,6 +21,9 @@ const coreLaneGovernor = await readFile(
   new URL("../packages/core/dist/lane-governor.js", import.meta.url),
   "utf8",
 );
+if (/\bfrom\s+["']\.|\bimport\s*\(\s*["']\./u.test(coreLaneGovernor)) {
+  throw new Error("Chromium lane governor runtime must remain self-contained");
+}
 const chromiumLaneGovernor = coreLaneGovernor.replace(
   /\n\/\/# sourceMappingURL=lane-governor\.js\.map\s*$/u,
   "\n",
