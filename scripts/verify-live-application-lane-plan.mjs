@@ -108,6 +108,9 @@ function verifyElatura(plan, issues) {
   if (!VERSION.test(elatura.revision ?? "")) issue(issues, "elatura-revision-invalid");
   if (!TOKEN.test(elatura.firefoxInterventionToken ?? "")) issue(issues, "firefox-intervention-invalid");
   if (!TOKEN.test(elatura.chromiumInterventionToken ?? "")) issue(issues, "chromium-intervention-invalid");
+  if (elatura.chromiumTransport !== "extension-only" && elatura.chromiumTransport !== "extension-cdp") {
+    issue(issues, "chromium-transport-invalid");
+  }
 }
 
 function verifyProtocol(plan, issues) {
