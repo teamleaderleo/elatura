@@ -38,6 +38,7 @@ export type GoogleDocsLifecycleEligibilityV1 = Readonly<{
 
 const APPLICATION_UNKNOWN_BLOCKERS: readonly ApplicationLaneLifecycleBlocker[] =
   Object.freeze(["application_unknown"]);
+const NO_BLOCKERS: readonly ApplicationLaneLifecycleBlocker[] = Object.freeze([]);
 
 function exactEnum<T extends string>(value: unknown, values: readonly T[], label: string): T {
   if (typeof value !== "string" || !values.includes(value as T)) {
@@ -152,7 +153,8 @@ export function classifyGoogleDocsLifecycleEligibilityV1(
 
   // Discard needs one additional earned fact: the current fixture class has
   // already demonstrated reload fidelity and the current region can be
-  // reacquired. Until then the generic planner sees unknown discard eligibility.
+  // reacquired. This is transition-specific uncertainty rather than an active
+  // application blocker, so discardEligibility carries the uncertainty alone.
   if (
     probe.viewportAnchorAvailable !== "yes" ||
     probe.discardFidelityVerified !== "yes"
@@ -160,13 +162,13 @@ export function classifyGoogleDocsLifecycleEligibilityV1(
     return Object.freeze({
       freezeEligibility,
       discardEligibility: "unknown",
-      blockers: APPLICATION_UNKNOWN_BLOCKERS,
+      blockers: NO_BLOCKERS,
     });
   }
 
   return Object.freeze({
     freezeEligibility,
     discardEligibility: "allowed",
-    blockers: Object.freeze([]),
+    blockers: NO_BLOCKERS,
   });
 }
