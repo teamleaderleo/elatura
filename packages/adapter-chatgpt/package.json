@@ -23,6 +23,10 @@
       "types": "./dist/identities.d.ts",
       "default": "./dist/identities.js"
     },
+    "./lane-activity": {
+      "types": "./dist/lane-activity.d.ts",
+      "default": "./dist/lane-activity.js"
+    },
     "./lane-witness": {
       "types": "./dist/lane-witness.d.ts",
       "default": "./dist/lane-witness.js"
