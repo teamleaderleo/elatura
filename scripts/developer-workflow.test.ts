@@ -44,4 +44,13 @@ describe("developer workflow", () => {
     expect(workflow).toContain('`live-lane:next` is progress guidance only');
     expect(workflow).toContain('`live-lane:check` owns stage/full evidence readiness');
   });
+
+  it("keeps the README on the current developer and application-lane entry points", () => {
+    const readme = read("README.md");
+    expect(readme).toContain("docs/developer-workflow.md");
+    expect(readme).toContain("npm run check:code");
+    expect(readme).toContain("live-lane:next");
+    expect(readme).toContain("benchmark:chatgpt-activity");
+    expect(readme).toContain("extension/chromium/");
+  });
 });
