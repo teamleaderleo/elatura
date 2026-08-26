@@ -146,7 +146,8 @@ browser.runtime.onMessage.addListener((message, sender) => {
 });
 
 browser.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.status === "loading") runtime.clearProjection(tabId);
+  const routeChanged = Object.prototype.hasOwnProperty.call(changeInfo, "url");
+  if (changeInfo.status === "loading" || routeChanged) runtime.clearProjection(tabId);
 });
 
 browser.tabs.onRemoved.addListener((tabId) => {
