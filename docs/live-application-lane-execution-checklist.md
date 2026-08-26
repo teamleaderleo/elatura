@@ -9,7 +9,7 @@ Read [`live-application-lane-benchmark.md`](live-application-lane-benchmark.md) 
 - `docs/live-application-lane-benchmark.md` — full method and analysis contract.
 - `benchmarks/schema/live-application-lane-plan-v1.schema.json` — pre-registered resource-session plan.
 - `benchmarks/schema/live-application-lane-run-v1.schema.json` — one physical resource/attention subrun.
-- `benchmarks/schema/live-application-lane-projection-v1.schema.json` — logical-lane versus browser-projection identity plus signal confidence/freshness.
+- `benchmarks/schema/live-application-lane-projection-v1.schema.json` — cross-browser benchmark pairing, Elatura lane identity, browser projection generation, and canonical content-free lane events.
 - `scripts/create-live-application-lane-plan.mjs` — canonical resource-plan generator.
 - `scripts/verify-live-application-lane-plan.mjs` — rejects a rewritten plan.
 - `scripts/check-live-application-lane-session.mjs` — stage or full-session readiness gate.
@@ -36,7 +36,7 @@ npm run check
 
 Use the exact repository/Elatura revision that will remain frozen through the session.
 
-## 2. Freeze browser identities
+## 2. Freeze browser and transport identities
 
 Record before creating the plan:
 
@@ -46,9 +46,12 @@ Record before creating the plan:
 - Firefox version and build token;
 - Elatura revision token;
 - Firefox managed-intervention token;
-- Chromium managed-intervention token.
+- Chromium managed-intervention token;
+- Chromium Elatura transport: exactly `extension-only` or `extension-cdp`.
 
 A token is a content-free bounded identifier. Use the actual installed build/version identity; avoid labels such as `latest`.
+
+The selected Chromium transport is part of the pre-registration. Both Chromium+Elatura passive and managed subruns use that same transport. This keeps debugger/CDP attachment cost inside the passive-overhead measurement whenever the managed intervention requires it, and keeps CDP completely absent when the selected experiment is extension-only.
 
 ## 3. Create the full pre-registration plan
 
@@ -63,10 +66,11 @@ npm run live-lane:plan -- \
   --elatura-revision abc1234 \
   --firefox-intervention latest3-v1 \
   --chromium-intervention parking-v1 \
+  --chromium-transport extension-only \
   --out artifacts/live-application-lane/session-plan.json
 ```
 
-The output path must be new. The generator refuses to overwrite an existing plan.
+Use `--chromium-transport extension-cdp` only when the selected managed intervention actually requires the CDP-attached transport. The output path must be new. The generator refuses to overwrite an existing plan.
 
 Immediately verify it:
 
@@ -164,14 +168,14 @@ Before start:
 - target browser and Elatura broker fully exited;
 - machine identity and AC-power requirement satisfied;
 - exact browser/build matches the plan;
-- exact Elatura revision/intervention matches the plan;
+- exact Elatura revision/intervention and Chromium transport match the plan;
 - workload lane set matches the stage;
 - no unrelated heavyweight workload runs on the measurement host.
 
 During the run:
 
 - external OS sampler emits a sample every 2 seconds;
-- primary resource intervals run with browser DevTools closed;
+- primary resource intervals run with browser DevTools closed unless the preregistered Chromium transport itself requires bounded CDP attachment;
 - every switch/background return is recorded, including timeouts and reload/discard evidence;
 - the prescribed neutral input action is used unchanged;
 - no private content enters the run/projection JSON;
@@ -205,27 +209,47 @@ The readiness checker rejects missing counts for the live-lane protocol it recor
 
 ## 8. Projection ledger rules
 
-Create one projection ledger per physical subrun.
+Create one projection ledger per physical subrun. Three identities stay separate.
 
-For every benchmark lane record:
+### Benchmark pairing identity
 
-- fixed opaque pairing token;
+Every lane record carries:
+
+- fixed opaque `benchmarkLaneToken`;
 - lane ordinal;
 - application class;
-- opaque locator class only;
-- browser projection generation number;
-- projection state;
-- freshness;
-- recovery state;
-- intervention level.
+- opaque locator class only.
 
-Browser projection generation increments when the current browser realization is reacquired after discard, crash, restart, or equivalent replacement. Raw browser projection identifiers never enter the shared artifact.
+This identity exists only to match the same workload target across the six browser conditions. It has no application authority.
 
-When Elatura is present, retain the canonical application-lane `laneRef + laneGeneration` separately from the cross-condition pairing token. A browser projection id is never substituted for either.
+### Browser projection identity
 
-Every emitted Elatura event/signal record carries its canonical event class, confidence, freshness, source class, and whether it caused an inspection. Elatura event/response records carry zero work authority and zero dispatch authority.
+Every lane record carries a numeric `browserProjectionGeneration` plus projection/freshness/recovery state. The projection generation increments when the current browser realization is reacquired after discard, crash, restart, or equivalent replacement. Raw tab, target, process, profile, and window identifiers never enter the shared artifact.
 
-A stale or unknown-confidence signal must not cause an inspection in the final comparison set. The readiness checker rejects that pairing.
+### Elatura application-lane identity
+
+Stock conditions carry `elaturaLane: null` and `interventionLevel: stock`.
+
+Firefox+Elatura and Chromium+Elatura carry the canonical application-lane identity separately:
+
+```text
+laneRef + laneGeneration + lane state
+```
+
+The readiness checker requires the same `laneRef` for the same stage/lane/Elatura browser condition across compared subruns and permits generation to advance as recovery/rebinding occurs. A browser projection id or benchmark pairing token is never substituted for the Elatura lane reference.
+
+Canonical Elatura events record:
+
+- lane ordinal and lane generation;
+- event type from the merged application-lane vocabulary;
+- confidence: `exact`, `probable`, or `unknown`;
+- freshness: `fresh`, `stale`, or `unknown`;
+- content-free source class;
+- whether the event caused an inspection;
+- `grantsWorkAuthority: false`;
+- `authorizesWorkDispatch: false`.
+
+Stock resource runs carry no Elatura events. A stale event or unknown-confidence event must not cause an inspection in the final comparison set. The readiness checker rejects that pairing and rejects any event claiming work or dispatch authority.
 
 ## 9. Stage order and machine-checked stop gates
 
@@ -304,7 +328,7 @@ npm run live-lane:check -- \
   --out artifacts/live-application-lane/full-readiness.json
 ```
 
-With no `--stage`, `ready: true` means the bundle contains the complete canonical 112-subrun plan: exactly one run and linked projection ledger per slot, matching browser/Elatura/workload identities, monotonic completion order, complete switching counts, sampler continuity, passing fidelity/recovery gates, stable benchmark pairing tokens, and clean privacy flags according to the checker.
+With no `--stage`, `ready: true` means the bundle contains the complete canonical 112-subrun plan: exactly one run and linked projection ledger per slot, matching browser/Elatura/workload identities, monotonic completion order, complete switching counts, sampler continuity, passing fidelity/recovery gates, stable benchmark pairing tokens, generation-bound Elatura lane identity where applicable, and clean privacy flags according to the checker.
 
 A readiness failure stays visible as fixed issue codes. Repair the collection protocol or repeat the affected whole block under the runbook rules. Do not delete an inconvenient metric or edit the plan.
 
