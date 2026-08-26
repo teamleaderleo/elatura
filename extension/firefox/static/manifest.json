@@ -13,7 +13,10 @@
     "https://chatgpt.com/*"
   ],
   "background": {
-    "scripts": ["background.js"],
+    "scripts": [
+      "background.js",
+      "chatgpt-lane-activity-background.js"
+    ],
     "type": "module"
   },
   "content_scripts": [
