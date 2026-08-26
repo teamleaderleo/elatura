@@ -248,11 +248,6 @@ export class ApplicationLaneRuntimeV1 {
       return result("inserted", descriptor);
     }
 
-    // One durable lane reference keeps one application adapter identity. An
-    // adapter version may change with a newer generation; an adapter id cannot.
-    if (descriptor.adapter.id !== entry.descriptor.adapter.id) {
-      return result("descriptor-conflict", entry.descriptor);
-    }
     if (descriptor.generation < entry.descriptor.generation) {
       return result("stale-generation", entry.descriptor);
     }
@@ -415,8 +410,7 @@ export class ApplicationLaneRuntimeV1 {
         payload.laneRef !== response.laneRef ||
         payload.generation !== response.laneGeneration ||
         payload.state !== response.state ||
-        payload.observedAt !== response.observedAt ||
-        payload.adapter.id !== entry.descriptor.adapter.id
+        payload.observedAt !== response.observedAt
       ) {
         return result("response-mismatch");
       }
