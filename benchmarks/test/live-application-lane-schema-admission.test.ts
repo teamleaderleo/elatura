@@ -47,6 +47,7 @@ function stockRun(plan: Record<string, any>, runId: string) {
     experimentId: "live-lane-v1",
     sessionId: plan.sessionId,
     runId,
+    startedAt: "2026-08-27T00:59:00.000Z",
     recordedAt: "2026-08-27T01:00:00.000Z",
     block: {
       stage: "chatgpt-single",
