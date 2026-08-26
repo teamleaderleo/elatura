@@ -11,6 +11,7 @@ const POPUP_PATH = "extension/chromium/static/popup.js";
 const POPUP_HTML_PATH = "extension/chromium/static/popup.html";
 const POPUP_CSS_PATH = "extension/chromium/static/popup.css";
 const PROJECTION_PATH = "extension/chromium/src/projection.ts";
+const BINDING_PATH = "extension/chromium/src/binding.ts";
 
 const ALLOWED_MANIFEST_KEYS = [
   "manifest_version",
@@ -138,6 +139,19 @@ function verifyPopup(source) {
   }
 }
 
+function verifyBinding(source) {
+  const required = [
+    'source: "explicit-local-binding"',
+    'blocker !== "application_unknown"',
+    "planApplicationLaneResidencyV1(",
+    'effect: "none"',
+  ];
+  for (const token of required) {
+    assert.equal(source.includes(token), true, `Chromium binding missing reviewed token: ${token}`);
+  }
+  assert.equal(/\bchrome\./u.test(source), false, "Pure Chromium binding must not invoke browser APIs");
+}
+
 function runSelfTests() {
   const hostileManifest = {
     manifest_version: 3,
@@ -168,23 +182,26 @@ function runSelfTests() {
 
 async function main() {
   runSelfTests();
-  const [manifestText, background, popup, popupHtml, popupCss, projection] = await Promise.all([
+  const [manifestText, background, popup, popupHtml, popupCss, projection, binding] = await Promise.all([
     readFile(join(ROOT, MANIFEST_PATH), "utf8"),
     readFile(join(ROOT, BACKGROUND_PATH), "utf8"),
     readFile(join(ROOT, POPUP_PATH), "utf8"),
     readFile(join(ROOT, POPUP_HTML_PATH), "utf8"),
     readFile(join(ROOT, POPUP_CSS_PATH), "utf8"),
     readFile(join(ROOT, PROJECTION_PATH), "utf8"),
+    readFile(join(ROOT, BINDING_PATH), "utf8"),
   ]);
 
   verifyManifest(JSON.parse(manifestText));
   verifyBackground(background);
   verifyPopup(popup);
+  verifyBinding(binding);
 
   const findings = [
     ...scanJavaScript(BACKGROUND_PATH, background),
     ...scanJavaScript(POPUP_PATH, popup),
     ...scanJavaScript(PROJECTION_PATH, projection),
+    ...scanJavaScript(BINDING_PATH, binding),
     ...scanPatterns(POPUP_HTML_PATH, popupHtml, REMOTE_ASSET_PATTERNS),
     ...scanPatterns(POPUP_CSS_PATH, popupCss, REMOTE_ASSET_PATTERNS),
   ];
