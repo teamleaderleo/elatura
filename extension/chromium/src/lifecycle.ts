@@ -9,8 +9,11 @@ export type ManualDiscardReason =
   | "active-tab"
   | "pinned-tab"
   | "audible-tab"
+  | "audible-unknown"
   | "already-discarded"
   | "browser-protected";
+
+export type ChromiumAudioState = "audible" | "quiet" | "unknown";
 
 export interface ChromiumTabLike {
   id?: number;
@@ -40,6 +43,7 @@ export interface ChromiumLaneProjection {
   tabId: number;
   windowId: number;
   tabIndex: number;
+  audioState: ChromiumAudioState;
   lifecycle: ChromiumLaneLifecycle;
   manualDiscard: {
     eligible: boolean;
@@ -92,6 +96,7 @@ export function manualDiscardEligibility(tab: ChromiumTabLike): {
   if (tab.active) return Object.freeze({ eligible: false, reason: "active-tab" });
   if (tab.pinned) return Object.freeze({ eligible: false, reason: "pinned-tab" });
   if (tab.audible === true) return Object.freeze({ eligible: false, reason: "audible-tab" });
+  if (tab.audible === undefined) return Object.freeze({ eligible: false, reason: "audible-unknown" });
   if (tab.discarded) return Object.freeze({ eligible: false, reason: "already-discarded" });
   if (!tab.autoDiscardable) return Object.freeze({ eligible: false, reason: "browser-protected" });
   return Object.freeze({ eligible: true, reason: "eligible" });
@@ -106,7 +111,9 @@ export function projectChromiumTab(tab: ChromiumTabLike): ChromiumLaneProjection
   const pinned = booleanValue(tab.pinned, "tab.pinned");
   const discarded = booleanValue(tab.discarded, "tab.discarded");
   const autoDiscardable = booleanValue(tab.autoDiscardable, "tab.autoDiscardable");
-  const audible = tab.audible === undefined ? false : booleanValue(tab.audible, "tab.audible");
+  const audioState: ChromiumAudioState =
+    tab.audible === undefined ? "unknown" : booleanValue(tab.audible, "tab.audible") ? "audible" : "quiet";
+  const audible = audioState === "audible";
   const frozen = tab.frozen === undefined ? null : booleanValue(tab.frozen, "tab.frozen");
 
   const lifecycle = Object.freeze({
@@ -124,12 +131,13 @@ export function projectChromiumTab(tab: ChromiumTabLike): ChromiumLaneProjection
     tabId,
     windowId,
     tabIndex,
+    audioState,
     lifecycle,
     manualDiscard: manualDiscardEligibility({
       id: tabId,
       active,
       pinned,
-      audible,
+      audible: tab.audible,
       discarded,
       frozen: frozen ?? undefined,
       autoDiscardable,
