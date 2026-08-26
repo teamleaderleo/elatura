@@ -12,7 +12,6 @@ import {
   readNumericPsProcessTable,
 } from "./live-application-lane-resource-sampler.mjs";
 
-const MAX_SAMPLES = 10_000;
 const MAX_DURATION_MS = 86_400_000;
 
 function usage() {
@@ -74,7 +73,6 @@ function errorCode(error) {
   if (!(error instanceof Error)) return "process-snapshot-failed";
   if (error.message === "state-invalid") return "state-invalid";
   if (error.message.includes("process trees overlap")) return "process-tree-overlap";
-  if (error.message === "sample-limit") return "sample-limit";
   return "process-snapshot-failed";
 }
 
@@ -124,9 +122,12 @@ async function main() {
 
   const startedAt = new Date().toISOString();
   const startedMonotonicMs = performance.now();
+  const durationDeadlineMs =
+    args.durationMs === null ? null : startedMonotonicMs + args.durationMs;
   let sampleCount = 0;
   let requestedStop = null;
   let fatalCode = null;
+  let stoppedAt = null;
 
   const requestSignalStop = () => {
     if (requestedStop === null) requestedStop = "signal";
@@ -147,7 +148,6 @@ async function main() {
       const sampleStartedMonotonicMs = performance.now();
       const elapsedMs = Math.max(0, Math.round(sampleStartedMonotonicMs - startedMonotonicMs));
       try {
-        if (sampleCount >= MAX_SAMPLES) throw new TypeError("sample-limit");
         const state = await readState(args.state);
         const rows = readNumericPsProcessTable();
         const aggregate = aggregateLiveLaneProcessSnapshot(rows, state, elapsedMs);
@@ -165,26 +165,29 @@ async function main() {
         break;
       }
 
-      const elapsedAfterSampleMs = performance.now() - startedMonotonicMs;
-      if (args.durationMs !== null && elapsedAfterSampleMs >= args.durationMs) {
+      const nowMonotonicMs = performance.now();
+      if (durationDeadlineMs !== null && nowMonotonicMs >= durationDeadlineMs) {
         requestedStop = "duration";
         break;
       }
-      const nextDeadlineMs = startedMonotonicMs + sampleCount * LIVE_LANE_RESOURCE_SAMPLE_PERIOD_MS;
-      await sleep(nextDeadlineMs - performance.now());
-      if (
-        args.durationMs !== null &&
-        performance.now() - startedMonotonicMs >= args.durationMs
-      ) {
+      const nextSampleDeadlineMs =
+        startedMonotonicMs + sampleCount * LIVE_LANE_RESOURCE_SAMPLE_PERIOD_MS;
+      const wakeDeadlineMs =
+        durationDeadlineMs === null
+          ? nextSampleDeadlineMs
+          : Math.min(nextSampleDeadlineMs, durationDeadlineMs);
+      await sleep(wakeDeadlineMs - performance.now());
+      if (durationDeadlineMs !== null && performance.now() >= durationDeadlineMs) {
         requestedStop = "duration";
       }
     }
 
     const stopReason = requestedStop ?? "signal";
+    stoppedAt = new Date().toISOString();
     await appendJson(
       handle,
       createLiveLaneSamplerFooter({
-        stoppedAt: new Date().toISOString(),
+        stoppedAt,
         sampleCount,
         stopReason,
         errorCode: stopReason === "error" ? fatalCode : null,
@@ -210,7 +213,7 @@ async function main() {
   process.stdout.write(`${JSON.stringify({
     kind: "live-application-lane-resource-sampler-complete",
     startedAt,
-    stoppedAt: new Date().toISOString(),
+    stoppedAt,
     sampleCount,
     stopReason: requestedStop ?? "signal",
     samplePeriodMs: LIVE_LANE_RESOURCE_SAMPLE_PERIOD_MS,
