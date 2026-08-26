@@ -35,11 +35,17 @@
     "elatura": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["revision", "firefoxInterventionToken", "chromiumInterventionToken"],
+      "required": [
+        "revision",
+        "firefoxInterventionToken",
+        "chromiumInterventionToken",
+        "chromiumTransport"
+      ],
       "properties": {
         "revision": { "$ref": "#/$defs/versionToken" },
         "firefoxInterventionToken": { "$ref": "#/$defs/token" },
-        "chromiumInterventionToken": { "$ref": "#/$defs/token" }
+        "chromiumInterventionToken": { "$ref": "#/$defs/token" },
+        "chromiumTransport": { "enum": ["extension-only", "extension-cdp"] }
       }
     },
     "protocol": {
@@ -240,7 +246,7 @@
           "properties": {
             "stage": { "const": "gdocs-single" },
             "application": { "const": "google-docs" },
-            "workloadToken": { "const": "gdocs-text-100k-v1" },
+            "workloadToken": { "const": "docs-large-text-v1" },
             "pattern": { "const": "single-lane" },
             "laneCount": { "const": 1 },
             "blockCount": { "const": 3 },
@@ -256,7 +262,7 @@
           "properties": {
             "stage": { "const": "gdocs-switch-8" },
             "application": { "const": "google-docs" },
-            "workloadToken": { "const": "gdocs-switch-8" },
+            "workloadToken": { "const": "docs-switch-8-v1" },
             "pattern": { "const": "switch-8" },
             "laneCount": { "const": 8 },
             "blockCount": { "const": 3 },
