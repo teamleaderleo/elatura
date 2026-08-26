@@ -10,24 +10,39 @@ function read(relativePath: string): string {
 }
 
 describe("Firefox ChatGPT activity route browser boundary", () => {
-  it("routes only an explicit tab id and exact lane target", () => {
+  it("discovers and samples only an explicit tab id", () => {
     const background = read("extension/firefox/src/background.ts");
 
-    expect(background).toContain("browser.tabs.sendMessage(request.tabId");
+    expect(background.match(/browser\.tabs\.sendMessage\(request\.tabId/gu)?.length).toBe(2);
     expect(background).toContain("laneRef: request.laneRef");
     expect(background).toContain("laneGeneration: request.laneGeneration");
+    expect(background).toContain("documentProjectionRef: request.documentProjectionRef");
     expect(background).not.toContain("browser.tabs.query(");
   });
 
-  it("refuses cross-tab route requests originating from content scripts", () => {
+  it("refuses discovery and sample routing requests originating from content scripts", () => {
     const background = read("extension/firefox/src/background.ts");
-    const parseIndex = background.indexOf("parseFirefoxChatGptActivityRouteMessageV1(message)");
-    const senderFence = background.indexOf("sender?.tab?.id !== undefined", parseIndex);
-    const routeCall = background.indexOf("sampleChatGptLaneActivityOnTab(activityRequest)", parseIndex);
+    const discoveryParse = background.indexOf(
+      "parseFirefoxChatGptDocumentProjectionRouteMessageV1(message)",
+    );
+    const discoveryFence = background.indexOf("sender?.tab?.id !== undefined", discoveryParse);
+    const discoveryCall = background.indexOf(
+      "discoverChatGptDocumentProjectionOnTab(documentProjectionRequest)",
+      discoveryParse,
+    );
+    const sampleParse = background.indexOf("parseFirefoxChatGptActivityRouteMessageV2(message)");
+    const sampleFence = background.indexOf("sender?.tab?.id !== undefined", sampleParse);
+    const sampleCall = background.indexOf(
+      "sampleChatGptLaneActivityOnTab(activityRequest)",
+      sampleParse,
+    );
 
-    expect(parseIndex).toBeGreaterThanOrEqual(0);
-    expect(senderFence).toBeGreaterThan(parseIndex);
-    expect(routeCall).toBeGreaterThan(senderFence);
+    expect(discoveryParse).toBeGreaterThanOrEqual(0);
+    expect(discoveryFence).toBeGreaterThan(discoveryParse);
+    expect(discoveryCall).toBeGreaterThan(discoveryFence);
+    expect(sampleParse).toBeGreaterThan(discoveryCall);
+    expect(sampleFence).toBeGreaterThan(sampleParse);
+    expect(sampleCall).toBeGreaterThan(sampleFence);
   });
 
   it("keeps the pure route free of browser, storage, network, and logging sinks", () => {
@@ -40,19 +55,35 @@ describe("Firefox ChatGPT activity route browser boundary", () => {
     expect(route).not.toMatch(/\b(?:url|title|transcript|prompt|answer|cookie|credential)\b/iu);
   });
 
-  it("keeps the background and content producer on one fixed wire message", () => {
+  it("keeps background and content producer on fixed discovery and sample wire messages", () => {
     const route = read("extension/firefox/src/chatgpt-lane-activity-route.ts");
     const producer = read("extension/firefox/src/chatgpt-lane-activity-producer.ts");
 
-    const routeWire = route.match(
+    const routeSampleWire = route.match(
       /FIREFOX_CHATGPT_ACTIVITY_CONTENT_MESSAGE_TYPE\s*=\s*\n?\s*"([^"]+)"/u,
     )?.[1];
-    const producerWire = producer.match(
+    const producerSampleWire = producer.match(
       /FIREFOX_CHATGPT_ACTIVITY_MESSAGE_TYPE\s*=\s*\n?\s*"([^"]+)"/u,
     )?.[1];
+    const routeDiscoveryWire = route.match(
+      /FIREFOX_CHATGPT_DOCUMENT_PROJECTION_CONTENT_MESSAGE_TYPE\s*=\s*\n?\s*"([^"]+)"/u,
+    )?.[1];
+    const producerDiscoveryWire = producer.match(
+      /FIREFOX_CHATGPT_DOCUMENT_PROJECTION_MESSAGE_TYPE\s*=\s*\n?\s*"([^"]+)"/u,
+    )?.[1];
 
-    expect(routeWire).toBe("elatura:sample-chatgpt-lane-activity");
-    expect(producerWire).toBe(routeWire);
+    expect(routeSampleWire).toBe("elatura:sample-chatgpt-lane-activity");
+    expect(producerSampleWire).toBe(routeSampleWire);
+    expect(routeDiscoveryWire).toBe("elatura:get-chatgpt-document-projection");
+    expect(producerDiscoveryWire).toBe(routeDiscoveryWire);
+  });
+
+  it("keeps the private local route key out of producer responses and artifacts", () => {
+    const producer = read("extension/firefox/src/chatgpt-lane-activity-producer.ts");
+
+    expect(producer).toContain("return documentRef.URL;");
+    expect(producer).toContain("The URL is used only as a private local route-change detector");
+    expect(producer).not.toMatch(/(?:laneRef|documentProjectionRef):\s*documentRef\.URL/u);
   });
 
   it("keeps the runtime route extension-internal", () => {

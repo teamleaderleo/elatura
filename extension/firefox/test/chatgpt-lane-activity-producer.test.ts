@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { parseChatGptLaneActivityObservationV1 } from "@elatura/adapter-chatgpt/lane-activity";
 import {
   classifyFirefoxChatGptLaneActivityV1,
-  parseFirefoxChatGptLaneActivityTargetV1,
+  createFirefoxChatGptDocumentProjectionState,
+  parseFirefoxChatGptLaneActivityTargetV2,
   type FirefoxChatGptPageSignalSnapshotV1,
 } from "../src/chatgpt-lane-activity-producer.js";
 
@@ -11,7 +12,12 @@ const NOW = 1_000_000;
 const TARGET = Object.freeze({
   laneRef: "elatura:lane:chat-firefox",
   laneGeneration: 12,
+  documentProjectionRef: "firefox-chatgpt-document-a",
 });
+
+function laneTarget() {
+  return { laneRef: TARGET.laneRef, laneGeneration: TARGET.laneGeneration };
+}
 
 function snapshot(
   overrides: Partial<FirefoxChatGptPageSignalSnapshotV1> = {},
@@ -29,12 +35,12 @@ function snapshot(
 }
 
 describe("Firefox ChatGPT activity target", () => {
-  it("accepts exact durable lane identity supplied by the trusted caller", () => {
-    expect(parseFirefoxChatGptLaneActivityTargetV1(TARGET)).toEqual(TARGET);
+  it("accepts exact durable lane identity plus the current private document projection", () => {
+    expect(parseFirefoxChatGptLaneActivityTargetV2(TARGET)).toEqual(TARGET);
   });
 
   it("rejects browser/content decoration and accessors without invoking them", () => {
-    expect(() => parseFirefoxChatGptLaneActivityTargetV1({
+    expect(() => parseFirefoxChatGptLaneActivityTargetV2({
       ...TARGET,
       tabId: 17,
     })).toThrow("target is invalid");
@@ -48,17 +54,42 @@ describe("Firefox ChatGPT activity target", () => {
         return TARGET.laneRef;
       },
     });
-    expect(() => parseFirefoxChatGptLaneActivityTargetV1(hostile)).toThrow(
+    expect(() => parseFirefoxChatGptLaneActivityTargetV2(hostile)).toThrow(
       "target is invalid",
     );
     expect(reads).toBe(0);
   });
 });
 
+describe("Firefox ChatGPT document projection epoch", () => {
+  it("keeps one projection stable while the private route key is unchanged", () => {
+    const refs = ["firefox-chatgpt-document-a", "firefox-chatgpt-document-b"];
+    const state = createFirefoxChatGptDocumentProjectionState(
+      "https://chatgpt.com/c/a",
+      () => refs.shift() ?? "firefox-chatgpt-document-fallback",
+    );
+
+    expect(state.current("https://chatgpt.com/c/a")).toBe("firefox-chatgpt-document-a");
+    expect(state.current("https://chatgpt.com/c/a")).toBe("firefox-chatgpt-document-a");
+  });
+
+  it("rotates the projection when the locally observed ChatGPT route changes", () => {
+    const refs = ["firefox-chatgpt-document-a", "firefox-chatgpt-document-b"];
+    const state = createFirefoxChatGptDocumentProjectionState(
+      "https://chatgpt.com/c/a",
+      () => refs.shift() ?? "firefox-chatgpt-document-fallback",
+    );
+
+    expect(state.current("https://chatgpt.com/c/a")).toBe("firefox-chatgpt-document-a");
+    expect(state.current("https://chatgpt.com/c/b")).toBe("firefox-chatgpt-document-b");
+    expect(state.current("https://chatgpt.com/c/b")).toBe("firefox-chatgpt-document-b");
+  });
+});
+
 describe("Firefox ChatGPT activity classification", () => {
   it("emits an exact generation blocker when the live page shows generation activity", () => {
     const observation = classifyFirefoxChatGptLaneActivityV1(
-      TARGET,
+      laneTarget(),
       snapshot({ generationMarkerActive: true }),
       NOW,
     );
@@ -82,7 +113,7 @@ describe("Firefox ChatGPT activity classification", () => {
 
   it("emits an exact unsaved-interaction blocker for a dirty composer", () => {
     const observation = classifyFirefoxChatGptLaneActivityV1(
-      TARGET,
+      laneTarget(),
       snapshot({ composerDirty: true }),
       NOW,
     );
@@ -92,17 +123,17 @@ describe("Firefox ChatGPT activity classification", () => {
 
   it("emits exact IME/modal/media blockers when observed", () => {
     const composition = classifyFirefoxChatGptLaneActivityV1(
-      TARGET,
+      laneTarget(),
       snapshot({ compositionActive: true }),
       NOW,
     );
     const modal = classifyFirefoxChatGptLaneActivityV1(
-      TARGET,
+      laneTarget(),
       snapshot({ modalActive: true }),
       NOW,
     );
     const media = classifyFirefoxChatGptLaneActivityV1(
-      TARGET,
+      laneTarget(),
       snapshot({ mediaActive: true }),
       NOW,
     );
@@ -113,7 +144,7 @@ describe("Firefox ChatGPT activity classification", () => {
   });
 
   it("keeps a quiet page probable while unsupported dimensions remain unknown", () => {
-    const observation = classifyFirefoxChatGptLaneActivityV1(TARGET, snapshot(), NOW);
+    const observation = classifyFirefoxChatGptLaneActivityV1(laneTarget(), snapshot(), NOW);
     expect(observation).toMatchObject({
       confidence: "probable",
       generation: "inactive",
@@ -129,7 +160,7 @@ describe("Firefox ChatGPT activity classification", () => {
 
   it("keeps missing or ambiguous live markers unknown", () => {
     const observation = classifyFirefoxChatGptLaneActivityV1(
-      TARGET,
+      laneTarget(),
       snapshot({
         conversationMarkersPresent: false,
         composerCount: 2,
@@ -145,7 +176,7 @@ describe("Firefox ChatGPT activity classification", () => {
   });
 
   it("emits only the reviewed content-free sentinel keys", () => {
-    const observation = classifyFirefoxChatGptLaneActivityV1(TARGET, snapshot(), NOW);
+    const observation = classifyFirefoxChatGptLaneActivityV1(laneTarget(), snapshot(), NOW);
     expect(Object.keys(observation).sort()).toEqual([
       "authorizesWorkDispatch",
       "composer",
