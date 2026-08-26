@@ -13,6 +13,10 @@
       "types": "./dist/adapter-contract.d.ts",
       "default": "./dist/adapter-contract.js"
     },
+    "./application-lanes": {
+      "types": "./dist/application-lanes.d.ts",
+      "default": "./dist/application-lanes.js"
+    },
     "./cache": {
       "types": "./dist/cache.d.ts",
       "default": "./dist/cache.js"
