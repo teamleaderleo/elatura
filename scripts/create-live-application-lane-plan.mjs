@@ -62,15 +62,16 @@ const REQUIRED = [
 
 function usage() {
   return [
-    "Usage:",
-    "  node scripts/create-live-application-lane-plan.mjs \\",
-    "    --edge-version <token> --edge-build <token> \\",
-    "    --chrome-version <token> --chrome-build <token> \\",
-    "    --chromium-version <token> --chromium-build <token> \\",
-    "    --firefox-version <token> --firefox-build <token> \\",
-    "    --elatura-revision <token> \\",
-    "    --firefox-intervention <token> --chromium-intervention <token> \\",
-    "    [--out <path>]",
+    "Usage: node scripts/create-live-application-lane-plan.mjs <options>",
+    "Required options:",
+    "  --edge-version <token> --edge-build <token>",
+    "  --chrome-version <token> --chrome-build <token>",
+    "  --chromium-version <token> --chromium-build <token>",
+    "  --firefox-version <token> --firefox-build <token>",
+    "  --elatura-revision <token>",
+    "  --firefox-intervention <lowercase-token>",
+    "  --chromium-intervention <lowercase-token>",
+    "Optional: --out <new-path>",
   ].join("\n");
 }
 
@@ -90,9 +91,16 @@ function parseArgs(argv) {
   return { help: false, values };
 }
 
-function token(value, option) {
+function versionToken(value, option) {
   if (typeof value !== "string" || !/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,95}$/u.test(value)) {
-    throw new Error(`--${option} must be a bounded token`);
+    throw new Error(`--${option} must be a bounded version token`);
+  }
+  return value;
+}
+
+function lowerToken(value, option) {
+  if (typeof value !== "string" || !/^[a-z0-9][a-z0-9._-]{0,95}$/u.test(value)) {
+    throw new Error(`--${option} must be a bounded lowercase token`);
   }
   return value;
 }
@@ -141,22 +149,45 @@ function stagePlan(stage) {
 
 function createPlan(values) {
   exactKeys(values);
-  const v = (key) => token(values.get(key), key);
+  const version = (key) => versionToken(values.get(key), key);
   return {
     schemaVersion: 1,
     kind: "live-application-lane-plan",
     sessionId: randomUUID(),
     generatedAt: new Date().toISOString(),
     browsers: {
-      ES: { product: "Edge", engineFamily: "blink-v8", version: v("edge-version"), buildToken: v("edge-build") },
-      CS: { product: "Chrome", engineFamily: "blink-v8", version: v("chrome-version"), buildToken: v("chrome-build") },
-      CRS: { product: "Chromium", engineFamily: "blink-v8", version: v("chromium-version"), buildToken: v("chromium-build") },
-      FS: { product: "Firefox", engineFamily: "gecko-spidermonkey", version: v("firefox-version"), buildToken: v("firefox-build") },
+      ES: {
+        product: "Edge",
+        engineFamily: "blink-v8",
+        version: version("edge-version"),
+        buildToken: version("edge-build"),
+      },
+      CS: {
+        product: "Chrome",
+        engineFamily: "blink-v8",
+        version: version("chrome-version"),
+        buildToken: version("chrome-build"),
+      },
+      CRS: {
+        product: "Chromium",
+        engineFamily: "blink-v8",
+        version: version("chromium-version"),
+        buildToken: version("chromium-build"),
+      },
+      FS: {
+        product: "Firefox",
+        engineFamily: "gecko-spidermonkey",
+        version: version("firefox-version"),
+        buildToken: version("firefox-build"),
+      },
     },
     elatura: {
-      revision: v("elatura-revision"),
-      firefoxInterventionToken: v("firefox-intervention").toLowerCase(),
-      chromiumInterventionToken: v("chromium-intervention").toLowerCase(),
+      revision: version("elatura-revision"),
+      firefoxInterventionToken: lowerToken(values.get("firefox-intervention"), "firefox-intervention"),
+      chromiumInterventionToken: lowerToken(
+        values.get("chromium-intervention"),
+        "chromium-intervention",
+      ),
     },
     protocol: {
       samplePeriodMs: 2000,
@@ -187,9 +218,8 @@ function createPlan(values) {
 }
 
 async function main() {
-  let parsed;
   try {
-    parsed = parseArgs(process.argv.slice(2));
+    const parsed = parseArgs(process.argv.slice(2));
     if (parsed.help) {
       process.stdout.write(`${usage()}\n`);
       return;
