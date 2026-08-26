@@ -133,7 +133,7 @@ describe("Firefox ChatGPT activity route response admission", () => {
     });
   });
 
-  it("builds fixed browser/content failure receipts", () => {
+  it("builds only coherent fixed browser/content failure receipts", () => {
     expect(createFirefoxChatGptActivityRouteFailureV1(
       REQUEST,
       "unavailable",
@@ -152,6 +152,11 @@ describe("Firefox ChatGPT activity route response admission", () => {
       reason: "operation_failed",
       observation: null,
     });
+    expect(() => createFirefoxChatGptActivityRouteFailureV1(
+      REQUEST,
+      "unavailable",
+      "operation_failed",
+    )).toThrow("receipt is incoherent");
   });
 
   it("parses and correlates sampled receipts before caller consumption", () => {
@@ -167,11 +172,19 @@ describe("Firefox ChatGPT activity route response admission", () => {
     )).toEqual({ matched: false, reason: "request_mismatch" });
   });
 
-  it("rejects incoherent sampled receipts", () => {
+  it("rejects incoherent sampled and failed receipts", () => {
     const receipt = admitFirefoxChatGptActivityRouteResponseV1(REQUEST, observation());
     expect(() => parseFirefoxChatGptActivityRouteReceiptV1({
       ...receipt,
       observation: null,
-    })).toThrow("sampled receipt is incoherent");
+    })).toThrow("receipt is incoherent");
+    expect(() => parseFirefoxChatGptActivityRouteReceiptV1({
+      ...createFirefoxChatGptActivityRouteFailureV1(
+        REQUEST,
+        "unavailable",
+        "content_unavailable",
+      ),
+      reason: "sampled",
+    })).toThrow("receipt is incoherent");
   });
 });
