@@ -136,6 +136,36 @@ describe("Firefox ChatGPT activity projection binding", () => {
     expect(wrongLane.receipt.status).toBe("response_mismatch");
   });
 
+  it("rejects decorated content-bearing replies and accessor-backed sentinel fields", async () => {
+    const runtime = new FirefoxChatGptActivityBindingRuntimeV1();
+    runtime.registerProjection(17, REF_A);
+    runtime.bind(TARGET, 17, REF_A);
+
+    const decorated = { ...observation(), transcriptText: "synthetic-private-canary" };
+    const decoratedResult = await runtime.sample(TARGET, async () => ({
+      projectionRef: REF_A,
+      observation: decorated,
+    }));
+    expect(decoratedResult.receipt.status).toBe("response_mismatch");
+    expect(JSON.stringify(decoratedResult)).not.toContain("synthetic-private-canary");
+
+    let reads = 0;
+    const hostile = { ...observation() } as Record<string, unknown>;
+    Object.defineProperty(hostile, "laneRef", {
+      enumerable: true,
+      get() {
+        reads += 1;
+        return TARGET.laneRef;
+      },
+    });
+    const hostileResult = await runtime.sample(TARGET, async () => ({
+      projectionRef: REF_A,
+      observation: hostile,
+    }));
+    expect(hostileResult.receipt.status).toBe("response_mismatch");
+    expect(reads).toBe(0);
+  });
+
   it("clears all currentness on runtime restart", async () => {
     const runtime = new FirefoxChatGptActivityBindingRuntimeV1();
     runtime.registerProjection(17, REF_A);
