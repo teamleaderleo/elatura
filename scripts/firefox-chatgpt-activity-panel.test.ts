@@ -26,6 +26,26 @@ const PANEL_IDS = [
   "activity-panel-status",
 ] as const;
 
+const DIRECT_SELECTOR_IDS = [
+  "activity-lane-ref",
+  "activity-lane-generation",
+  "activity-bind",
+  "activity-sample",
+  "activity-binding",
+  "activity-panel-status",
+] as const;
+
+const OBSERVATION_OUTPUT_IDS = [
+  "activity-confidence",
+  "activity-generation",
+  "activity-composer",
+  "activity-composition",
+  "activity-modal",
+  "activity-media",
+  "activity-download",
+  "activity-transient",
+] as const;
+
 describe("Firefox ChatGPT activity popup panel boundary", () => {
   it("keeps popup markup and TypeScript wiring in lockstep", () => {
     const html = read("extension/firefox/static/popup.html");
@@ -33,8 +53,14 @@ describe("Firefox ChatGPT activity popup panel boundary", () => {
 
     for (const id of PANEL_IDS) {
       expect(html).toContain(`id="${id}"`);
+    }
+    for (const id of DIRECT_SELECTOR_IDS) {
       expect(popup).toContain(`#${id}`);
     }
+    for (const id of OBSERVATION_OUTPUT_IDS) {
+      expect(popup).toContain(`"${id}":`);
+    }
+    expect(popup).toContain("document.querySelector(`#${id}`)!.textContent = value;");
     expect(html).toContain("Volatile diagnostics only");
     expect(html).toContain("Closing the popup clears the private binding");
   });
@@ -59,7 +85,9 @@ describe("Firefox ChatGPT activity popup panel boundary", () => {
 
     expect(popup).not.toContain("documentProjectionRef");
     expect(panel).toContain("documentProjectionRef");
-    expect(panel).toContain("status: \"stale\", binding: null");
+    expect(panel).toContain(
+      'if (outcome === "stale_projection") return sampleResult("stale", null, null);',
+    );
   });
 
   it("clears the binding when the lane target changes or a sample goes stale", () => {
