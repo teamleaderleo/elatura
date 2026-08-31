@@ -104,9 +104,14 @@ comparison is not established.
 - The presentation-only profile mechanically prevents Mac input, so the phone
   remains authoritative for touch and voice. The host-control profile and
   virtual-display profile both launched successfully with Mac keyboard/mouse
-  injection enabled. Operator-rated latency, text/scroll quality, audio sync,
-  IME behavior, dictation ergonomics, and clipboard behavior are not yet
-  recorded.
+  injection enabled. In the final content-free reading arm, the operator used
+  Mac scrolling and text entry followed by direct phone scrolling, and rated
+  the overall response "good" and "fast." A transient Mac screenshot confirmed
+  crisp large synthetic text at the current scale, but also showed the ordinary
+  physical-display browser in a narrow portrait window that initially required
+  clearing an overlapping Mac window. The screenshot was moved to Trash.
+  Perceived audio sync, advanced IME behavior, dictation ergonomics, and
+  clipboard behavior remain unrated.
 - Ending and relaunching scrcpy does not end the ordinary phone-hosted app. This
   is the useful continuity property: the physical display and its task stack
   remain on the phone, so there is no application-state transfer when leaving
