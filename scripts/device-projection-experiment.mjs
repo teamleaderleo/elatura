@@ -174,6 +174,13 @@ function adbState() {
   return parseAdbState(command("adb", ["devices"]));
 }
 
+function authorizedTcpipEndpoints() {
+  return (command("adb", ["devices"]) ?? "").split(/\r?\n/u).slice(1).flatMap((line) => {
+    const [transport = "", state = ""] = line.trim().split(/\s+/u);
+    return state === "device" && transport.includes(":") ? [transport] : [];
+  });
+}
+
 function adbTargetArgs(state) {
   if (state.tcpipAuthorizedCount === 1 && command("adb", ["-e", "get-state"]) === "device") return ["-e"];
   if (state.usbAuthorizedCount === 1 && command("adb", ["-d", "get-state"]) === "device") return ["-d"];
@@ -616,6 +623,32 @@ async function serveWorkload(options) {
   await new Promise((done) => server.close(done));
 }
 
+async function probeWirelessReconnect() {
+  const endpoints = authorizedTcpipEndpoints();
+  if (endpoints.length !== 1) throw new Error("exactly one authorized wireless Android transport is required");
+  const endpoint = endpoints[0];
+  const disconnected = command("adb", ["disconnect", endpoint]) !== null;
+  if (!disconnected) throw new Error("wireless Android transport disconnect failed");
+  await new Promise((done) => setTimeout(done, 500));
+  const reconnectStartedAt = Date.now();
+  const connectAccepted = command("adb", ["connect", endpoint]) !== null;
+  let reconnected = false;
+  while (connectAccepted && Date.now() - reconnectStartedAt < 15_000) {
+    if (command("adb", ["-e", "get-state"]) === "device") {
+      reconnected = true;
+      break;
+    }
+    await new Promise((done) => setTimeout(done, 250));
+  }
+  process.stdout.write(`${JSON.stringify({
+    schema: "elatura-device-projection-reconnect/v1",
+    disconnected,
+    reconnected,
+    reconnectObservedMs: reconnected ? Date.now() - reconnectStartedAt : null,
+  }, null, 2)}\n`);
+  if (!reconnected) throw new Error("wireless Android transport did not reconnect within 15 seconds");
+}
+
 function numericLeaves(value, prefix = "", target = new Map()) {
   if (typeof value === "number" && Number.isFinite(value)) {
     const values = target.get(prefix) ?? [];
@@ -703,6 +736,7 @@ function usage() {
   node scripts/device-projection-experiment.mjs sample --label=idle [--output=/tmp/sample.jsonl]
   node scripts/device-projection-experiment.mjs measure --label=idle --duration=60 [--interval=5] [--process-token=name] [--output=/tmp/run.jsonl]
   node scripts/device-projection-experiment.mjs serve-workload [--port=0]
+  node scripts/device-projection-experiment.mjs probe-wireless-reconnect
   node scripts/device-projection-experiment.mjs summarize --input=/tmp/run.jsonl [--output=/tmp/summary.json]
   node scripts/device-projection-experiment.mjs launch-workload-on-virtual --port=N [--path=reading|motion]
   node scripts/device-projection-experiment.mjs run <profile> [--label=name] [--duration=60] [--interval=5] [--output=/tmp/run.jsonl] [--app=Chrome]
@@ -742,6 +776,10 @@ async function main(argv) {
   }
   if (action === "serve-workload") {
     await serveWorkload(parseOptions([subject, ...rest].filter(Boolean)));
+    return;
+  }
+  if (action === "probe-wireless-reconnect") {
+    await probeWirelessReconnect();
     return;
   }
   if (action === "summarize") {

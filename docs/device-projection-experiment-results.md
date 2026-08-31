@@ -31,6 +31,11 @@ monitor id, or local path is evidence.
   UI. A fresh scrcpy window subsequently selected the wireless transport while
   USB was still present, demonstrating projection-process replacement without
   terminating the phone-hosted application.
+- A content-free reconnect probe restored the TCP/IP ADB transport in 61 ms at
+  idle and 96 ms while scrcpy was active. The active scrcpy process exited when
+  its transport was dropped; it does not self-heal. Explicit wireless relaunch
+  succeeded twice with first-render observations of 570 and 719 ms. The
+  phone-hosted application remained authoritative throughout.
 
 ## Resource observations
 
@@ -91,14 +96,21 @@ not established.
   virtual presentation display was active. This is positive evidence for a
   pocket-compute/multiple-presentation model, while application compatibility
   on the virtual display still needs per-app testing.
+- The upstream `--turn-screen-off` profile did not make the built-in panel report
+  off on this iQOO in either a 45-second run or an immediate 15-second retry.
+  Sending Android to sleep did turn the panel off, but also stopped the capture
+  surface, so it is not a useful presentation mode. Host-only presentation with
+  the physical panel dark is therefore a device-specific negative result here;
+  the helper restores the physical screen after every bounded attempt.
 
 ## Negative and pending results
 
 - The Mac currently reports only its built-in display. External-monitor window
   placement, fullscreen ergonomics, and monitor audio are therefore untested.
-- Physical USB removal and wireless-only reconnect/lock behavior remain to be
-  measured. Wireless setup and selection are proven, but cable-independent
-  stability is not yet proven.
+- Physical USB removal and phone-lock behavior remain to be measured. Wireless
+  setup, selection, deliberate transport loss, and explicit relaunch are proven,
+  but cable-independent stability is not yet proven. Automatic scrcpy reconnect
+  after transport loss is a negative result; recovery requires relaunch.
 - Audio-forwarding profiles start successfully, but audible quality and sync
   have not been operator-confirmed.
 - Upstream scrcpy defaults to bidirectional automatic clipboard synchronization.
@@ -107,6 +119,9 @@ not established.
 - The phone has useful broad CPU, memory, battery-temperature, skin-temperature,
   and HAL thermal-status telemetry. Direct current/power and encoder-specific
   utilization are unavailable through the unprivileged vendor interfaces tried.
+- Physical-display-off projection is not established. The documented scrcpy
+  option was ineffective on this device, while ordinary Android sleep stopped
+  both physical presentation and the captured surface.
 - One early presentation-only launch failed because scrcpy 4.1 requires
   `--audio-source=playback` with `--audio-dup`; the reusable profiles preserve
   that negative and the fix. A second early launch showed that `--stay-awake`

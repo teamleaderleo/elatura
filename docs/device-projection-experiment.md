@@ -44,6 +44,7 @@ node scripts/device-projection-experiment.mjs run mirror-control --duration=60 -
 node scripts/device-projection-experiment.mjs run mirror-control-screen-off --duration=60 --output=/tmp/screen-off.jsonl
 node scripts/device-projection-experiment.mjs run virtual-landscape --app=Chrome --duration=60 --output=/tmp/virtual.jsonl
 node scripts/device-projection-experiment.mjs run wireless-bootstrap --duration=60 --output=/tmp/wireless.jsonl
+node scripts/device-projection-experiment.mjs probe-wireless-reconnect
 ```
 
 Use `measure` for a matched host idle or Mac-native arm without launching
@@ -92,6 +93,9 @@ human-readable prefix; the helper never records the resolved package name.
 `wireless-bootstrap` is run only after the wired baseline. It lets scrcpy enable
 TCP/IP while USB is present, without putting the resolved endpoint in the run
 artifact. A later already-configured run may use the `wireless` profile.
+`probe-wireless-reconnect` deliberately drops and restores exactly one authorized
+TCP/IP ADB transport. It retains only success flags and elapsed reconnect time;
+the endpoint remains in memory and is never emitted.
 
 ## Measurement interpretation
 
