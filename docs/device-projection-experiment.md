@@ -58,7 +58,8 @@ node scripts/device-projection-experiment.mjs measure --label=mac-native --durat
 For an isolated native browser profile, pass a bounded content-free
 `--process-token` that appears only in that profile's command line. The helper
 emits only aggregate matching process count, CPU, and RSS; it never emits the
-command line, token match, or process ids.
+command line, token match, or process ids. Mixed-case selectors are accepted so
+native application executable names can be measured without a broad match.
 
 Both native measurement and scrcpy profiles hold the Mac awake for the bounded
 run. A sample collected after lock/display sleep is inadmissible for presentation
@@ -73,6 +74,12 @@ for matched Mac-native and phone-hosted runs. It accepts only GET requests for
 the fixed paths, serves no private data, and logs only which fixed synthetic path
 was served. Use an ephemeral port by default and keep the resolved port out of
 committed evidence.
+
+`launch-workload-on-physical --port=N --path=reading` sends one fixed page to
+Android display 0 through a generic VIEW intent. It foregrounds the default
+browser and may pause the current phone app, so capture the current task only in
+local memory and restore that task after the bounded matched arm. Neither task
+identifiers nor the resolved browser component belong in evidence.
 
 While exactly one scrcpy virtual display exists,
 `launch-workload-on-virtual --port=N --path=reading` resolves its

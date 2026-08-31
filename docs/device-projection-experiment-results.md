@@ -1,6 +1,6 @@
 # iQOO-to-Mac device-presentation experiment results
 
-Status: physical experiment in progress. These findings use upstream scrcpy 4.1
+Status: first physical slice complete. These findings use upstream scrcpy 4.1
 on an iQOO Z11 Turbo running Android 16 and an M5 MacBook Air with 24 GB of
 memory. They change no Elatura runtime or Android-companion permission.
 
@@ -17,6 +17,12 @@ monitor id, or local path is evidence.
   playback audio. This preserves the phone as the only touch/voice input
   surface while the Mac presents it.
 - A host-control profile accepts Mac SDK keyboard and absolute mouse input.
+- An unplugged 20.017-second ordinary-mirror transport sample contained both
+  2750 x 1260 H.264 video (878 packets) and 48 kHz stereo Opus audio (999
+  packets). Video timestamps spanned 19.917 seconds; audio began 12 ms after
+  video and ended 29 ms after it. This proves that useful audio packets traverse
+  the same wireless projection, but not audible quality or perceived lip-sync.
+  The temporary media sample was moved to Trash.
 - scrcpy creates a separate 1920 x 1080, 240 dpi, 60 Hz virtual-display object.
   Android reported two display devices, both on, two activity stacks, and tasks
   on both the built-in and non-default display while the physical phone remained
@@ -55,18 +61,31 @@ the compared workload.
 | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
 | Mac-native synthetic reading | 10 | 0.0% | 863 MB | n/a | n/a | n/a | n/a |
 | Mac-native synthetic motion | 9 | 8.7% | 891 MB | n/a | n/a | n/a | n/a |
+| Phone-hosted physical-display synthetic reading over Wi-Fi | 10 | 0.8% | 125 MB | 16.0% | 32.5 / 35.3 deg C | 50.2 / 41.5 deg C | none |
+| Phone-hosted physical-display synthetic motion over Wi-Fi | 10 | 19.9% | 137 MB | 13.0% | 32.6 / 35.5 deg C | 45.1 / 40.3 deg C | none |
 | Wired presentation-only mirror | 10 | 0.8% | 124 MB | 4.3% | 33.0 / 35.2 deg C | 45.9 / 41.5 deg C | none |
 | Wired mirror with Mac control | 15 | 1.8% | 113 MB | 4.3% | 32.6 / 34.5 deg C | 48.6 / 44.2 deg C | none |
 | Wireless-only unplugged high-motion app | 14 | 26.1% | 138 MB | 19.0% | 30.6 / 34.4 deg C | 54.8 / 46.1 deg C | none |
 | Wireless projection during a real game | 88 | 43.3% | 125 MB | 28.0% | 35.4 / 40.2 deg C | 60.5 / 59.7 deg C | light |
 
 The native arms use separate clean Chromium profiles with identical launch flags
-and seven-process trees. The attempted phone-hosted reading/motion arms are
-excluded: Chrome accepted the launch request but routed the synthetic URL to
-the physical display, and the virtual output itself captured black. Their former
-1.2%/111 MB and 50.8%/123 MB scrcpy rows are retained here only as rejected raw
-observations, not matched evidence. A valid matched Mac-native versus
-phone-hosted comparison therefore remains missing.
+and seven-process trees. The valid phone arms loaded the same fixed reading and
+motion pages in the Android browser on physical display 0; the loopback server
+confirmed both requests before measurement. The prior live phone task was held
+only as an implementation-local task number and restored afterward.
+
+For reading, projection reduced the measured Mac workload RSS from 863 MB to
+125 MB while adding 0.8% of one Mac logical core and leaving the phone at a
+coarse 16% broad CPU. For motion, projection reduced Mac workload RSS from 891
+MB to 137 MB, but scrcpy used 19.9% of a Mac core versus 8.7% for native
+Chromium, in addition to the phone's coarse 13% broad CPU. The experiment
+therefore demonstrates a large Mac-memory reduction, not a general Mac-CPU or
+whole-system energy reduction.
+
+The earlier virtual-display reading/motion arms remain excluded: Android
+accepted those launch requests but routed the synthetic URL to physical display
+0 while the virtual output captured black. Their former 1.2%/111 MB and
+50.8%/123 MB scrcpy rows are rejected raw observations, not matched evidence.
 
 The ten-minute wireless game run reached Android thermal status 1. Android
 defines this as light throttling where UX is not impacted; earlier wired runs
@@ -99,10 +118,49 @@ comparison is not established.
   to display 0 and the captured virtual surface was black.
 - The upstream `--turn-screen-off` profile did not make the built-in panel report
   off on this iQOO in either a 45-second run or an immediate 15-second retry.
-  Sending Android to sleep did turn the panel off, but also stopped the capture
-  surface, so it is not a useful presentation mode. Host-only presentation with
-  the physical panel dark is therefore a device-specific negative result here;
-  the helper restores the physical screen after every bounded attempt.
+  Sending Android to sleep did turn the panel off and made the presented frame
+  black, so it is not a useful viewing mode even though the later recovery arm
+  proves the scrcpy process itself survives. Host-only presentation with the
+  physical panel dark is therefore a device-specific negative result here; the
+  helper restores the physical screen after every bounded attempt.
+- In a separate wireless recovery arm, the scrcpy process remained alive while
+  Android reported the built-in panel off for 12 seconds and remained alive
+  after ADB wake restored the panel. The iQOO did not expose a detectable secure
+  keyguard after that interval, so true credential-gated unlock recovery remains
+  unmeasured rather than failed.
+
+## Apple-native control
+
+- iPhone Mirroring onboarding required one approval on the physical iPhone and
+  the Mac login password. The separate offer to forward iPhone notifications
+  and Live Activities to the Mac even while mirroring was not in use was
+  declined.
+- The native Mac window then presented the iPhone's live current application.
+  One reversible Mac scroll gesture changed the mirrored frame while the
+  connection remained live, establishing Mac-input control without retaining
+  the private before/after pixels.
+- During a mostly static 10-sample active session, the iPhone Mirroring process
+  used 0.1% median CPU and 126 MB median RSS. Whole-system GPU and input-power
+  telemetry was again confounded by other Mac activity and is not attributed to
+  the session.
+- Apple's ready screen explicitly reported that the iPhone camera, microphone,
+  and Notification Center are unavailable while iPhone Mirroring is in use.
+  This is a materially tighter input/sensor split than Android's ordinary
+  mirror, where physical phone touch and voice can remain authoritative.
+- Quitting and reopening the native window reached its Mac-login gate in 716 ms
+  but did not automatically restore the active session. Re-authentication is
+  therefore a real recovery step. The operator was not asked to enter the Mac
+  password a second time merely to extend the measurement.
+- AirPlay to Mac was operator-confirmed presenting the iPhone's live current
+  application, including the active conversation, on the Mac. A delayed direct
+  Mac screenshot taken after the Android arms found the AirPlay receiver surface
+  entirely black; a second screenshot remained black even while a new scrcpy
+  window was active behind it. The black fullscreen surface therefore obscured
+  other Mac presentation until AirPlay was explicitly stopped from the iPhone.
+  The two temporary screenshots were moved to Trash. Because the useful interval
+  had already ended, an attempted five-sample `AirPlay` process aggregate was
+  idle (two helpers, 0% CPU, 19 MB RSS) and is not admitted as active-stream
+  resource evidence.
 
 ## Negative and pending results
 
@@ -110,10 +168,14 @@ comparison is not established.
   placement, fullscreen ergonomics, and monitor audio are therefore untested.
 - Wireless setup, selection, physical cable removal, cable-independent
   stability, deliberate transport loss, and explicit relaunch are proven.
-  Phone-lock behavior remains unmeasured. Automatic scrcpy reconnect after
-  transport loss is a negative result; recovery requires relaunch.
-- Audio-forwarding profiles start successfully, but audible quality and sync
-  have not been operator-confirmed.
+  Panel sleep/wake survival is proven for a 12-second off interval. The vendor
+  did not engage a detectable secure keyguard, so credential-gated unlock
+  behavior remains unavailable. Automatic scrcpy reconnect after transport loss
+  is a negative result; recovery requires relaunch.
+- Audio forwarding is mechanically established by a complete stereo Opus stream
+  alongside ordinary wireless video with a 12 ms start offset and 29 ms end
+  offset. Audible quality, output-device routing, and perceived sync have not
+  been operator-confirmed.
 - Upstream scrcpy defaults to bidirectional automatic clipboard synchronization.
   The reusable profiles now disable it; clipboard ergonomics remain untested
   until a fixed synthetic string can be used without exposing private content.
@@ -145,19 +207,25 @@ comparison is not established.
 - An early startup figure was invalid because scrcpy buffered its log on a pipe.
   The helper now uses a pseudo-terminal, discards the raw stream, and retains
   only the first-render timing. The invalid figure is excluded.
-- iPhone Mirroring is installed but still at Apple's onboarding screen. Starting
-  it may create persistent device access and is deliberately deferred until an
-  action-time operator confirmation after the Android path is complete. AirPlay
-  Receiver is already enabled for devices on the current Apple Account with a
-  password required, but an iPhone-to-Mac stream has not yet been exercised.
+- iPhone Mirroring and AirPlay to Mac are characterized above. AirPlay's useful
+  live interval is operator-observed rather than resource-matched, and its later
+  fullscreen-black recovery failure is preserved as a negative.
 
 ## Architectural conclusion so far
 
-Ordinary mirroring is useful enough to continue testing: stock scrcpy keeps
-execution, session state, and touch authority on Android while the Mac provides
-a replaceable window. The higher-value independent virtual-display discriminator
-has not won: lifecycle separation exists, but useful presentation is unproven
-and the tested browser route is currently negative. There is no basis for an
-Elatura runtime or generic application-lane protocol change. Alalana remains
-optional content-free command/receipt transport, and Stensibly remains the
-work/authority owner.
+Ordinary mirroring is genuinely useful: stock scrcpy keeps execution, session
+state, and touch authority on Android while the Mac provides a replaceable
+window, and matched reading/motion arms cut the measured Mac workload RSS by
+roughly 85%. It is not a universal efficiency win: the motion arm used more Mac
+CPU for scrcpy decoding/presentation than native Chromium used to execute the
+same page, before counting phone work.
+
+The higher-value independent virtual-display discriminator has not won:
+lifecycle separation exists, but useful pixels and reliable app routing failed
+on this phone. Apple's native controls prove the same broad execution-versus-
+presentation idea, but add authentication/sensor restrictions and, in this
+AirPlay run, a fullscreen-black recovery failure. The earned stopping point is
+ordinary scrcpy plus native Continuity tooling, not an Elatura projection
+runtime or generic application-lane protocol change. Alalana remains optional
+content-free command/receipt transport, and Stensibly remains the work/authority
+owner.

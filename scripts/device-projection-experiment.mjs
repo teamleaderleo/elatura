@@ -12,7 +12,13 @@ import { dirname, resolve } from "node:path";
 
 const SCHEMA = "elatura-device-projection-sample/v1";
 const LABEL = /^[a-z0-9][a-z0-9-]{0,47}$/u;
+const PROCESS_TOKEN = /^[\p{L}\p{N} ._/-]{1,80}$/u;
 const NUMBER = /^-?\d+(?:\.\d+)?$/u;
+
+export function validProcessToken(token) {
+  return PROCESS_TOKEN.test(token);
+}
+
 const WORKLOAD_HTML = `<!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Elatura device projection synthetic workload</title>
@@ -225,7 +231,7 @@ function scrcpyResources() {
 
 function matchingProcessResources(token) {
   if (!token) return null;
-  if (!LABEL.test(token)) throw new TypeError("process token must use the label syntax");
+  if (!validProcessToken(token)) throw new TypeError("invalid process token");
   const ps = command("ps", ["-axo", "pid=,ppid=,%cpu=,rss=,args="]);
   const rows = (ps ?? "").split(/\r?\n/u).flatMap((line) => {
     const parsed = line.match(/^\s*(\d+)\s+(\d+)\s+([\d.]+)\s+(\d+)\s+(.*)$/u);
@@ -636,6 +642,7 @@ async function serveWorkload(options) {
     process.once("SIGINT", done);
     process.once("SIGTERM", done);
   });
+  server.closeAllConnections();
   await new Promise((done) => server.close(done));
 }
 
@@ -746,6 +753,31 @@ function launchWorkloadOnVirtualDisplay(options) {
   process.stdout.write("workload-launch-intent-sent-to-one-virtual-display\n");
 }
 
+function launchWorkloadOnPhysicalDisplay(options) {
+  const port = finite(options.get("port"));
+  const path = options.get("path") ?? "reading";
+  if (!port || port < 1 || port > 65535) throw new TypeError("--port must be 1..65535");
+  if (!["reading", "motion"].includes(path)) throw new TypeError("--path must be reading or motion");
+  const target = adbTargetArgs(adbState());
+  if (!target) throw new Error("exactly one authorized Android transport is required");
+  const reversed = command("adb", [...target, "reverse", `tcp:${port}`, `tcp:${port}`]);
+  if (reversed === null) throw new Error("Android loopback workload forwarding failed");
+  const launched = command("adb", [
+    ...target,
+    "shell",
+    "am",
+    "start",
+    "--display",
+    "0",
+    "-a",
+    "android.intent.action.VIEW",
+    "-d",
+    `http://127.0.0.1:${port}/${path}`,
+  ]);
+  if (launched === null) throw new Error("Android workload launch failed");
+  process.stdout.write("workload-launch-intent-sent-to-physical-display\n");
+}
+
 function usage() {
   return `Usage:
   node scripts/device-projection-experiment.mjs doctor
@@ -754,6 +786,7 @@ function usage() {
   node scripts/device-projection-experiment.mjs serve-workload [--port=0]
   node scripts/device-projection-experiment.mjs probe-wireless-reconnect
   node scripts/device-projection-experiment.mjs summarize --input=/tmp/run.jsonl [--output=/tmp/summary.json]
+  node scripts/device-projection-experiment.mjs launch-workload-on-physical --port=N [--path=reading|motion]
   node scripts/device-projection-experiment.mjs launch-workload-on-virtual --port=N [--path=reading|motion]
   node scripts/device-projection-experiment.mjs run <profile> [--label=name] [--duration=60] [--interval=5] [--output=/tmp/run.jsonl] [--app=Chrome]
 
@@ -804,6 +837,10 @@ async function main(argv) {
   }
   if (action === "launch-workload-on-virtual") {
     launchWorkloadOnVirtualDisplay(parseOptions([subject, ...rest].filter(Boolean)));
+    return;
+  }
+  if (action === "launch-workload-on-physical") {
+    launchWorkloadOnPhysicalDisplay(parseOptions([subject, ...rest].filter(Boolean)));
     return;
   }
   if (action === "run" && subject) {

@@ -8,6 +8,7 @@ import {
   parseAndroidActivityDisplays,
   profileTransportReady,
   summarizeSamples,
+  validProcessToken,
 } from "./device-projection-experiment.mjs";
 
 describe("device projection experiment helper", () => {
@@ -65,6 +66,12 @@ describe("device projection experiment helper", () => {
     }
   });
 
+  it("allows a private mixed-case process selector without emitting it", () => {
+    expect(validProcessToken("ScreenContinuity")).toBe(true);
+    expect(validProcessToken("bad\nselector")).toBe(false);
+    expect(JSON.stringify(PROFILES)).not.toContain("ScreenContinuity");
+  });
+
   it("selects one wireless transport even while the same phone is also on USB", () => {
     const state = parseAdbState("List of devices attached\nprivate-usb\tdevice\nprivate-endpoint:5555\tdevice\n");
     expect(profileTransportReady("wireless", state)).toBe(true);
@@ -84,6 +91,8 @@ describe("device projection experiment helper", () => {
     ));
     expect(source).toContain('server.listen(port, "127.0.0.1"');
     expect(source).not.toContain('server.listen(port, "0.0.0.0"');
+    expect(source).toContain("server.closeAllConnections()");
+    expect(source).toContain('"workload-launch-intent-sent-to-physical-display\\n"');
   });
 
   it("summarizes only numeric leaves from sanitized samples", () => {
