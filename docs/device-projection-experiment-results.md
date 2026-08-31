@@ -198,7 +198,12 @@ comparison is not established.
   1920 x 1080 frames, but the presented pixels were uniformly black and the
   non-default stack never reported a resumed activity. The temporary recording
   and extracted frame were moved to Trash. Task/display counts alone were
-  misleading; all attempted matched virtual resource rows are excluded. This
+  misleading. A later controlled repeat ruled out the phone lock as the cause:
+  Android reported the secure keyguard not showing and `deviceLocked=0` both
+  before and during the run. The virtual display and two non-default tasks were
+  created, but no non-default activity resumed and 62 recorded frames remained
+  near black. The temporary recording and log were moved to Trash. All attempted
+  matched virtual resource rows are excluded. This
   aligns with upstream reports of ROMs routing apps back to the primary display
   and Android 15/16 virtual-display black-screen or lifecycle failures
   ([upstream virtual-display guide](https://github.com/Genymobile/scrcpy/blob/master/doc/virtual-display.md),
