@@ -22,6 +22,8 @@ describe("device projection experiment helper", () => {
   it("creates a separate fixed landscape virtual display", () => {
     expect(PROFILES["virtual-landscape"]).toContain("--new-display=1920x1080/240");
     expect(PROFILES["virtual-landscape"]).toContain("--display-ime-policy=fallback");
+    expect(PROFILES["virtual-landscape-wireless"]).toContain("--new-display=1920x1080/240");
+    expect(PROFILES["virtual-landscape-wireless"]).toContain("--select-tcpip");
   });
 
   it("provides a bounded physical-screen-off control arm", () => {

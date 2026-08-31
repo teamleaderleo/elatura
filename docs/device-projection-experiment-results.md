@@ -31,6 +31,11 @@ monitor id, or local path is evidence.
   UI. A fresh scrcpy window subsequently selected the wireless transport while
   USB was still present, demonstrating projection-process replacement without
   terminating the phone-hosted application.
+- After physical cable removal, ordinary projection remained stable for a
+  bounded high-motion run with one authorized TCP/IP transport and zero USB
+  transports in every sample. First render was observed after 525 ms. A single
+  transient device frame confirmed a live 2750 x 1260 landscape frame; it was
+  immediately moved to Trash and is not evidence content.
 - A content-free reconnect probe restored the TCP/IP ADB transport in 61 ms at
   idle and 96 ms while scrcpy was active. The active scrcpy process exited when
   its transport was dropped; it does not self-heal. Explicit wireless relaunch
@@ -52,6 +57,7 @@ the compared workload.
 | Mac-native synthetic motion | 9 | 8.7% | 891 MB | n/a | n/a | n/a | n/a |
 | Wired presentation-only mirror | 10 | 0.8% | 124 MB | 4.3% | 33.0 / 35.2 deg C | 45.9 / 41.5 deg C | none |
 | Wired mirror with Mac control | 15 | 1.8% | 113 MB | 4.3% | 32.6 / 34.5 deg C | 48.6 / 44.2 deg C | none |
+| Wireless-only unplugged high-motion app | 14 | 26.1% | 138 MB | 19.0% | 30.6 / 34.4 deg C | 54.8 / 46.1 deg C | none |
 | Wireless projection during a real game | 88 | 43.3% | 125 MB | 28.0% | 35.4 / 40.2 deg C | 60.5 / 59.7 deg C | light |
 
 The native arms use separate clean Chromium profiles with identical launch flags
@@ -102,10 +108,10 @@ comparison is not established.
 
 - The Mac currently reports only its built-in display. External-monitor window
   placement, fullscreen ergonomics, and monitor audio are therefore untested.
-- Physical USB removal and phone-lock behavior remain to be measured. Wireless
-  setup, selection, deliberate transport loss, and explicit relaunch are proven,
-  but cable-independent stability is not yet proven. Automatic scrcpy reconnect
-  after transport loss is a negative result; recovery requires relaunch.
+- Wireless setup, selection, physical cable removal, cable-independent
+  stability, deliberate transport loss, and explicit relaunch are proven.
+  Phone-lock behavior remains unmeasured. Automatic scrcpy reconnect after
+  transport loss is a negative result; recovery requires relaunch.
 - Audio-forwarding profiles start successfully, but audible quality and sync
   have not been operator-confirmed.
 - Upstream scrcpy defaults to bidirectional automatic clipboard synchronization.
@@ -118,11 +124,20 @@ comparison is not established.
   option was ineffective on this device, while ordinary Android sleep stopped
   both physical presentation and the captured surface.
 - The most important virtual-display discriminator is currently negative on
-  this iQOO/Chrome pair. Android creates the display and routes a task stack to
-  it, but a browser VIEW intent requested for that display appears on display 0,
-  while the virtual SurfaceFlinger capture is black. Task/display counts alone
-  were misleading; all attempted matched virtual-browser resource rows are
-  excluded.
+  this iQOO/Android 16 device. Android creates the display and routes a task
+  stack to it, but a browser VIEW intent requested for that display appears on
+  display 0. A second test used upstream's minimal `--new-display` plus Settings
+  example over the unplugged wireless transport: scrcpy recorded 64 valid
+  1920 x 1080 frames, but the presented pixels were uniformly black and the
+  non-default stack never reported a resumed activity. The temporary recording
+  and extracted frame were moved to Trash. Task/display counts alone were
+  misleading; all attempted matched virtual resource rows are excluded. This
+  aligns with upstream reports of ROMs routing apps back to the primary display
+  and Android 15/16 virtual-display black-screen or lifecycle failures
+  ([upstream virtual-display guide](https://github.com/Genymobile/scrcpy/blob/master/doc/virtual-display.md),
+  [primary-display routing report](https://github.com/Genymobile/scrcpy/issues/5541),
+  [Android 15 black-screen report](https://github.com/Genymobile/scrcpy/issues/6287),
+  [Android 16 report](https://github.com/Genymobile/scrcpy/issues/6438)).
 - One early presentation-only launch failed because scrcpy 4.1 requires
   `--audio-source=playback` with `--audio-dup`; the reusable profiles preserve
   that negative and the fix. A second early launch showed that `--stay-awake`

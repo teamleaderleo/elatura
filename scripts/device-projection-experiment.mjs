@@ -84,6 +84,19 @@ export const PROFILES = Object.freeze({
     "--print-fps",
     "--window-title=Elatura Android virtual display",
   ]),
+  "virtual-landscape-wireless": Object.freeze([
+    "--select-tcpip",
+    "--new-display=1920x1080/240",
+    "--display-ime-policy=fallback",
+    "--keyboard=sdk",
+    "--mouse=sdk",
+    "--audio-source=playback",
+    "--audio-dup",
+    "--no-clipboard-autosync",
+    "--disable-screensaver",
+    "--print-fps",
+    "--window-title=Elatura Android virtual display wireless",
+  ]),
   "wireless-bootstrap": Object.freeze([
     "--tcpip",
     "--keyboard=sdk",
@@ -479,7 +492,9 @@ function writeSample(sample, output, append = false) {
 function profileArgs(name, app) {
   const args = PROFILES[name];
   if (!args) throw new TypeError(`unknown profile: ${name}`);
-  if (app && name !== "virtual-landscape") throw new TypeError("--app is only valid for virtual-landscape");
+  if (app && !name.startsWith("virtual-landscape")) {
+    throw new TypeError("--app is only valid for virtual-landscape profiles");
+  }
   if (app && !/^[\p{L}\p{N} ._-]{1,80}$/u.test(app)) throw new TypeError("invalid app prefix");
   return app ? [...args, `--start-app=?${app}`] : [...args];
 }

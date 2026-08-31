@@ -43,6 +43,7 @@ node scripts/device-projection-experiment.mjs run mirror-present --duration=60 -
 node scripts/device-projection-experiment.mjs run mirror-control --duration=60 --output=/tmp/mirror-control.jsonl
 node scripts/device-projection-experiment.mjs run mirror-control-screen-off --duration=60 --output=/tmp/screen-off.jsonl
 node scripts/device-projection-experiment.mjs run virtual-landscape --app=Chrome --duration=60 --output=/tmp/virtual.jsonl
+node scripts/device-projection-experiment.mjs run virtual-landscape-wireless --app=Settings --duration=60 --output=/tmp/virtual-wireless.jsonl
 node scripts/device-projection-experiment.mjs run wireless-bootstrap --duration=60 --output=/tmp/wireless.jsonl
 node scripts/device-projection-experiment.mjs probe-wireless-reconnect
 ```
