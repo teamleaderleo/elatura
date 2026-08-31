@@ -5,33 +5,67 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = resolve(import.meta.dirname, "..");
 const guidance = readFileSync(resolve(ROOT, "AGENTS.md"), "utf8");
+const applicationLaneRuntime = readFileSync(
+  resolve(ROOT, "docs/application-lane-runtime.md"),
+  "utf8",
+);
+const applicationLanes = readFileSync(
+  resolve(ROOT, "docs/application-lanes.md"),
+  "utf8",
+);
+const privacy = readFileSync(resolve(ROOT, "docs/privacy.md"), "utf8");
+const executionChecklist = readFileSync(
+  resolve(ROOT, "docs/live-application-lane-execution-checklist.md"),
+  "utf8",
+);
 const physicalHandoff = readFileSync(
   resolve(ROOT, "docs/codex-physical-handoff.md"),
   "utf8",
 );
 
 describe("coding-agent repository guidance", () => {
-  it("keeps the durable lane and authority boundaries explicit", () => {
+  it("keeps universal boundaries hot and routes task-specific policy", () => {
     expect(guidance).toContain("laneRef + generation");
-    expect(guidance).toContain("browser ids stay private");
-    expect(guidance).toContain("grantsWorkAuthority = false");
-    expect(guidance).toContain("authorizesWorkDispatch = false");
-    expect(guidance).toContain("Unknown lifecycle eligibility stays conservative");
+    expect(guidance).toContain("private ephemeral projections");
+    expect(guidance).toContain(
+      "Observation grants neither work nor dispatch authority",
+    );
+    expect(guidance).toContain("Stensibly owns scheduling");
+    expect(guidance).toContain("lifecycle eligibility conservatively");
+    expect(guidance).toContain("docs/application-lane-runtime.md");
+    expect(guidance).toContain("docs/privacy.md");
+    expect(guidance).toContain("docs/codex-physical-handoff.md");
+    expect(guidance).toContain("Query the owning issue/current repository state");
   });
 
-  it("keeps the developer and benchmark gates explicit", () => {
+  it("keeps detailed authority and privacy policy in routed owners", () => {
+    expect(applicationLaneRuntime).toContain("zero-work-authority fence");
+    expect(applicationLaneRuntime).toContain(
+      "Old-generation events increment a content-free stale-event counter",
+    );
+    expect(applicationLaneRuntime).toContain(
+      "Stensibly** — work authority, scheduling, dispatch",
+    );
+    expect(applicationLanes).toContain(
+      "Elatura does not inherit mission, ownership, scheduling, or dispatch authority",
+    );
+    expect(applicationLanes).toContain(
+      "unknown application state continue to block aggressive reclamation",
+    );
+    expect(privacy).toContain(
+      "no cookies, authorization headers, or session tokens in logs",
+    );
+    expect(privacy).toContain("no response bodies or message text in benchmark reports");
+  });
+
+  it("keeps developer commands hot and benchmark procedure cold", () => {
     expect(guidance).toContain("npm run check:code");
     expect(guidance).toContain("npm run check");
-    expect(guidance).toContain("live-lane:next");
-    expect(guidance).toContain("live-lane:check");
-    expect(guidance).toContain("Treat its plan/schema/protocol semantics as frozen evidence rules");
-  });
-
-  it("keeps private evidence and physical-handoff rules visible", () => {
-    expect(guidance).toContain("Private content stays out of committed evidence");
-    expect(guidance).toContain("stop pretending repository code can answer it");
-    expect(guidance).toContain("whole-browser resource cost");
-    expect(guidance).toContain("useful authenticated lane capacity");
+    expect(physicalHandoff).toContain("npm run live-lane:next");
+    expect(physicalHandoff).toContain("`live-lane:check` remains the final evidence authority");
+    expect(executionChecklist).toContain(
+      "The four resource stages are independent evidence gates",
+    );
   });
 
   it("keeps the first physical-stage launch checklist tied to the frozen operator gates", () => {
