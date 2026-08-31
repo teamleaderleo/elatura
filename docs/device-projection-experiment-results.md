@@ -17,15 +17,15 @@ monitor id, or local path is evidence.
   playback audio. This preserves the phone as the only touch/voice input
   surface while the Mac presents it.
 - A host-control profile accepts Mac SDK keyboard and absolute mouse input.
-- A separate 1920 x 1080, 240 dpi, 60 Hz scrcpy virtual display works. During
-  the run Android reported two display devices, both on, two activity display
-  stacks, and tasks on both the built-in and non-default display. The physical
-  phone remained usable independently while the synthetic workload occupied
-  the virtual display.
-- The virtual display became usable 445 ms after process spawn in the valid
-  timed run. Closing scrcpy removed the virtual display and its activity stack
-  while leaving the built-in display on and populated. That is the expected
-  negative lifecycle result: this virtual presentation is ephemeral and is not
+- scrcpy creates a separate 1920 x 1080, 240 dpi, 60 Hz virtual-display object.
+  Android reported two display devices, both on, two activity stacks, and tasks
+  on both the built-in and non-default display while the physical phone remained
+  usable. This proves lifecycle and routing separation, but not useful pixels:
+  the virtual SurfaceFlinger output captured black and the browser URL intent
+  was routed back to display 0. The earlier synthetic-workload claim is retracted.
+- The virtual-display renderer initialized 445 ms after process spawn. Closing
+  scrcpy removed the display and its activity stack while leaving the built-in
+  display on and populated. The virtual presentation is ephemeral and is not
   application identity.
 - USB-assisted TCP/IP setup succeeded without enabling Android's pairing-code
   UI. A fresh scrcpy window subsequently selected the wireless transport while
@@ -50,34 +50,29 @@ the compared workload.
 | --- | ---: | ---: | ---: | ---: | --- | --- | --- |
 | Mac-native synthetic reading | 10 | 0.0% | 863 MB | n/a | n/a | n/a | n/a |
 | Mac-native synthetic motion | 9 | 8.7% | 891 MB | n/a | n/a | n/a | n/a |
-| Phone-hosted synthetic reading on virtual display | 11 | 1.2% | 111 MB | 29.0% | 36.9 / 40.4 deg C | 62.4 / 58.9 deg C | light |
-| Phone-hosted synthetic motion on virtual display | 11 | 50.8% | 123 MB | 29.0% | 36.6 / 39.9 deg C | 56.6 / 51.5 deg C | light |
 | Wired presentation-only mirror | 10 | 0.8% | 124 MB | 4.3% | 33.0 / 35.2 deg C | 45.9 / 41.5 deg C | none |
 | Wired mirror with Mac control | 15 | 1.8% | 113 MB | 4.3% | 32.6 / 34.5 deg C | 48.6 / 44.2 deg C | none |
 | Wireless projection during a real game | 88 | 43.3% | 125 MB | 28.0% | 35.4 / 40.2 deg C | 60.5 / 59.7 deg C | light |
 
-The final native arms use separate clean Chromium profiles with identical launch
-flags and seven-process trees. The matched virtual-display arms show that static
-presentation consumes roughly one eighth of native Chromium's Mac-side RSS,
-while the continuously animated 1280 x 720 canvas makes decode/composition cost
-visible: scrcpy rises to roughly half a logical core but remains near one seventh
-of native Chromium's RSS. This is not an end-to-end energy claim: the phone pays
-the application and encode cost.
+The native arms use separate clean Chromium profiles with identical launch flags
+and seven-process trees. The attempted phone-hosted reading/motion arms are
+excluded: Chrome accepted the launch request but routed the synthetic URL to
+the physical display, and the virtual output itself captured black. Their former
+1.2%/111 MB and 50.8%/123 MB scrcpy rows are retained here only as rejected raw
+observations, not matched evidence. A valid matched Mac-native versus
+phone-hosted comparison therefore remains missing.
 
-The operator kept a real game active on the physical display during the matched
-virtual-display arms. Mac-side synthetic-content differences remain attributable
-to scrcpy, but phone-wide CPU and temperature are conservative upper bounds, not
-clean synthetic-workload deltas. The ten-minute wireless game run and the later
-matched arms reached Android thermal status 1. Android defines this as light
-throttling where UX is not impacted; earlier wired runs remained at status 0
+The ten-minute wireless game run reached Android thermal status 1. Android
+defines this as light throttling where UX is not impacted; earlier wired runs
+remained at status 0
 ([Android `PowerManager` reference](https://developer.android.com/reference/android/os/PowerManager#THERMAL_STATUS_LIGHT)).
 
 The phone remained at 80% and reported AC power rather than USB power during
 the plugged-in runs. Its vendor kernel interface exposed no readable current,
 charge-counter, instantaneous-power, or cycle-count field, so direct/bypass
-power and energy-per-arm are unavailable rather than zero. No run reported HAL
-thermal throttling. The Mac was also on AC, so its battery-drain comparison is
-not established.
+power and energy-per-arm are unavailable rather than zero. No run reached
+moderate or higher thermal status. The Mac was also on AC, so its battery-drain
+comparison is not established.
 
 ## Interaction and continuity observations
 
@@ -92,10 +87,10 @@ not established.
   remain on the phone, so there is no application-state transfer when leaving
   the desk. By contrast, the default virtual-display content is destroyed when
   that virtual display is removed.
-- The phone sustained an ordinary game on its physical screen while a separate
-  virtual presentation display was active. This is positive evidence for a
-  pocket-compute/multiple-presentation model, while application compatibility
-  on the virtual display still needs per-app testing.
+- The phone sustained an ordinary game on its physical screen while the separate
+  virtual display and activity stack existed. That proves concurrent lifecycle,
+  not useful concurrent presentation: the attempted browser workload was routed
+  to display 0 and the captured virtual surface was black.
 - The upstream `--turn-screen-off` profile did not make the built-in panel report
   off on this iQOO in either a 45-second run or an immediate 15-second retry.
   Sending Android to sleep did turn the panel off, but also stopped the capture
@@ -122,6 +117,12 @@ not established.
 - Physical-display-off projection is not established. The documented scrcpy
   option was ineffective on this device, while ordinary Android sleep stopped
   both physical presentation and the captured surface.
+- The most important virtual-display discriminator is currently negative on
+  this iQOO/Chrome pair. Android creates the display and routes a task stack to
+  it, but a browser VIEW intent requested for that display appears on display 0,
+  while the virtual SurfaceFlinger capture is black. Task/display counts alone
+  were misleading; all attempted matched virtual-browser resource rows are
+  excluded.
 - One early presentation-only launch failed because scrcpy 4.1 requires
   `--audio-source=playback` with `--audio-dup`; the reusable profiles preserve
   that negative and the fix. A second early launch showed that `--stay-awake`
@@ -132,14 +133,16 @@ not established.
 - iPhone Mirroring is installed but still at Apple's onboarding screen. Starting
   it may create persistent device access and is deliberately deferred until an
   action-time operator confirmation after the Android path is complete. AirPlay
-  has not yet been exercised.
+  Receiver is already enabled for devices on the current Apple Account with a
+  password required, but an iPhone-to-Mac stream has not yet been exercised.
 
 ## Architectural conclusion so far
 
-The physical discriminator is promising but not yet complete. Stock scrcpy can
-already keep execution, session state, and touch authority on Android while the
-Mac provides a replaceable window, and the independent virtual display works.
-That earns continued measurement; it does not yet earn an Elatura runtime or
-generic application-lane protocol change. Elatura should retain only a possible
-future private projection binding. Alalana remains optional content-free
-command/receipt transport, and Stensibly remains the work/authority owner.
+Ordinary mirroring is useful enough to continue testing: stock scrcpy keeps
+execution, session state, and touch authority on Android while the Mac provides
+a replaceable window. The higher-value independent virtual-display discriminator
+has not won: lifecycle separation exists, but useful presentation is unproven
+and the tested browser route is currently negative. There is no basis for an
+Elatura runtime or generic application-lane protocol change. Alalana remains
+optional content-free command/receipt transport, and Stensibly remains the
+work/authority owner.

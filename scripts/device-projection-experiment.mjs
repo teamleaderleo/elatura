@@ -408,7 +408,7 @@ export function parseAndroidActivityDisplays(text) {
     .map((match) => ({
       isDefault: match[1] === "0",
       taskCount: (match[2].match(/^\s*\* Task\{/gmu) ?? []).length,
-      resumedCount: (match[2].match(/mResumedActivity:/gu) ?? []).length,
+      resumedCount: (match[2].match(/mResumedActivity:|\bResumed=true\b/gu) ?? []).length,
     }));
   const nonDefault = sections.filter((section) => !section.isDefault);
   return {
@@ -608,6 +608,7 @@ async function serveWorkload(options) {
       "x-content-type-options": "nosniff",
     });
     response.end(WORKLOAD_HTML);
+    process.stdout.write(`synthetic workload served ${path === "/" ? "root" : path.slice(1)}\n`);
   });
   await new Promise((done, reject) => {
     server.once("error", reject);
@@ -727,7 +728,7 @@ function launchWorkloadOnVirtualDisplay(options) {
     `http://127.0.0.1:${port}/${path}`,
   ]);
   if (launched === null) throw new Error("Android workload launch failed");
-  process.stdout.write("workload-launched-on-one-virtual-display\n");
+  process.stdout.write("workload-launch-intent-sent-to-one-virtual-display\n");
 }
 
 function usage() {

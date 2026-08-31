@@ -69,14 +69,19 @@ may contain the local device serial or wireless endpoint.
 
 `serve-workload` provides loopback-only synthetic reading and motion/audio pages
 for matched Mac-native and phone-hosted runs. It accepts only GET requests for
-the fixed paths and serves no private data. Use an ephemeral port by default and
-keep the resolved port out of committed evidence.
+the fixed paths, serves no private data, and logs only which fixed synthetic path
+was served. Use an ephemeral port by default and keep the resolved port out of
+committed evidence.
 
 While exactly one scrcpy virtual display exists,
-`launch-workload-on-virtual --port=N --path=reading` resolves its implementation-
-local display id in memory, establishes the scoped ADB loopback reverse, and
-launches the workload there. Neither the display id nor the local forwarding
-endpoint enters output or evidence.
+`launch-workload-on-virtual --port=N --path=reading` resolves its
+implementation-local display id in memory, establishes the scoped ADB loopback
+reverse, and sends the workload launch intent to that display. Neither the
+display id nor the local forwarding endpoint enters output or evidence. The
+command reports only that Android accepted the intent; it does not claim that
+the selected app honored the requested display. Confirm the server emits the
+expected fixed `served reading` or `served motion` line and independently verify
+the activity section before admitting a matched run.
 
 `summarize` converts sanitized JSONL into min/median/max/mean numeric aggregates.
 Review the aggregate before committing it; do not commit the raw run file.

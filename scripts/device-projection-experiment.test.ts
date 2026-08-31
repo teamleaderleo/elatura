@@ -97,7 +97,7 @@ describe("device projection experiment helper", () => {
       * Task{default private.package}
     Display #6 (activities from top to bottom):
       * Task{virtual secret.browser}
-      mResumedActivity: secret.browser
+      Resumed=true secret.browser
     `);
     expect(parsed).toEqual({
       activityDisplayCount: 2,
